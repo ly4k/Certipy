@@ -314,7 +314,10 @@ class Authenticate:
                     )
                     % (repr(username), upn)
                 )
-                return False
+            else:
+                logging.error("Got error while request TGT: %s" % str(e))
+
+            return False
 
         as_rep = decoder.decode(tgt, asn1Spec=AS_REP())[0]
 
