@@ -4,7 +4,7 @@
 #   Find certificate templates
 #
 # Authors:
-#   @ollypwn (https://github.com/ollypwn)
+#   @ly4k (https://github.com/ly4k)
 #
 # References:
 #   https://stackoverflow.com/questions/38878647/python-convert-filetime-to-datetime-for-dates-before-1970

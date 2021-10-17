@@ -4,7 +4,7 @@
 #   PKINIT structures and helpers
 #
 # Authors:
-#   @ollypwn (https://github.com/ollypwn)
+#   @ly4k (https://github.com/ly4k)
 #
 # References:
 #   https://github.com/skelsec/minikerberos/blob/master/minikerberos/pkinit.py

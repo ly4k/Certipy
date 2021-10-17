@@ -4,7 +4,7 @@
 #   Entrypoint for Certipy
 #
 # Authors:
-#   @ollypwn (https://github.com/ollypwn)
+#   @ly4k (https://github.com/ly4k)
 #
 
 import argparse

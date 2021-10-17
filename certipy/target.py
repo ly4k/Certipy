@@ -4,7 +4,7 @@
 #   Target parsing from command line
 #
 # Authors:
-#   @ollypwn (https://github.com/ollypwn)
+#   @ly4k (https://github.com/ly4k)
 #
 
 import traceback

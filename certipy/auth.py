@@ -4,7 +4,7 @@
 #   Use PKINIT to authenticate to KDC with a certificate and retrieve the user's NT hash.
 #
 # Authors:
-#   @ollypwn (https://github.com/ollypwn)
+#   @ly4k (https://github.com/ly4k)
 #
 # References:
 #   https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-pkca/d0cf1763-3541-4008-a75f-a577fa5e8c5b

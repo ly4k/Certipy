@@ -4,7 +4,7 @@
 #   Various structures and helpers for AD security
 #
 # Authors:
-#   @ollypwn (https://github.com/ollypwn)
+#   @ly4k (https://github.com/ly4k)
 #
 # References:
 #   https://github.com/GhostPack/Certify/blob/2b1530309c0c5eaf41b2505dfd5a68c83403d031/Certify/Lib/DisplayUtil.cs#L316

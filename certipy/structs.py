@@ -4,7 +4,7 @@
 #   Various general structures
 #
 # Authors:
-#   @ollypwn (https://github.com/ollypwn)
+#   @ly4k (https://github.com/ly4k)
 #
 
 import enum
