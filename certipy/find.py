@@ -745,6 +745,7 @@ class Find:
                     None,
                     None,
                 )
+                continue
 
             self._enrollment_services.append(
                 EnrollmentService(
