@@ -12,6 +12,7 @@
 #
 
 import argparse
+import json
 import logging
 import struct
 import time
@@ -466,7 +467,8 @@ class CertificateTemplate:
 class Find:
     def __init__(self, options: argparse.Namespace, target: Target = None):
         self.options = options
-
+        if self.options.json:
+            logging.getLogger().setLevel(logging.WARNING)
         if target is None:
             self.target = Target(options)
         else:
@@ -578,8 +580,10 @@ class Find:
                 ] = "[!] Could not find any certificate templates"
             else:
                 output["Certificate Templates"] = certificate_templates
-
-        pretty_print(output)
+        if self.options.json:
+            print(json.dumps(output, indent=4))
+        else:
+            pretty_print(output)
 
     def translate_sid(self, sid: str) -> str:
         if sid in WELL_KNOWN_SIDS:

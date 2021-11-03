@@ -114,6 +114,11 @@ def main():
         action="store_true",
         help="Show only vulnerable certificate templates",
     )
+    find_parser.add_argument(
+        "-json",
+        action="store_true",
+        help="Output result as json instead of text",
+    )
     # Request options
     request_parser = subparsers.add_parser("req", help="Request a new certificate")
 
