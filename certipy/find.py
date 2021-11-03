@@ -530,9 +530,33 @@ class Find:
                 output["Certificate Authorities"][i] = enrollment_service.to_dict()
 
         certificate_templates = {}
+        templates: list["CertificateTemplate"] = self.certificate_templates
+
+        for ca in self.enrollment_services:
+            if ca.user_specifies_san:
+                for certificate_template in templates:
+                    if ca.ca_name not in certificate_template.cas:
+                        continue
+
+                    if (
+                            certificate_template.can_enroll
+                            and certificate_template.has_authentication_eku
+                            and not certificate_template.requires_manager_approval
+                            and not certificate_template.authorized_signatures_required > 0
+                    ):
+                        # execute property first, so its executed, else it would be skipped during evaluation later, as
+                        # _is_vulnerable is already true. String is used to prevent automatic cleanup from removing this
+                        # statement
+                        str(certificate_template.is_vulnerable)
+                        certificate_template._is_vulnerable = True
+                        certificate_template._vulnerable_technique_ids.append("ESC6")
+                        certificate_template._vulnerable_reasons.append("EDITF_ATTRIBUTESUBJECTALTNAME2 flag set on "
+                                                                        "CA, %s can enroll,  and template allows "
+                                                                        "authentication" %
+                                                                        repr(certificate_template._enrollee))
 
         i = 0
-        for _, certificate_template in enumerate(self.certificate_templates):
+        for _, certificate_template in enumerate(templates):
             if (certificate_template.enabled) and (
                 (self.options.vulnerable and certificate_template.is_vulnerable)
                 or not self.options.vulnerable
