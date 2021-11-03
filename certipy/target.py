@@ -40,7 +40,9 @@ class Target:
             lmhash = nthash = ""
 
         self.domain = domain
-        self.username = username
+        # sam account names are limited to 20 characters, therefore if the user supplies a userPrincipalName,
+        # it needs to be stripped to 20 characters
+        self.username = username[:20]
         self.password = password
         self.remote_name = remote_name
         self.lmhash = lmhash
