@@ -125,10 +125,13 @@ class EnrollmentService:
         validity = ca_certificate["validity"].native
         self.validity_start = str(validity["not_before"])
         self.validity_end = str(validity["not_after"])
-
-        self.certificate_templates = list(
-            map(lambda x: x.decode(), entry.get_raw("certificateTemplates"))
-        )
+        
+        if entry.get_raw("certificateTemplates"):
+            self.certificate_templates = list(
+                map(lambda x: x.decode(), entry.get_raw("certificateTemplates"))
+            )
+        else:
+            self.certificate_templates = []
 
         # EDITF_ATTRIBUTESUBJECTALTNAME2
         self.user_specifies_san = (edit_flags & 0x00040000) == 0x00040000
