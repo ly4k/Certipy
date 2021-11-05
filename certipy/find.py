@@ -197,7 +197,7 @@ class CertificateTemplate:
         self._has_vulnerable_acl = None
         self._vulnerable_reasons = []
         self._enrollee = None
-
+        self._vulnerable_technique_ids = []
         self.entry = entry
         self.instance = instance
 
@@ -333,6 +333,7 @@ class CertificateTemplate:
             self._vulnerable_reasons.append(
                 "Template is owned by %s" % repr(self.instance.translate_sid(owner_sid))
             )
+            self._vulnerable_technique_ids.append("ESC4")
             self._is_vulnerable = True
 
         user_can_enroll = self.can_enroll
@@ -340,6 +341,7 @@ class CertificateTemplate:
 
         if vulnerable_acl:
             self._is_vulnerable = True
+            self._vulnerable_technique_ids.append("ESC4")
 
         if self.requires_manager_approval:
             return False
@@ -366,6 +368,7 @@ class CertificateTemplate:
                     "authentication" % repr(self._enrollee)
                 )
             )
+            self._vulnerable_technique_ids.append("ESC1")
             self._is_vulnerable = True
 
         has_dangerous_eku = (
@@ -380,6 +383,7 @@ class CertificateTemplate:
             self._vulnerable_reasons.append(
                 ("%s can enroll and template has dangerous EKU" % repr(self._enrollee))
             )
+            self._vulnerable_technique_ids.append("ESC2")
             self._is_vulnerable = True
 
         return self._is_vulnerable
@@ -457,7 +461,8 @@ class CertificateTemplate:
 
         if len(self._vulnerable_reasons) > 0:
             output["Vulnerable Reasons"] = self._vulnerable_reasons
-
+        if len(self._vulnerable_technique_ids) > 0:
+            output["Vulnerable Technique IDs"] = self._vulnerable_technique_ids
         return output
 
 
