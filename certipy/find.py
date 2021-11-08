@@ -280,6 +280,7 @@ class CertificateTemplate:
 
         vulnerable_acl = False
         aces = self.security_descriptor.aces
+        vulnerable_acl_sids = []
         for sid, rights in aces.items():
             if not is_low_priv_sid(sid) and sid not in self.instance.user_sids:
                 continue
@@ -294,12 +295,12 @@ class CertificateTemplate:
                     ACTIVE_DIRECTORY_RIGHTS.WRITE_PROPERTY,
                 ]
             ):
-                self._vulnerable_reasons.append(
-                    "%s has dangerous permissions"
-                    % (repr(self.instance.translate_sid(sid)),)
-                )
+                vulnerable_acl_sids.append(repr(self.instance.translate_sid(sid)))
                 vulnerable_acl = True
-
+        if vulnerable_acl:
+            self._vulnerable_reasons.append(
+                "%s has dangerous permissions" % ' & '.join(vulnerable_acl_sids)
+            )
         self._has_vulnerable_acl = vulnerable_acl
         return self._has_vulnerable_acl
 
