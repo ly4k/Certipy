@@ -295,7 +295,7 @@ class CertificateTemplate:
                 vulnerable_acl = True
         if vulnerable_acl:
             self._vulnerable_reasons.append(
-                f"{' & '.join(vulnerable_acl_sids)} has dangerous permissions"
+                "%s has dangerous permissions" % ' & '.join(vulnerable_acl_sids)
             )
         self._has_vulnerable_acl = vulnerable_acl
         return self._has_vulnerable_acl
