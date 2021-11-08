@@ -376,7 +376,7 @@ class CertificateTemplate:
         has_dangerous_eku = (
             any(
                 eku in self.extended_key_usage
-                for eku in ["Any Purpose", "Certificate Request Agent"]
+                for eku in ["Any Purpose"]
             )
             or len(self.extended_key_usage) == 0
         )
@@ -386,6 +386,14 @@ class CertificateTemplate:
                 ("%s can enroll and template has dangerous EKU" % repr(self._enrollee))
             )
             self._vulnerable_technique_ids.append("ESC2")
+            self._is_vulnerable = True
+
+        if user_can_enroll and "Certificate Request Agent" in self.extended_key_usage:
+            self._vulnerable_reasons.append(
+                ("%s can enroll and template has Certificate Request Agent EKU set, this can only be abused if a "
+                 "second template matches certain conditions" % repr(self._enrollee))
+            )
+            self._vulnerable_technique_ids.append("ESC3")
             self._is_vulnerable = True
 
         return self._is_vulnerable
