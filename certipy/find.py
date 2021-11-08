@@ -126,7 +126,7 @@ class EnrollmentService:
         validity = ca_certificate["validity"].native
         self.validity_start = str(validity["not_before"])
         self.validity_end = str(validity["not_after"])
-        
+
         if entry.get_raw("certificateTemplates"):
             self.certificate_templates = list(
                 map(lambda x: x.decode(), entry.get_raw("certificateTemplates"))
@@ -211,6 +211,7 @@ class CertificateTemplate:
                 ),
             )
         )
+        self.cas_objects = instance.enrollment_services
 
         self.enabled = len(self.cas) > 0
         self.name = entry.get("name")
@@ -371,6 +372,17 @@ class CertificateTemplate:
             )
             self._vulnerable_technique_ids.append("ESC1")
             self._is_vulnerable = True
+        certificate_user_specifies_san = any([x.user_specifies_san for x in self.cas_objects])
+        if (
+            user_can_enroll
+            and certificate_user_specifies_san
+            and self.has_authentication_eku
+        ):
+            self._is_vulnerable = True
+            self._vulnerable_technique_ids.append("ESC6")
+            self._vulnerable_reasons.append("EDITF_ATTRIBUTESUBJECTALTNAME2 flag set on CA, %s can enroll,  "
+                                            "and template allows authentication" % repr(self._enrollee))
+
 
         has_dangerous_eku = (
             any(
@@ -386,6 +398,8 @@ class CertificateTemplate:
             )
             self._vulnerable_technique_ids.append("ESC2")
             self._is_vulnerable = True
+
+
 
         return self._is_vulnerable
 
