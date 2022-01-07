@@ -783,11 +783,25 @@ class Find:
             % self.ldap_connection.root_name_path,
             attributes=["name"],
         )
-
         if len(domains) == 0:
-            raise Exception(
-                "Could not find domain: %s" % self.ldap_connection.root_name_path
+            logging.debug(
+                    "Could not find domain root domain %s, trying default %s" 
+                    % (self.ldap_connection.root_name_path, 
+                    self.ldap_connection.default_path)
+                    )
+
+            domains = self.search(
+                "(&(objectClass=domain)(distinguishedName=%s))"
+                % self.ldap_connection.default_path,
+                attributes=["name"],
             )
+
+            if len(domains) == 0:
+                raise Exception(
+                    "Could not find domains: %s and %s" 
+                    % (self.ldap_connection.root_name_path,
+                    self.ldap_connection.default_path)
+                )
 
         self._domain = domains[0]
 
