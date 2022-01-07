@@ -471,6 +471,8 @@ class CertificateTemplate:
 class Find:
     def __init__(self, options: argparse.Namespace, target: Target = None):
         self.options = options
+        if not hasattr(self.options, "json"):
+            self.options.json = None
         if self.options.json:
             logging.getLogger().setLevel(logging.WARNING)
         if target is None:
