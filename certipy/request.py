@@ -289,7 +289,6 @@ class Request:
 
             return False
 
-        request_id = resp["pdwRequestId"]
         certificate = x509.Certificate.load(b"".join(resp["pctbEncodedCert"]["pb"]))
 
         try:
@@ -300,13 +299,13 @@ class Request:
         except Exception:
             logging.info("Got certificate")
 
-        with open("%i.crt" % request_id, "wb") as f:
+        with open("%s.crt" % upn, "wb") as f:
             f.write(certificate.dump())
-        logging.info("Saved certificate to '%i.crt'" % request_id)
+        logging.info("Saved certificate to '%s.crt'" % upn)
 
-        with open("%i.key" % request_id, "wb") as f:
+        with open("%s.key" % upn, "wb") as f:
             f.write(rsa_key.export_key("DER"))
-        logging.info("Saved private key to '%i.key'" % request_id)
+        logging.info("Saved private key to '%s.key'" % upn)
 
         self.certificate = certificate
         self.key = rsa_key
