@@ -1,21 +1,4 @@
-# Certipy - Active Directory certificate abuse
-#
-# Description:
-#   Various constants
-#
-# Authors:
-#   @ly4k (https://github.com/ly4k)
-#
-# References:
-#   http://sctech.weebly.com/well-known-sids.html
-#   https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-crtd/1192823c-d839-4bc3-9b6b-fa8c53507ae1
-#   https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-crtd/ec71fd43-61c2-407b-83c9-b52272dec8a1
-#   https://github.com/GhostPack/Certify/blob/2b1530309c0c5eaf41b2505dfd5a68c83403d031/Certify/Domain/CertificateAuthority.cs#L23
-#   https://www.pkisolutions.com/object-identifiers-oid-in-pki/
-#   https://docs.microsoft.com/en-us/dotnet/api/system.security.accesscontrol.accesscontroltype?view=net-5.0
-#   https://docs.microsoft.com/en-us/dotnet/api/system.directoryservices.activedirectoryrights?view=net-5.0
-#   https://github.com/GhostPack/Certify/blob/2b1530309c0c5eaf41b2505dfd5a68c83403d031/Certify/Domain/CertificateAuthority.cs#L11
-#
+import enum
 
 from certipy.structs import IntFlag
 
@@ -226,6 +209,41 @@ class ACTIVE_DIRECTORY_RIGHTS(IntFlag):
     DELETE_CHILD = 2
     CREATE_CHILD = 1
 
+    def to_list(self):
+        cls = self.__class__
+        members, _ = enum._decompose(cls, self._value_)
+        filtered_members = []
+        for member in members:
+            found = False
+            for n in members:
+                if n & member and n != member:
+                    found = True
+
+            if not found:
+                filtered_members.append(member)
+        return members
+
+
+class CERTIFICATE_RIGHTS(IntFlag):
+    GENERIC_ALL = 983551
+    WRITE_OWNER = 524288
+    WRITE_DACL = 262144
+    WRITE_PROPERTY = 32
+
+    def to_list(self):
+        cls = self.__class__
+
+        if self._value_ == self.GENERIC_ALL:
+            return [CERTIFICATE_RIGHTS(self.GENERIC_ALL)]
+
+        members, _ = enum._decompose(cls, self._value_)
+        filtered_members = []
+        for member in members:
+            if str(member) == str(member.value):
+                continue
+            filtered_members.append(member)
+        return filtered_members
+
 
 # https://github.com/GhostPack/Certify/blob/2b1530309c0c5eaf41b2505dfd5a68c83403d031/Certify/Domain/CertificateAuthority.cs#L11
 class CERTIFICATION_AUTHORITY_RIGHTS(IntFlag):
@@ -282,7 +300,7 @@ EXTENDED_RIGHTS_MAP = {
     "be2bb760-7f46-11d2-b9ad-00c04f79f805": "Update-Schema-Cache",
     "62dd28a8-7f46-11d2-b9ad-00c04f79f805": "Recalculate-Security-Inheritance",
     "69ae6200-7f46-11d2-b9ad-00c04f79f805": "DS-Check-Stale-Phantoms",
-    "0e10c968-78fb-11d2-90d4-00c04f79dc55": "Certificate-Enrollment",
+    "0e10c968-78fb-11d2-90d4-00c04f79dc55": "Enroll",
     "bf9679c0-0de6-11d0-a285-00aa003049e2": "Self-Membership",
     "72e39547-7b18-11d1-adef-00c04fd8d5cd": "DNS-Host-Name-Attributes",
     "f3a64788-5306-11d1-a9c5-0000f80367c1": "Validated-SPN",
@@ -319,7 +337,7 @@ EXTENDED_RIGHTS_MAP = {
     "3e0f7e18-2c7a-4c10-ba82-4d926db99a3e": "DS-Clone-Domain-Controlle",
     "d31a8757-2447-4545-8081-3bb610cacbf2": "Validated-MS-DS-Behavior-Version",
     "80863791-dbe9-4eb8-837e-7f0ab55d9ac7": "Validated-MS-DS-Additional-DNS-Host-Name",
-    "a05b8cc2-17bc-4802-a710-e7c15ab866a2": "Certificate-AutoEnrollment",
+    "a05b8cc2-17bc-4802-a710-e7c15ab866a2": "AutoEnroll",
     "4125c71f-7fac-4ff0-bcb7-f09a41325286": "DS-Set-Owne",
     "88a9933e-e5c8-4f2a-9dd7-2527416b8092": "DS-Bypass-Quota",
     "084c93a2-620d-4879-a836-f0ae47de0e89": "DS-Read-Partition-Secrets",

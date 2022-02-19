@@ -2,18 +2,20 @@ from setuptools import setup
 
 setup(
     name="Certipy",
-    version="0.2",
+    version="2.0",
     license="MIT",
     author="ly4k",
     url="https://github.com/ly4k/Certipy",
     long_description="README.md",
     install_requires=[
         "asn1crypto",
-        "pycryptodome",
+        "cryptography",
         "impacket",
         "ldap3",
         "pyasn1",
         "dnspython",
+        "dsinternals",
+        "pyopenssl",
     ],
     packages=["certipy"],
     entry_points={

@@ -1,12 +1,3 @@
-# Certipy - Active Directory certificate abuse
-#
-# Description:
-#   Various general structures
-#
-# Authors:
-#   @ly4k (https://github.com/ly4k)
-#
-
 import enum
 
 from certipy.formatting import to_pascal_case
