@@ -153,15 +153,25 @@ class Find:
 
             object_identifier = enrollment_service.get("objectGUID")
 
-            edit_flags, request_disposition, security = self.get_ca_security(
-                enrollment_service
-            )
+            try:
+                edit_flags, request_disposition, security = self.get_ca_security(
+                    enrollment_service
+                )
+            except Exception as e:
+                logging.warning(
+                    "Failed to get CA security and configuration for %s: %s"
+                    % (repr(enrollment_service.get("name")), e)
+                )
+                edit_flags, request_disposition, security = (None, None, None)
 
-            web_enrollment = self.check_web_enrollment(enrollment_service)
-
-            edit_flags = 0 if edit_flags is None else edit_flags
-
-            user_specifies_san = (edit_flags & 0x00040000) == 0x00040000
+            try:
+                web_enrollment = self.check_web_enrollment(enrollment_service)
+            except Exception as e:
+                logging.warning(
+                    "Failed to check Web Enrollment for CA %s: %s"
+                    % (repr(enrollment_service.get("name")), e)
+                )
+                web_enrollment = None
 
             ca_name = enrollment_service.get("cn")
             dns_name = enrollment_service.get("dNSHostName")
@@ -177,10 +187,6 @@ class Find:
             validity_start = str(validity["not_before"])
             validity_end = str(validity["not_after"])
 
-            aces = []
-            if security is not None:
-                aces = self.security_to_bloodhound_aces(security, ca=True)
-
             output_cas[i] = {
                 "CA Name": enrollment_service.get("name"),
                 "DNS Name": dns_name,
@@ -188,10 +194,15 @@ class Find:
                 "Certificate Serial Number": serial_number,
                 "Certificate Validity Start": validity_start,
                 "Certificate Validity End": validity_end,
-                "Web Enrollment": "Enabled" if web_enrollment else "Disabled",
             }
 
+            if web_enrollment is not None:
+                output_cas[i]["Web Enrollment"] = (
+                    "Enabled" if web_enrollment else "Disabled"
+                )
+
             if edit_flags is not None:
+                user_specifies_san = (edit_flags & 0x00040000) == 0x00040000
                 output_cas[i]["User Specified SAN"] = (
                     "Enabled" if user_specifies_san else "Disabled"
                 )
@@ -203,18 +214,25 @@ class Find:
 
             ca_permissions = {}
             access_rights = {}
+            aces = []
+            if security is not None:
+                aces = self.security_to_bloodhound_aces(security, ca=True)
 
-            ca_permissions["Owner"] = self.lookup_sid(security.owner).get("name")
+                ca_permissions["Owner"] = self.lookup_sid(security.owner).get("name")
 
-            for sid, rights in security.aces.items():
-                ca_rights = CERTIFICATION_AUTHORITY_RIGHTS(rights["rights"]).to_list()
-                for ca_right in ca_rights:
-                    if ca_right not in access_rights:
-                        access_rights[ca_right] = [self.lookup_sid(sid).get("name")]
-                    else:
-                        access_rights[ca_right].append(self.lookup_sid(sid).get("name"))
+                for sid, rights in security.aces.items():
+                    ca_rights = CERTIFICATION_AUTHORITY_RIGHTS(
+                        rights["rights"]
+                    ).to_list()
+                    for ca_right in ca_rights:
+                        if ca_right not in access_rights:
+                            access_rights[ca_right] = [self.lookup_sid(sid).get("name")]
+                        else:
+                            access_rights[ca_right].append(
+                                self.lookup_sid(sid).get("name")
+                            )
 
-            ca_permissions["Access Rights"] = access_rights
+                ca_permissions["Access Rights"] = access_rights
 
             # For BloodHound
             bloodhound_entry = {
