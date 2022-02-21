@@ -1,7 +1,7 @@
 import argparse
 import json
 import logging
-from typing import Callable, Tuple
+from typing import Callable, Dict, Tuple
 
 import ldap3
 from ldap3.protocol.microsoft import security_descriptor_control
@@ -128,7 +128,7 @@ class Template:
 
         return template
 
-    def json_to_configuration(self, configuration_json: str) -> dict:
+    def json_to_configuration(self, configuration_json: str) -> Dict:
         output = {}
         for key, value in configuration_json.items():
             if key in PROTECTED_ATTRIBUTES:
@@ -141,7 +141,7 @@ class Template:
 
         return output
 
-    def load_configuration(self, configuration: str) -> dict:
+    def load_configuration(self, configuration: str) -> Dict:
         with open(configuration, "r") as f:
             configuration_json = json.load(f)
 

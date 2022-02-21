@@ -530,7 +530,7 @@ class Find:
 
     def security_to_bloodhound_aces(
         self, security: ActiveDirectorySecurity, ca: bool = False
-    ) -> list:
+    ) -> List:
         aces = []
 
         owner = self.lookup_sid(security.owner)

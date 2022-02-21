@@ -51,7 +51,7 @@ class Shadow:
 
         return self._connection
 
-    def get_key_credentials(self, target_dn: str, user: LDAPEntry) -> list[bytes]:
+    def get_key_credentials(self, target_dn: str, user: LDAPEntry) -> List[bytes]:
         results = self.connection.search(
             search_base=target_dn,
             search_filter="(objectClass=*)",
