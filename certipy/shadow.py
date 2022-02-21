@@ -70,7 +70,7 @@ class Shadow:
         return result.get_raw("msDS-KeyCredentialLink")
 
     def set_key_credentials(
-        self, target_dn: str, user: LDAPEntry, key_credential: list[bytes]
+        self, target_dn: str, user: LDAPEntry, key_credential: List[bytes]
     ):
         result = self.connection.modify(
             target_dn,
