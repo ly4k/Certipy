@@ -422,7 +422,10 @@ class Authenticate:
 def entry(options: argparse.Namespace) -> None:
     options.no_pass = True
     target = Target.create(
-        domain=options.domain, username=options.username, dc_ip=options.dc_ip
+        domain=options.domain,
+        username=options.username,
+        dc_ip=options.dc_ip,
+        target_ip=options.dc_ip,
     )
 
     authenticate = Authenticate(target=target, **vars(options))

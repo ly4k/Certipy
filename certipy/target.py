@@ -6,6 +6,7 @@ from typing import Any
 from dns.resolver import Resolver
 from impacket.examples.utils import parse_target
 
+
 def is_ip(hostname: str) -> bool:
     try:
         # Check if hostname is an IP
@@ -14,6 +15,7 @@ def is_ip(hostname: str) -> bool:
     except Exception:
         pass
     return False
+
 
 class DnsResolver:
     def __init__(self):
@@ -156,17 +158,17 @@ class Target:
         self.dc_ip = options.dc_ip
         self.timeout = options.timeout
 
+        if options.ns is None:
+            options.ns = self.dc_ip
+
         if is_ip(remote_name):
             options.target_ip = remote_name
 
         self.resolver = DnsResolver.from_options(options, self)
 
-        if options.target_ip is None and remote_name is not None:
-            self.target_ip = remote_name
-
-            options.target_ip = self.resolver.resolve(remote_name)
-
         self.target_ip = options.target_ip
+        if self.target_ip is None and remote_name is not None:
+            self.target_ip = self.resolver.resolve(remote_name)
 
         return self
 
@@ -214,17 +216,19 @@ class Target:
         self.nthash = nthash
         self.do_kerberos = do_kerberos
         self.dc_ip = dc_ip
+        self.timeout = timeout
+
+        if ns is None:
+            ns = dc_ip
 
         if is_ip(remote_name):
             target_ip = remote_name
 
-        if target_ip is None and remote_name is not None:
-            self.target_ip = remote_name
-
-            self.resolver = DnsResolver.create(self, ns=ns, dns_tcp=dns_tcp)
-            target_ip = self.resolver.resolve(remote_name)
+        self.resolver = DnsResolver.create(self, ns=ns, dns_tcp=dns_tcp)
 
         self.target_ip = target_ip
+        if self.target_ip is None and remote_name is not None:
+            self.target_ip = self.resolver.resolve(remote_name)
 
         return self
 
