@@ -11,11 +11,9 @@ from certipy.certificate import (
     create_pfx,
     encoder,
     generate_rsa_key,
-    hashes,
     load_pfx,
     x509,
 )
-from certipy.target import Target
 
 NAME = "forge"
 

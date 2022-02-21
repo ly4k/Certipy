@@ -117,7 +117,7 @@ class Target:
         self.resolver: Resolver = None
 
     @staticmethod
-    def from_options(options) -> "Target":
+    def from_options(options, dc_as_target: bool = False) -> "Target":
         self = Target()
 
         domain, username, password, remote_name = parse_target(options.target)
@@ -157,6 +157,9 @@ class Target:
         self.do_kerberos = options.k
         self.dc_ip = options.dc_ip
         self.timeout = options.timeout
+
+        if dc_as_target and options.dc_ip is None and is_ip(remote_name):
+            self.dc_ip = remote_name
 
         if options.ns is None:
             options.ns = self.dc_ip

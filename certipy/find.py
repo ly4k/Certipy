@@ -1,22 +1,20 @@
 import argparse
+import copy
 import json
 import logging
 import os
 import socket
 import struct
-import time
 import zipfile
 from datetime import datetime
 from typing import Callable, List, Tuple
 
 from asn1crypto import x509
-from impacket.dcerpc.v5 import rrp
 
 from certipy import target
+from certipy.ca import CA
 from certipy.constants import (
-    ACTIVE_DIRECTORY_RIGHTS,
     CERTIFICATE_RIGHTS,
-    CERTIFICATION_AUTHORITY_RIGHTS,
     EXTENDED_RIGHTS_MAP,
     EXTENDED_RIGHTS_NAME_MAP,
     MS_PKI_CERTIFICATE_NAME_FLAG,
@@ -26,8 +24,7 @@ from certipy.constants import (
 )
 from certipy.formatting import pretty_print
 from certipy.ldap import LDAPConnection, LDAPEntry
-from certipy.rpc import get_dce_rpc_from_string_binding
-from certipy.security import ActiveDirectorySecurity
+from certipy.security import ActiveDirectorySecurity, CertifcateSecurity
 from certipy.target import Target
 
 NAME = "find"
@@ -154,9 +151,16 @@ class Find:
             object_identifier = enrollment_service.get("objectGUID")
 
             try:
-                edit_flags, request_disposition, security = self.get_ca_security(
-                    enrollment_service
-                )
+                ca_name = enrollment_service.get("name")
+                ca_remote_name = enrollment_service.get("dNSHostName")
+                ca_target_ip = self.target.resolver.resolve(ca_remote_name)
+
+                ca_target = copy.copy(self.target)
+                ca_target.remote_name = ca_remote_name
+                ca_target.target_ip = ca_target_ip
+
+                ca = CA(ca_target, ca=ca_name)
+                edit_flags, request_disposition, security = ca.get_config()
             except Exception as e:
                 logging.warning(
                     "Failed to get CA security and configuration for %s: %s"
@@ -216,14 +220,12 @@ class Find:
             access_rights = {}
             aces = []
             if security is not None:
-                aces = self.security_to_bloodhound_aces(security, ca=True)
+                aces = self.security_to_bloodhound_aces(security)
 
                 ca_permissions["Owner"] = self.lookup_sid(security.owner).get("name")
 
                 for sid, rights in security.aces.items():
-                    ca_rights = CERTIFICATION_AUTHORITY_RIGHTS(
-                        rights["rights"]
-                    ).to_list()
+                    ca_rights = rights["rights"].to_list()
                     for ca_right in ca_rights:
                         if ca_right not in access_rights:
                             access_rights[ca_right] = [self.lookup_sid(sid).get("name")]
@@ -277,10 +279,11 @@ class Find:
             validity_period = filetime_to_str(template.get("pKIExpirationPeriod"))
             renewal_period = filetime_to_str(template.get("pKIOverlapPeriod"))
 
-
             certificate_name_flag = template.get("msPKI-Certificate-Name-Flag")
             if certificate_name_flag is not None:
-                certificate_name_flag = MS_PKI_CERTIFICATE_NAME_FLAG(int(certificate_name_flag))
+                certificate_name_flag = MS_PKI_CERTIFICATE_NAME_FLAG(
+                    int(certificate_name_flag)
+                )
             else:
                 certificate_name_flag = MS_PKI_CERTIFICATE_NAME_FLAG(0)
 
@@ -358,7 +361,7 @@ class Find:
                 MS_PKI_ENROLLMENT_FLAG.PEND_ALL_REQUESTS in enrollment_flag
             )
 
-            security = ActiveDirectorySecurity(template.get("nTSecurityDescriptor"))
+            security = CertifcateSecurity(template.get("nTSecurityDescriptor"))
 
             aces = self.security_to_bloodhound_aces(security)
 
@@ -460,11 +463,11 @@ class Find:
             )
 
             rights_mapping = [
-                (ACTIVE_DIRECTORY_RIGHTS.GENERIC_ALL, [], "Full Control Principals"),
-                (ACTIVE_DIRECTORY_RIGHTS.WRITE_OWNER, [], "Write Owner Principals"),
-                (ACTIVE_DIRECTORY_RIGHTS.WRITE_DACL, [], "Write Dacl Principals"),
+                (CERTIFICATE_RIGHTS.GENERIC_ALL, [], "Full Control Principals"),
+                (CERTIFICATE_RIGHTS.WRITE_OWNER, [], "Write Owner Principals"),
+                (CERTIFICATE_RIGHTS.WRITE_DACL, [], "Write Dacl Principals"),
                 (
-                    ACTIVE_DIRECTORY_RIGHTS.WRITE_PROPERTY,
+                    CERTIFICATE_RIGHTS.WRITE_PROPERTY,
                     [],
                     "Write Property Principals",
                 ),
@@ -554,9 +557,7 @@ class Find:
                 % repr("%s_Certipy.zip" % prefix)
             )
 
-    def security_to_bloodhound_aces(
-        self, security: ActiveDirectorySecurity, ca: bool = False
-    ) -> List:
+    def security_to_bloodhound_aces(self, security: ActiveDirectorySecurity) -> List:
         aces = []
 
         owner = self.lookup_sid(security.owner)
@@ -567,7 +568,6 @@ class Find:
                 "PrincipalSID": owner.get("objectSid"),
                 "PrincipalType": owner_type,
                 "RightName": "Owner",
-                "AceType": "",
                 "IsInherited": False,
             }
         )
@@ -579,32 +579,17 @@ class Find:
                 "Group" if "group" in principal.get("objectClass") else "User"
             )
 
-            if not ca:
-                standard_rights = CERTIFICATE_RIGHTS(rights["rights"].value)
-                standard_rights = (
-                    standard_rights.to_str_list() if standard_rights != 0 else []
-                )
+            standard_rights = rights["rights"].to_list()
 
-                for right in standard_rights:
-                    aces.append(
-                        {
-                            "PrincipalSID": principal.get("objectSid"),
-                            "PrincipalType": principal_type,
-                            "RightName": right,
-                            "IsInherited": False,
-                        }
-                    )
-            else:
-                ca_rights = CERTIFICATION_AUTHORITY_RIGHTS(rights["rights"]).to_list()
-                for ca_right in ca_rights:
-                    aces.append(
-                        {
-                            "PrincipalSID": principal.get("objectSid"),
-                            "PrincipalType": principal_type,
-                            "RightName": str(ca_right),
-                            "IsInherited": False,
-                        }
-                    )
+            for right in standard_rights:
+                aces.append(
+                    {
+                        "PrincipalSID": principal.get("objectSid"),
+                        "PrincipalType": principal_type,
+                        "RightName": str(right),
+                        "IsInherited": False,
+                    }
+                )
 
             extended_rights = rights["extended_rights"]
 
@@ -654,96 +639,6 @@ class Find:
             )
 
         return False
-
-    def get_ca_security(
-        self, ca: LDAPEntry
-    ) -> Tuple[int, int, ActiveDirectorySecurity]:
-        target = self.target
-        target_name = ca.get("dNSHostName")
-        ca_name = ca.get("name")
-
-        target_ip = target.resolver.resolve(target_name)
-
-        string_binding = "ncacn_np:445[\\pipe\\winreg]"
-
-        logging.debug(
-            "Connecting to %s at %s (%s)"
-            % (string_binding, repr(target_name), target_ip)
-        )
-
-        dce = get_dce_rpc_from_string_binding(
-            string_binding,
-            self.target,
-            timeout=self.target.timeout,
-            target_ip=target_ip,
-            remote_name=target_name,
-        )
-
-        # The remote registry service stops after not being used for 10 minutes.
-        # It will automatically start when trying to connect to it
-        for _ in range(3):
-            try:
-                dce.connect()
-                dce.bind(rrp.MSRPC_UUID_RRP)
-                logging.debug(
-                    "Connected to remote registry at %s (%s)"
-                    % (repr(target_name), target_ip)
-                )
-                break
-            except Exception as e:
-                if "STATUS_PIPE_NOT_AVAILABLE" in str(e):
-                    logging.warning(
-                        (
-                            "Failed to connect to remote registry. Service should be "
-                            "starting now. Trying again..."
-                        )
-                    )
-                    time.sleep(1)
-                else:
-                    raise e
-        else:
-            logging.warning("Failed to connect to remote registry")
-            return (None, None, None)
-
-        hklm = rrp.hOpenLocalMachine(dce)
-
-        h_root_key = hklm["phKey"]
-
-        policy_key = rrp.hBaseRegOpenKey(
-            dce,
-            h_root_key,
-            (
-                "SYSTEM\\CurrentControlSet\\Services\\CertSvc\\Configuration\\%s\\"
-                "PolicyModules\\CertificateAuthority_MicrosoftDefault.Policy"
-            )
-            % ca_name,
-        )
-
-        _, edit_flags = rrp.hBaseRegQueryValue(
-            dce, policy_key["phkResult"], "EditFlags"
-        )
-
-        _, request_disposition = rrp.hBaseRegQueryValue(
-            dce, policy_key["phkResult"], "RequestDisposition"
-        )
-
-        configuration_key = rrp.hBaseRegOpenKey(
-            dce,
-            h_root_key,
-            "SYSTEM\\CurrentControlSet\\Services\\CertSvc\\Configuration\\%s" % ca_name,
-        )
-
-        _, security_descriptor = rrp.hBaseRegQueryValue(
-            dce, configuration_key["phkResult"], "Security"
-        )
-
-        return (
-            edit_flags,
-            request_disposition,
-            ActiveDirectorySecurity(
-                security_descriptor,
-            ),
-        )
 
     def lookup_sid(self, sid: str) -> LDAPEntry:
         if sid in self.sid_map:
@@ -832,7 +727,7 @@ class Find:
 
 
 def entry(options: argparse.Namespace) -> None:
-    target = Target.from_options(options)
+    target = Target.from_options(options, dc_as_target=True)
     del options.target
 
     find = Find(target=target, **vars(options))

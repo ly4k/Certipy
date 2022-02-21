@@ -3,8 +3,9 @@ import logging
 from typing import Callable, List, Tuple
 
 from impacket.dcerpc.v5 import rpcrt, scmr
+from impacket.dcerpc.v5.dcom.oaut import VARIANT
 from impacket.dcerpc.v5.dcomrt import DCOMANSWER, DCOMCALL, IRemUnknown
-from impacket.dcerpc.v5.dtypes import DWORD, LONG, LPWSTR, PBYTE, ULONG
+from impacket.dcerpc.v5.dtypes import DWORD, LONG, LPWSTR, PBYTE, ULONG, WSTR
 from impacket.dcerpc.v5.ndr import NDRSTRUCT
 from impacket.dcerpc.v5.nrpc import checkNullString
 from impacket.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException
@@ -18,6 +19,7 @@ from certipy.constants import CERTIFICATION_AUTHORITY_RIGHTS
 from certipy.errors import translate_error_code
 from certipy.ldap import LDAPConnection, LDAPEntry
 from certipy.rpc import get_dce_rpc, get_dcom_connection
+from certipy.security import CASecurity
 from certipy.target import Target
 from certipy.template import Template
 
@@ -119,6 +121,19 @@ class ICertAdminD2_SetCASecurityResponse(DCOMANSWER):
     structure = (("ErrorCode", LONG),)
 
 
+class ICertAdminD2_GetConfigEntry(DCOMCALL):
+    opnum = 44
+    structure = (
+        ("pwszAuthority", LPWSTR),
+        ("pwszNodePath", LPWSTR),
+        ("pwszEntry", WSTR),
+    )
+
+
+class ICertAdminD2_GetConfigEntryResponse(DCOMANSWER):
+    structure = (("pVariant", VARIANT),)
+
+
 class ICertAdminDCustom(IRemUnknown):
     def request(self, req, *args, **kwargs):
         req["ORPCthis"] = self.get_cinstance().get_ORPCthis()
@@ -216,6 +231,60 @@ class CA:
         iInterface.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
         self._cert_admin2 = ICertAdminD2(iInterface)
         return self._cert_admin2
+
+    def get_request_disposition(self) -> int:
+        request = ICertAdminD2_GetConfigEntry()
+        request["pwszAuthority"] = checkNullString(self.ca)
+        request["pwszNodePath"] = checkNullString(
+            "PolicyModules\\CertificateAuthority_MicrosoftDefault.Policy"
+        )
+        request["pwszEntry"] = checkNullString("RequestDisposition")
+
+        try:
+            resp = self.cert_admin2.request(request)
+        except DCERPCSessionError as e:
+            logging.warning(
+                "Got error while trying to get CA RequestDisposition: %s" % str(e)
+            )
+            return None
+
+        return resp["pVariant"]["_varUnion"]["lVal"]
+
+    def get_edit_flags(self) -> int:
+        request = ICertAdminD2_GetConfigEntry()
+        request["pwszAuthority"] = checkNullString(self.ca)
+        request["pwszNodePath"] = checkNullString(
+            "PolicyModules\\CertificateAuthority_MicrosoftDefault.Policy"
+        )
+        request["pwszEntry"] = checkNullString("EditFlags")
+
+        try:
+            resp = self.cert_admin2.request(request)
+        except DCERPCSessionError as e:
+            logging.warning("Got error while trying to get CA EditFlags: %s" % str(e))
+            return None
+
+        return resp["pVariant"]["_varUnion"]["lVal"]
+
+    def get_security(self) -> bytes:
+        request = ICertAdminD2_GetCASecurity()
+        request["pwszAuthority"] = checkNullString(self.ca)
+
+        try:
+            resp = self.cert_admin2.request(request)
+        except DCERPCSessionError as e:
+            logging.warning("Got error while trying to get CA security: %s" % str(e))
+            return None
+
+        security = CASecurity(b"".join(resp["pctbSD"]["pb"]))
+        return security
+
+    def get_config(self) -> Tuple[int, int, CASecurity]:
+        edit_flags = self.get_edit_flags()
+        request_disposition = self.get_request_disposition()
+        security = self.get_security()
+
+        return (edit_flags, request_disposition, security)
 
     def issue(self) -> bool:
         if self.request_id is None:
