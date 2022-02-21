@@ -57,7 +57,7 @@ class Forge:
         ca_pfx: str = None,
         subject: str = None,
         alt: str = None,
-        serial:str = None,
+        serial: str = None,
         out: str = None,
         **kwargs
     ):
@@ -87,7 +87,7 @@ class Forge:
         if serial is None:
             serial = x509.random_serial_number()
         else:
-            serial = int(serial.replace(":",""), 16)
+            serial = int(serial.replace(":", ""), 16)
 
         subject = x509.Name(components)
         cert = (
@@ -117,7 +117,9 @@ class Forge:
             ),
             False,
         )
-        cert = cert.sign(ca_key, hashes.SHA256())
+
+        signature_hash_algorithm = ca_cert.signature_hash_algorithm.__class__
+        cert = cert.sign(ca_key, signature_hash_algorithm())
 
         pfx = create_pfx(key, cert)
 
@@ -161,9 +163,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     subparser.add_argument(
         "-alt", action="store", metavar="alternative UPN", required=True
     )
-    subparser.add_argument(
-        "-serial", action="store", metavar="serial number"
-    )
+    subparser.add_argument("-serial", action="store", metavar="serial number")
     subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
 
     group = subparser.add_argument_group("output options")

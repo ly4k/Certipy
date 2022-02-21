@@ -160,6 +160,7 @@ def hash_digest(data: bytes, hash: hashes.Hash):
 def create_cms(
     request: bytes, on_behalf_of: str, cert: x509.Certificate, key: rsa.RSAPrivateKey
 ):
+    signature_hash_algorithm = cert.signature_hash_algorithm.__class__
     cert = asn1x509.Certificate.load(cert_to_der(cert))
     content_info = asn1cms.ContentInfo()
     content_info["content_type"] = "data"
@@ -170,7 +171,7 @@ def create_cms(
     issuer_and_serial["serial_number"] = cert.serial_number
 
     digest_algorithm = asn1cms.DigestAlgorithm()
-    digest_algorithm["algorithm"] = "sha256"
+    digest_algorithm["algorithm"] = signature_hash_algorithm.name
 
     name_value_pairs = EnrollmentNameValuePairs()
     requester_name = EnrollmentNameValuePair()
@@ -186,10 +187,12 @@ def create_cms(
     signed_attribs.append(name_value_pairs_attrib)
     att = asn1cms.CMSAttribute()
     att["type"] = "message_digest"
-    att["values"] = [hash_digest(request, hashes.SHA256)]
+    att["values"] = [hash_digest(request, signature_hash_algorithm)]
     signed_attribs.append(att)
 
-    attribs_signature = rsa_pkcs1v15_sign(signed_attribs.dump(), key)
+    attribs_signature = rsa_pkcs1v15_sign(
+        signed_attribs.dump(), key, hash=signature_hash_algorithm
+    )
 
     signer_info = asn1cms.SignerInfo()
     signer_info["version"] = 1
