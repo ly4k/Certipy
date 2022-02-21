@@ -277,14 +277,22 @@ class Find:
             validity_period = filetime_to_str(template.get("pKIExpirationPeriod"))
             renewal_period = filetime_to_str(template.get("pKIOverlapPeriod"))
 
-            certificate_name_flag = MS_PKI_CERTIFICATE_NAME_FLAG(
-                int(template.get("msPKI-Certificate-Name-Flag"))
-            )
-            enrollment_flag = MS_PKI_ENROLLMENT_FLAG(
-                int(template.get("msPKI-Enrollment-Flag"))
-            )
 
-            authorized_signatures_required = int(template.get("msPKI-RA-Signature"))
+            certificate_name_flag = template.get("msPKI-Certificate-Name-Flag")
+            if certificate_name_flag is not None:
+                certificate_name_flag = MS_PKI_CERTIFICATE_NAME_FLAG(int(certificate_name_flag))
+            else:
+                certificate_name_flag = MS_PKI_CERTIFICATE_NAME_FLAG(0)
+
+            enrollment_flag = template.get("msPKI-Enrollment-Flag")
+            if enrollment_flag is not None:
+                enrollment_flag = MS_PKI_ENROLLMENT_FLAG(int(enrollment_flag))
+            else:
+                enrollment_flag = MS_PKI_ENROLLMENT_FLAG(0)
+
+            authorized_signatures_required = template.get("msPKI-RA-Signature")
+            if authorized_signatures_required is not None:
+                authorized_signatures_required = int(authorized_signatures_required)
 
             application_policies = template.get_raw("msPKI-RA-Application-Policies")
             if not isinstance(application_policies, list):
@@ -635,7 +643,7 @@ class Find:
             resp = sock.recv(256)
             sock.close()
             head = resp.split(b"\r\n")[0].decode()
-            return " 401 " in head or " 200 " in head
+            return " 404 " not in head
         except ConnectionRefusedError:
             return False
         except socket.timeout:

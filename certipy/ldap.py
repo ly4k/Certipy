@@ -16,6 +16,9 @@ class LDAPEntry(dict):
             return None
         item = self.__getitem__("attributes").__getitem__(key)
 
+        if isinstance(item, list) and len(item) == 0:
+            return None
+
         return item
 
     def set(self, key, value):

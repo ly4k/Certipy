@@ -6,6 +6,14 @@ from typing import Any
 from dns.resolver import Resolver
 from impacket.examples.utils import parse_target
 
+def is_ip(hostname: str) -> bool:
+    try:
+        # Check if hostname is an IP
+        socket.inet_aton(hostname)
+        return True
+    except Exception:
+        pass
+    return False
 
 class DnsResolver:
     def __init__(self):
@@ -22,10 +30,10 @@ class DnsResolver:
         nameserver = options.ns
         if nameserver is None:
             nameserver = target.dc_ip
-        if nameserver is None:
-            nameserver = target.target_ip
 
-        self.resolver.nameservers = [nameserver]
+        if nameserver is not None:
+            self.resolver.nameservers = [nameserver]
+
         self.use_tcp = options.dns_tcp
 
         return self
@@ -41,10 +49,10 @@ class DnsResolver:
         nameserver = ns
         if nameserver is None:
             nameserver = target.dc_ip
-        if nameserver is None:
-            nameserver = target.target_ip
 
-        self.resolver.nameservers = [nameserver]
+        if nameserver is not None:
+            self.resolver.nameservers = [nameserver]
+
         self.use_tcp = dns_tcp
 
         return self
@@ -57,12 +65,8 @@ class DnsResolver:
             )
             return self.mappings[hostname]
 
-        try:
-            # Check if hostname is an IP
-            socket.inet_aton(hostname)
+        if is_ip(hostname):
             return hostname
-        except Exception:
-            pass
 
         ip_addr = None
         if self.resolver.nameservers[0] is None:
@@ -152,15 +156,15 @@ class Target:
         self.dc_ip = options.dc_ip
         self.timeout = options.timeout
 
+        if is_ip(remote_name):
+            options.target_ip = remote_name
+
         self.resolver = DnsResolver.from_options(options, self)
 
         if options.target_ip is None and remote_name is not None:
             self.target_ip = remote_name
 
             options.target_ip = self.resolver.resolve(remote_name)
-
-        if options.target_ip is None:
-            options.target_ip = options.dc_ip
 
         self.target_ip = options.target_ip
 
@@ -211,14 +215,14 @@ class Target:
         self.do_kerberos = do_kerberos
         self.dc_ip = dc_ip
 
+        if is_ip(remote_name):
+            target_ip = remote_name
+
         if target_ip is None and remote_name is not None:
             self.target_ip = remote_name
 
             self.resolver = DnsResolver.create(self, ns=ns, dns_tcp=dns_tcp)
             target_ip = self.resolver.resolve(remote_name)
-
-        if target_ip is None:
-            target_ip = dc_ip
 
         self.target_ip = target_ip
 
