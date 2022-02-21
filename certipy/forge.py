@@ -57,12 +57,14 @@ class Forge:
         ca_pfx: str = None,
         subject: str = None,
         alt: str = None,
+        serial:str = None,
         out: str = None,
         **kwargs
     ):
         self.ca_pfx = ca_pfx
         self.subject = subject
         self.alt_name = alt
+        self.serial = serial
         self.out = out
         self.kwargs = kwargs
 
@@ -81,13 +83,19 @@ class Forge:
 
             components.append(x509.NameAttribute(DN_MAP[component[0]], component[1]))
 
+        serial = self.serial
+        if serial is None:
+            serial = x509.random_serial_number()
+        else:
+            serial = int(serial.replace(":",""), 16)
+
         subject = x509.Name(components)
         cert = (
             x509.CertificateBuilder()
             .subject_name(subject)
             .issuer_name(ca_cert.subject)
             .public_key(key.public_key())
-            .serial_number(x509.random_serial_number())
+            .serial_number(serial)
             .not_valid_before(datetime.datetime.utcnow() - datetime.timedelta(days=1))
             .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=365))
             .add_extension(
@@ -152,6 +160,9 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     )
     subparser.add_argument(
         "-alt", action="store", metavar="alternative UPN", required=True
+    )
+    subparser.add_argument(
+        "-serial", action="store", metavar="serial number"
     )
     subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
 
