@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="Certipy",
-    version="2.0.5",
+    version="2.0.6",
     license="MIT",
     author="ly4k",
     url="https://github.com/ly4k/Certipy",
