@@ -21,5 +21,5 @@ setup(
     entry_points={
         "console_scripts": ["certipy=certipy.entry:main"],
     },
-    description="Python implementation for Active Directory certificate abuse",
+    description="Active Directory Certificate Services enumeration and abuse",
 )
