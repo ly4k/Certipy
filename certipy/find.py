@@ -140,6 +140,8 @@ class Find:
         i = 0
         for enrollment_service in enrollment_services:
             templates = enrollment_service.get("certificateTemplates")
+            if templates is None:
+                templates = []
 
             for template in certificate_templates:
                 if template.get("name") in templates:
