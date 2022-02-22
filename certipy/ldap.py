@@ -67,6 +67,7 @@ class LDAPConnection:
                     port=self.port,
                     get_info=ldap3.ALL,
                     tls=tls,
+                    connect_timeout=self.target.timeout,
                 )
             else:
                 ldap_server = ldap3.Server(
@@ -74,6 +75,7 @@ class LDAPConnection:
                     use_ssl=False,
                     port=self.port,
                     get_info=ldap3.ALL,
+                    connect_timeout=self.target.timeout,
                 )
 
             logging.debug("Authenticating to LDAP server")
