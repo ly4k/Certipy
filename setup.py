@@ -2,14 +2,14 @@ from setuptools import setup
 
 setup(
     name="Certipy",
-    version="2.0.6",
+    version="2.0.7",
     license="MIT",
     author="ly4k",
     url="https://github.com/ly4k/Certipy",
     long_description="README.md",
     install_requires=[
         "asn1crypto",
-        "cryptography",
+        "cryptography>=3.5",
         "impacket",
         "ldap3",
         "pyasn1",
