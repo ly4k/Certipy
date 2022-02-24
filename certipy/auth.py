@@ -426,6 +426,9 @@ def entry(options: argparse.Namespace) -> None:
         username=options.username,
         dc_ip=options.dc_ip,
         target_ip=options.dc_ip,
+        ns=options.ns,
+        timeout=options.timeout,
+        dns_tcp=options.dns_tcp
     )
 
     authenticate = Authenticate(target=target, **vars(options))
