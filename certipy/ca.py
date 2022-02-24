@@ -1,9 +1,10 @@
 import argparse
+import copy
 import logging
-from typing import Callable, List, Tuple
 import time
+from typing import Callable, List, Tuple
 
-from impacket.dcerpc.v5 import rpcrt, scmr, rrp
+from impacket.dcerpc.v5 import rpcrt, rrp, scmr
 from impacket.dcerpc.v5.dcom.oaut import VARIANT
 from impacket.dcerpc.v5.dcomrt import DCOMANSWER, DCOMCALL, IRemUnknown
 from impacket.dcerpc.v5.dtypes import DWORD, LONG, LPWSTR, PBYTE, ULONG, WSTR
@@ -183,6 +184,7 @@ class CA:
         request_id: int = 0,
         connection: LDAPConnection = None,
         scheme: str = "ldaps",
+        dc_host: str = None,
         dynamic: bool = False,
         config: str = None,
         timeout: int = 5,
@@ -195,6 +197,7 @@ class CA:
         self.officer = officer
         self.template = template
         self.scheme = scheme
+        self.dc_host = dc_host
         self.dynamic = dynamic
         self.config = config
         self.timeout = timeout
@@ -211,7 +214,36 @@ class CA:
         if self._connection:
             return self._connection
 
-        self._connection = LDAPConnection(self.target, self.scheme)
+        target = copy.copy(self.target)
+
+        if target.do_kerberos:
+            if self.dc_host is None:
+                raise Exception(
+                    "Kerberos auth requires DNS name of the target DC. Use -dc-host."
+                )
+
+            target.remote_name = self.dc_host
+
+            if target.dc_ip is None:
+                target.dc_ip = target.resolver.resolve(self.dc_host)
+
+        if target.dc_ip:
+            target.target_ip = target.dc_ip
+        else:
+            if self.dc_host:
+                remote_name = self.dc_host
+            else:
+                remote_name = target.domain
+
+            if "." not in remote_name:
+                logging.warning(
+                    "%s doesn't look like a FQDN. DNS resolution will probably fail."
+                    % repr(remote_name)
+                )
+
+            target.target_ip = target.resolver.resolve(remote_name)
+
+        self._connection = LDAPConnection(target, self.scheme)
         self._connection.connect()
 
         return self._connection
@@ -564,8 +596,7 @@ class CA:
         return self.enable(disable=True)
 
     def add(self, user, right, right_type):
-        connection = LDAPConnection(self.target, self.scheme)
-        connection.connect()
+        connection = self.connection
 
         user = connection.get_user(user)
         if user is None:
@@ -646,8 +677,7 @@ class CA:
             return False
 
     def remove(self, user, right, right_type):
-        connection = LDAPConnection(self.target, self.scheme)
-        connection.connect()
+        connection = self.connection
 
         user = connection.get_user(user)
         if user is None:
@@ -1063,6 +1093,14 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         "-dynamic-endpoint",
         action="store_true",
         help="Prefer dynamic TCP endpoint over named pipe",
+    )
+    group.add_argument(
+        "-dc-host",
+        action="store",
+        metavar="hostname",
+        help="Hostname of the domain controller to use. "
+        "If ommited, the domain part (FQDN) "
+        "specified in the account parameter will be used",
     )
 
     target.add_argument_group(subparser, connection_options=group)
