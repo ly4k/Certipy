@@ -381,8 +381,6 @@ The forged certificate can then be used for authentication with Certipy's `auth`
 
 ### Certificates
 
-Manage certificates and private keys
-
 The `cert` command is useful for working with PFX's from other tools, such as [Certify](https://github.com/GhostPack/Certify) or [KrbRelay](https://github.com/cube0x0/KrbRelay), which creates encrypted PFXs. 
 
 ```
