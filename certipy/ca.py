@@ -527,7 +527,7 @@ class CA:
 
         certificate_templates = self.get_templates()
 
-        template = Template(self.target)
+        template = Template(self.target, connection=self.connection)
         template = template.get_configuration(self.template)
         if template is None:
             return False

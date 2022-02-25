@@ -181,6 +181,9 @@ class Authenticate:
         username = username.lower()
         upn = "%s@%s" % (username, domain)
 
+        if self.target.target_ip is None:
+            self.target.target_ip = self.target.resolver.resolve(domain)
+
         logging.info("Using principal: %s" % upn)
 
         as_req, diffie = build_pkinit_as_req(username, domain, self.key, self.cert)
@@ -428,7 +431,7 @@ def entry(options: argparse.Namespace) -> None:
         target_ip=options.dc_ip,
         ns=options.ns,
         timeout=options.timeout,
-        dns_tcp=options.dns_tcp
+        dns_tcp=options.dns_tcp,
     )
 
     authenticate = Authenticate(target=target, **vars(options))
