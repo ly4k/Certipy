@@ -11,7 +11,6 @@ Certipy is an offensive tool for enumerating and abusing Active Directory Certif
     - [Find](#find)
     - [Request](#request)
     - [Authenticate](#authenticate)
-      - [Standard Usage](#standard-usage)
     - [Shadow Credentials](#shadow-credentials)
     - [Golden Certificates](#golden-certificates)
     - [Certificates](#certificates)
@@ -230,8 +229,6 @@ authentication options:
   -domain domain
 ```
 
-#### Standard Usage
-
 By default, Certipy will try to extract the username and domain from the certificate (`-pfx`) for authentication.
 
 ```bash
@@ -248,7 +245,7 @@ Certipy v2.0.8 - by Oliver Lyak (ly4k)
 
 The NT hash and the credential cache (TGT) can be used for further authentication with other tools.
 
-If the standard usage example doesn't work in your case, you can specify the required parameters manually, such as the KDC IP, username, and domain.
+If the example above doesn't work in your case, you can specify the required parameters manually, such as the KDC IP, username, and domain.
 
 ```bash
 $ certipy auth -pfx 'administrator.pfx' -username 'administrator' -domain 'corp.local' -dc-ip 172.16.19.100
