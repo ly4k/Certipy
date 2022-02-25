@@ -1,4 +1,7 @@
-from typing import Tuple
+import argparse
+import logging
+import sys
+from typing import Callable, Tuple
 
 from asn1crypto import cms as asn1cms
 from asn1crypto import core as asn1core
@@ -16,6 +19,8 @@ from cryptography.x509.oid import ExtensionOID, NameOID
 from impacket.dcerpc.v5.nrpc import checkNullString
 from pyasn1.codec.der import decoder, encoder
 from pyasn1.type.char import UTF8String
+
+NAME = "cert"
 
 PRINCIPAL_NAME = x509.ObjectIdentifier("1.3.6.1.4.1.311.20.2.3")
 
@@ -232,3 +237,120 @@ def create_cms(
     outer_content_info["content"] = signed_data
 
     return outer_content_info.dump()
+
+
+def entry(options: argparse.Namespace) -> None:
+    cert, key = None, None
+
+    if not any([options.pfx, options.cert, options.key]):
+        logging.error("-pfx, -cert, or -key is required")
+        return
+
+    if options.pfx:
+        password = None
+        if options.password:
+            logging.debug(
+                "Loading PFX %s with password %s" % (repr(options.pfx), password)
+            )
+            password = options.password.encode()
+        else:
+            logging.debug("Loading PFX %s without password" % repr(options.pfx))
+
+        with open(options.pfx, "rb") as f:
+            pfx = f.read()
+
+        key, cert = load_pfx(pfx, password)
+
+    if options.cert:
+        logging.debug("Loading certificate from %s" % repr(options.cert))
+
+        with open(options.cert, "rb") as f:
+            cert = f.read()
+        try:
+            cert = pem_to_cert(cert)
+        except Exception:
+            cert = der_to_cert(cert)
+
+    if options.key:
+        logging.debug("Loading private key from %s" % repr(options.cert))
+
+        with open(options.key, "rb") as f:
+            key = f.read()
+        try:
+            key = pem_to_key(key)
+        except Exception:
+            key = der_to_key(key)
+
+    if options.export:
+        pfx = create_pfx(key, cert)
+        if options.out:
+            logging.info("Writing PFX to %s" % repr(options.out))
+
+            with open(options.out, "wb") as f:
+                f.write(pfx)
+        else:
+            sys.stdout.buffer.write(pfx)
+    else:
+        output = ""
+        log_str = ""
+        if cert and not options.nocert:
+            output += cert_to_pem(cert).decode()
+            log_str += "certificate"
+            if key:
+                log_str += " and "
+
+        if key and not options.nokey:
+            output += key_to_pem(key).decode()
+            log_str += "private key"
+
+        if len(output) == 0:
+            logging.error("Output is empty")
+            return
+
+        if options.out:
+            logging.info("Writing %s to %s" % (log_str, repr(options.out)))
+
+            with open(options.out, "w") as f:
+                f.write(output)
+        else:
+            print(output)
+
+
+def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:
+    subparser = subparsers.add_parser(NAME, help="Manage certificates and private keys")
+
+    subparser.add_argument(
+        "-pfx", action="store", metavar="infile", help="Load PFX from file"
+    )
+
+    subparser.add_argument(
+        "-password", action="store", metavar="password", help="Set import password"
+    )
+
+    subparser.add_argument(
+        "-key", action="store", metavar="infile", help="Load private key from file"
+    )
+
+    subparser.add_argument(
+        "-cert", action="store", metavar="infile", help="Load certificate from file"
+    )
+
+    subparser.add_argument("-export", action="store_true", help="Output PFX file")
+
+    subparser.add_argument(
+        "-out", action="store", metavar="outfile", help="Output filename"
+    )
+
+    subparser.add_argument(
+        "-nocert",
+        action="store_true",
+        help="Don't output certificate",
+    )
+
+    subparser.add_argument(
+        "-nokey", action="store_true", help="Don't output private key"
+    )
+
+    subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
+
+    return NAME, entry

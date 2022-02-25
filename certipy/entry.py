@@ -5,13 +5,24 @@ import traceback
 
 from impacket.examples import logger
 
-from certipy import auth, ca, find, forge, relay, request, shadow, template, version
+from certipy import (
+    auth,
+    ca,
+    certificate,
+    find,
+    forge,
+    relay,
+    request,
+    shadow,
+    template,
+    version,
+)
 
-ENTRY_PARSERS = [auth, ca, find, forge, relay, request, shadow, template]
+ENTRY_PARSERS = [auth, ca, find, forge, relay, request, shadow, template, certificate]
 
 
 def main() -> None:
-    print(version.BANNER)
+    print(version.BANNER, file=sys.stderr)
 
     logger.init()
 
