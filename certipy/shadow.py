@@ -443,7 +443,6 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
 
     subparser.add_argument(
         "shadow_action",
-        metavar="action",
         choices=["list", "add", "remove", "clear", "info", "auto"],
         help="Key Credentials action",
     )

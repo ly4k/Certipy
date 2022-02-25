@@ -18,7 +18,17 @@ from certipy import (
     version,
 )
 
-ENTRY_PARSERS = [auth, ca, find, forge, relay, request, shadow, template, certificate]
+ENTRY_PARSERS = [
+    auth,
+    ca,
+    certificate,
+    find,
+    forge,
+    relay,
+    request,
+    shadow,
+    template,
+]
 
 
 def main() -> None:

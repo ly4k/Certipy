@@ -146,6 +146,7 @@ class Forge:
             skip_extensions = [
                 x509.AuthorityKeyIdentifier.oid,
                 x509.SubjectAlternativeName.oid,
+                x509.ExtendedKeyUsage.oid,
             ]
 
             crl = self.get_crl()
