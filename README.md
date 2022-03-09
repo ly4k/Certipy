@@ -31,6 +31,17 @@ Certipy is an offensive tool for enumerating and abusing Active Directory Certif
 python3 setup.py install
 ```
 
+```bash
+docker build . -t certipy:latest
+# with NTLM auth
+docker run -v $(pwd):/app certipy:latest find -k -no-pass example.com/user@DC.example.com
+
+# With kerberos auth
+docker run -e 'KRB5CCNAME=/app/user.ccache' -v $(pwd):/app certipy:latest find -k -no-pass example.com/user@DC.example.com
+
+
+```
+
 ## Usage
 
 A lot of the usage and features are demonstrated in the [blog post](https://research.ifcr.dk/34d1c26f0dc6) for the new Certipy 2.0 release.
@@ -199,7 +210,7 @@ Certipy v2.0.8 - by Oliver Lyak (ly4k)
 [*] Saved certificate and private key to 'john.pfx'
 ```
 
-If the request succeeds, the certificate and private key will be saved as a PFX file. The PFX file can then be used for various purposes depending on the certificate's usage. 
+If the request succeeds, the certificate and private key will be saved as a PFX file. The PFX file can then be used for various purposes depending on the certificate's usage.
 
 ### Authenticate
 
@@ -325,7 +336,7 @@ Certipy v2.0.8 - by Oliver Lyak (ly4k)
 [*] NT hash for 'johnpc$': fc525c9683e8fe067095ba2ddc971889
 ```
 
-This action is useful if you just want the NT hash or TGT for further authentication. It is possibly to manually add, authenticate, and delete the Key Credential, if desired. See the usage or [blog post](https://research.ifcr.dk/34d1c26f0dc6) for more information. 
+This action is useful if you just want the NT hash or TGT for further authentication. It is possibly to manually add, authenticate, and delete the Key Credential, if desired. See the usage or [blog post](https://research.ifcr.dk/34d1c26f0dc6) for more information.
 
 ### Golden Certificates
 
@@ -381,7 +392,7 @@ The forged certificate can then be used for authentication with Certipy's `auth`
 
 ### Certificates
 
-The `cert` command is useful for working with PFX's from other tools, such as [Certify](https://github.com/GhostPack/Certify) or [KrbRelay](https://github.com/cube0x0/KrbRelay), which creates encrypted PFXs. 
+The `cert` command is useful for working with PFX's from other tools, such as [Certify](https://github.com/GhostPack/Certify) or [KrbRelay](https://github.com/cube0x0/KrbRelay), which creates encrypted PFXs.
 
 ```
 Certipy v2.0.8 - by Oliver Lyak (ly4k)
@@ -410,7 +421,7 @@ Certipy v2.0.8 - by Oliver Lyak (ly4k)
 [*] Writing PFX to 'decrypted.pfx'
 ```
 
-The `decrypted.pfx` file can then be used with Certipy's commands. 
+The `decrypted.pfx` file can then be used with Certipy's commands.
 
 It is also possible to use the `cert` command to extract the private key and certificate from a PFX file by leaving out the `-export` parameter:
 
@@ -502,7 +513,7 @@ Certipy v2.0.8 - by Oliver Lyak (ly4k)
 
 ESC4 is when a user has write privileges over a certificate template. This can for instance be abused to overwrite the configuration of the certificate template to make the template vulnerable to ESC1.
 
-By default, Certipy will overwrite the configuration to make it vulnerable to ESC1. 
+By default, Certipy will overwrite the configuration to make it vulnerable to ESC1.
 
 We can specify the `-save-old` parameter to save the old configuration, which is useful for restoring the configuration afterwards.
 
