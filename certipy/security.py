@@ -37,10 +37,12 @@ class ActiveDirectorySecurity:
                 self.aces[sid]["rights"] |= self.RIGHTS_TYPE(ace["Ace"]["Mask"]["Mask"])
 
             if ace["AceType"] == ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ACE_TYPE:
-                if ace["Ace"]["ObjectTypeLen"] == 0:
+                if ace["Ace"]["Flags"] == 2:
                     uuid = bin_to_string(ace["Ace"]["InheritedObjectType"]).lower()
-                else:
+                elif ace["Ace"]["Flags"] == 1:
                     uuid = bin_to_string(ace["Ace"]["ObjectType"]).lower()
+                else:
+                    continue
 
                 self.aces[sid]["extended_rights"].append(uuid)
 
