@@ -21,6 +21,7 @@ from certipy.certificate import (
     key_to_pem,
     load_pfx,
     pem_to_key,
+    rsa,
 )
 from certipy.errors import translate_error_code
 from certipy.rpc import get_dce_rpc
@@ -82,6 +83,7 @@ class Request:
         on_behalf_of: str = None,
         pfx: str = None,
         out: str = None,
+        key: rsa.RSAPrivateKey = None,
         dynamic_endpoint: bool = False,
         debug=False,
         **kwargs
@@ -94,6 +96,7 @@ class Request:
         self.on_behalf_of = on_behalf_of
         self.pfx = pfx
         self.out = out
+        self.key = key
         self.dynamic = dynamic_endpoint
         self.verbose = debug
         self.kwargs = kwargs
@@ -210,7 +213,8 @@ class Request:
             else:
                 username = "\\".join(username.split("\\")[1:])
 
-        csr, key = create_csr(username, alt_name=self.alt_name)
+        csr, key = create_csr(username, alt_name=self.alt_name, key=self.key)
+        self.key = key
 
         if self.on_behalf_of:
             if self.pfx is None:
@@ -308,10 +312,14 @@ class Request:
 
         pfx = create_pfx(key, cert)
 
-        with open("%s.pfx" % out, "wb") as f:
+        outfile = "%s.pfx" % out
+
+        with open(outfile, "wb") as f:
             f.write(pfx)
 
-        logging.info("Saved certificate and private key to %s" % repr("%s.pfx" % out))
+        logging.info("Saved certificate and private key to %s" % repr(outfile))
+
+        return pfx, outfile
 
 
 def entry(options: argparse.Namespace) -> None:

@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="Certipy",
-    version="2.0.9",
+    version="3.0.0",
     license="MIT",
     author="ly4k",
     url="https://github.com/ly4k/Certipy",
@@ -15,7 +15,7 @@ setup(
         "pyasn1",
         "dnspython",
         "dsinternals",
-        "pyopenssl",
+        "pyopenssl>=22.0.0",
     ],
     packages=["certipy"],
     entry_points={

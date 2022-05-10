@@ -218,6 +218,8 @@ class Shadow:
             % (repr(user.get("sAMAccountName")), authenticate.nt_hash)
         )
 
+        return authenticate.nt_hash
+
     def add(self):
         user = self.connection.get_user(self.account)
         if user is None:

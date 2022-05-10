@@ -6,6 +6,7 @@ import traceback
 from impacket.examples import logger
 
 from certipy import (
+    account,
     auth,
     ca,
     certificate,
@@ -19,6 +20,7 @@ from certipy import (
 )
 
 ENTRY_PARSERS = [
+    account,
     auth,
     ca,
     certificate,

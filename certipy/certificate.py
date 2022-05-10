@@ -121,6 +121,7 @@ def create_csr(
     username: str, alt_name: bytes = None, key: rsa.RSAPrivateKey = None
 ) -> Tuple[x509.CertificateSigningRequest, rsa.RSAPrivateKey]:
     if key is None:
+        logging.debug("Generating RSA key")
         key = generate_rsa_key()
 
     csr = x509.CertificateSigningRequestBuilder()
