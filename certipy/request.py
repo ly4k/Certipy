@@ -18,6 +18,7 @@ from certipy.certificate import (
     csr_to_der,
     der_to_cert,
     get_id_from_certificate,
+    get_object_sid_from_certificate,
     key_to_pem,
     load_pfx,
     pem_to_key,
@@ -164,11 +165,18 @@ class Request:
             return False
 
         cert = der_to_cert(b"".join(response["pctbEncodedCert"]["pb"]))
+
         id_type, identification = get_id_from_certificate(cert)
         if id_type is not None:
             logging.info("Got certificate with %s %s" % (id_type, repr(identification)))
         else:
-            logging.info("Got certficate without identification")
+            logging.info("Got certificate without identification")
+
+        object_sid = get_object_sid_from_certificate(cert)
+        if id_type is not None:
+            logging.info("Certificate object SID is %s" % repr(object_sid))
+        else:
+            logging.info("Certificate has not object SID")
 
         out = self.out
         if out is None:
@@ -296,11 +304,18 @@ class Request:
             return False
 
         cert = der_to_cert(b"".join(response["pctbEncodedCert"]["pb"]))
+
         id_type, identification = get_id_from_certificate(cert)
         if id_type is not None:
             logging.info("Got certificate with %s %s" % (id_type, repr(identification)))
         else:
-            logging.info("Got certficate without identification")
+            logging.info("Got certificate without identification")
+
+        object_sid = get_object_sid_from_certificate(cert)
+        if id_type is not None:
+            logging.info("Certificate object SID is %s" % repr(object_sid))
+        else:
+            logging.info("Certificate has not object SID")
 
         out = self.out
         if out is None:

@@ -25,6 +25,7 @@ from certipy.certificate import (
     create_pfx,
     csr_to_pem,
     get_id_from_certificate,
+    get_object_sid_from_certificate,
     key_to_pem,
     pem_to_cert,
     pem_to_key,
@@ -311,7 +312,13 @@ class ADCSAttackClient(ProtocolAttack):
         if id_type is not None:
             logging.info("Got certificate with %s %s" % (id_type, repr(identification)))
         else:
-            logging.info("Got certficate without identification")
+            logging.info("Got certificate without identification")
+
+        object_sid = get_object_sid_from_certificate(cert)
+        if id_type is not None:
+            logging.info("Certificate object SID is %s" % repr(object_sid))
+        else:
+            logging.info("Certificate has not object SID")
 
         out = self.adcs_relay.out
         if out is None:
