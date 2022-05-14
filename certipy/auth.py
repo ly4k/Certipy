@@ -35,6 +35,7 @@ from pyasn1.type.univ import noValue
 
 from certipy.certificate import (
     get_id_from_certificate,
+    get_object_sid_from_certificate,
     hash_digest,
     hashes,
     load_pfx,
@@ -120,6 +121,7 @@ class Authenticate:
 
         if not is_key_credential:
             id_type, identification = get_id_from_certificate(self.cert)
+            object_sid = get_object_sid_from_certificate(self.cert)
             cert_username, cert_domain = cert_id_to_parts(id_type, identification)
 
             if not any([cert_username, cert_domain]):
@@ -208,6 +210,15 @@ class Authenticate:
                     logging.error(
                         ("Verify that the domain %s matches the certificate %s: %s")
                         % (repr(domain), id_type, identification)
+                    )
+            elif "KDC_ERR_CERTIFICATE_MISMATCH" in str(e) and not is_key_credential:
+                logging.error(
+                    ("Object SID mismatch between certificate and user %s" % repr(username))
+                )
+                if object_sid is not None:
+                    logging.error(
+                        ("Verify that user %s has object SID %s")
+                        % (repr(username), repr(object_sid))
                     )
             else:
                 logging.error("Got error while trying to request TGT: %s" % str(e))

@@ -24,6 +24,8 @@ NAME = "cert"
 
 PRINCIPAL_NAME = x509.ObjectIdentifier("1.3.6.1.4.1.311.20.2.3")
 
+NTDS_CA_SECURITY_EXT = x509.ObjectIdentifier("1.3.6.1.4.1.311.25.2")
+
 
 class EnrollmentNameValuePair(asn1core.Sequence):
     _fields = [
@@ -95,6 +97,22 @@ def get_id_from_certificate(
         pass
 
     return None, None
+
+
+def get_object_sid_from_certificate(
+    certificate: x509.Certificate,
+) -> Tuple[str, str]:
+    try:
+        object_sid = certificate.extensions.get_extension_for_oid(
+            NTDS_CA_SECURITY_EXT
+        )
+
+        sid = object_sid.value.value
+        return sid[sid.find(b'S-1-5'):].decode()
+    except:
+        pass
+
+    return None
 
 
 def create_pfx(key: rsa.RSAPrivateKey, cert: x509.Certificate) -> bytes:
