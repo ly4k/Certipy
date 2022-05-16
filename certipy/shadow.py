@@ -92,7 +92,7 @@ class Shadow:
             )
         else:
             logging.error(
-                "Failed to update the Key Credentials for %s: "
+                "Failed to update the Key Credentials for %s: %s"
                 % (repr(user.get("sAMAccountName")), result["message"])
             )
         return False
