@@ -106,6 +106,7 @@ class Authenticate:
         self.kwargs = kwargs
 
         self.nt_hash: str = None
+        self.lm_hash: str = None
 
         if self.pfx is not None:
             with open(self.pfx, "rb") as f:
@@ -396,6 +397,8 @@ class Authenticate:
             buff = pac_type["Buffers"]
 
             nt_hash = None
+            lm_hash = "aad3b435b51404eeaad3b435b51404ee"
+
             for _ in range(pac_type["cBuffers"]):
                 info_buffer = PAC_INFO_BUFFER(buff)
                 data = pac_type["Buffers"][info_buffer["Offset"] - 8 :][
@@ -414,6 +417,8 @@ class Authenticate:
                         cred_structs = NTLM_SUPPLEMENTAL_CREDENTIAL(
                             b"".join(cred["Credentials"])
                         )
+                        if any(cred_structs["LmPassword"]):
+                            lm_hash = cred_structs["LmPassword"].hex()
                         nt_hash = cred_structs["NtPassword"].hex()
                         break
                     break
@@ -423,10 +428,11 @@ class Authenticate:
                 logging.error("Could not find credentials in PAC")
                 return False
 
+            self.lm_hash = lm_hash
             self.nt_hash = nt_hash
 
             if not is_key_credential:
-                logging.info("Got NT hash for %s: %s" % (repr(upn), nt_hash))
+                logging.info("Got hash for %s: %s:%s", repr(upn), lm_hash, nt_hash)
 
             return nt_hash
 
