@@ -32,13 +32,13 @@ PROTECTED_ATTRIBUTES = [
     "msPKI-Template-Minor-Revision",
 ]
 
-# SubCA template configuration with full control for 'Authenticated Users'
+# SubCA template configuration with full control for 'Authenticated Users' with zeroed flags
 CONFIGURATION_TEMPLATE = {
     "showInAdvancedViewOnly": [b"TRUE"],
     "nTSecurityDescriptor": [
         b"\x01\x00\x04\x9c0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x14\x00\x00\x00\x02\x00\x1c\x00\x01\x00\x00\x00\x00\x00\x14\x00\xff\x01\x0f\x00\x01\x01\x00\x00\x00\x00\x00\x05\x0b\x00\x00\x00\x01\x05\x00\x00\x00\x00\x00\x05\x15\x00\x00\x00\xc8\xa3\x1f\xdd\xe9\xba\xb8\x90,\xaes\xbb\xf4\x01\x00\x00"  # Authenticated Users - Full Control
     ],
-    "flags": [b"131793"],
+    "flags": [b"0"],
     "pKIDefaultKeySpec": [b"2"],
     "pKIKeyUsage": [b"\x86\x00"],
     "pKIMaxIssuingDepth": [b"-1"],
