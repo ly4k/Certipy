@@ -1,4 +1,3 @@
-import logging
 import ssl
 from typing import Any, List, Union
 
@@ -6,8 +5,27 @@ import ldap3
 from ldap3.core.results import RESULT_STRONGER_AUTH_REQUIRED
 from ldap3.protocol.microsoft import security_descriptor_control
 
-from certipy.kerberos import get_kerberos_type1
-from certipy.target import Target
+from certipy.lib.constants import WELLKNOWN_SIDS
+from certipy.lib.kerberos import get_kerberos_type1
+from certipy.lib.logger import logging
+from certipy.lib.target import Target
+
+
+# https://github.com/fox-it/BloodHound.py/blob/d665959c58d881900378040e6670fa12f801ccd4/bloodhound/ad/utils.py#L216
+def get_account_type(entry: "LDAPEntry"):
+    account_type = entry.get("sAMAccountType")
+    if account_type in [268435456, 268435457, 536870912, 536870913]:
+        return "Group"
+    elif entry.get("msDS-GroupMSAMembership"):
+        return "User"
+    elif account_type in [805306369]:
+        return "Computer"
+    elif account_type in [805306368]:
+        return "User"
+    elif account_type in [805306370]:
+        return "trustaccount"
+    else:
+        return "Domain"
 
 
 class LDAPEntry(dict):
@@ -45,6 +63,13 @@ class LDAPConnection:
         self.ldap_conn: ldap3.Connection = None
         self.domain: str = None
 
+        self.sid_map = {}
+
+        self._machine_account_quota = None
+        self._domain_sid = None
+        self._users = {}
+        self._user_sids = {}
+
     def connect(self, version: ssl._SSLMethod = None) -> None:
         user = "%s\\%s" % (self.target.domain, self.target.username)
 
@@ -80,7 +105,7 @@ class LDAPConnection:
 
             logging.debug("Authenticating to LDAP server")
 
-            if self.target.do_kerberos:
+            if self.target.do_kerberos or self.target.use_sspi:
                 ldap_conn = ldap3.Connection(ldap_server)
                 self.LDAP3KerberosLogin(ldap_conn)
             else:
@@ -148,19 +173,18 @@ class LDAPConnection:
         self.domain = self.ldap_server.info.other["ldapServiceName"][0].split("@")[-1]
 
     def LDAP3KerberosLogin(self, connection: ldap3.Connection) -> bool:
-        target = self.target
-        _, _, blob = get_kerberos_type1(
-            target.username,
-            target.password,
-            target.domain,
-            target.lmhash,
-            target.nthash,
-            target_name=target.remote_name,
-            kdc_host=target.dc_ip,
+        _, _, blob, username = get_kerberos_type1(
+            self.target,
+            target_name=self.target.remote_name,
         )
 
         request = ldap3.operation.bind.bind_operation(
-            connection.version, ldap3.SASL, target.username, None, "GSS-SPNEGO", blob
+            connection.version,
+            ldap3.SASL,
+            username,
+            None,
+            "GSS-SPNEGO",
+            blob,
         )
 
         if connection.closed:
@@ -242,9 +266,16 @@ class LDAPConnection:
         self, username: str, silent: bool = False, *args, **kwargs
     ) -> LDAPEntry:
         def _get_user(username, *args, **kwargs):
+            sanitized_username = username.lower().strip()
+            if sanitized_username in self._users:
+                return self._users[sanitized_username]
+
             results = self.search("(sAMAccountName=%s)" % username, *args, **kwargs)
             if len(results) != 1:
                 return None
+
+            self._users[sanitized_username] = results[0]
+
             return results[0]
 
         user = _get_user(username, *args, **kwargs)
@@ -255,3 +286,145 @@ class LDAPConnection:
             logging.error("Could not find user %s" % repr(username))
 
         return user
+
+    @property
+    def machine_account_quota(self):
+        if self._machine_account_quota is not None:
+            return self._machine_account_quota
+        results = self.search(
+            "(objectClass=domain)",
+            attributes=[
+                "ms-DS-MachineAccountQuota",
+            ],
+        )
+        if len(results) != 1:
+            return None
+
+        result = results[0]
+        machine_account_quota = result.get("ms-DS-MachineAccountQuota")
+        if machine_account_quota is None:
+            machine_account_quota = 0
+
+        self._machine_account_quota = machine_account_quota
+
+        return machine_account_quota
+
+    @property
+    def domain_sid(self):
+        if self._domain_sid is not None:
+            return self._domain_sid
+
+        results = self.search(
+            "(objectClass=domain)",
+            attributes=[
+                "objectSid",
+            ],
+        )
+        if len(results) != 1:
+            return None
+
+        result = results[0]
+        domain_sid = result.get("objectSid")
+        if domain_sid is None:
+            domain_sid = None
+
+        self._domain_sid = domain_sid
+
+        return domain_sid
+
+    def get_user_sids(self, username: str):
+        sanitized_username = username.lower().strip()
+        if sanitized_username in self._user_sids:
+            return self._user_sids[sanitized_username]
+
+        user = self.get_user(username)
+
+        sids = set()
+
+        sids.add(user.get("objectSid"))
+
+        # Everyone, Authenticated Users, Users
+        sids |= set(["S-1-1-0", "S-1-5-11", "S-1-5-32-545"])
+
+        # Domain Users, Domain Computers, etc.
+        primary_group_id = user.get("primaryGroupID")
+        if primary_group_id is not None:
+            sids.add("%s-%d" % (self.domain_sid, primary_group_id))
+
+        # Add Domain Computers group if Machine Account Quota > 0
+        if self.machine_account_quota > 0:
+            logging.debug(
+                "Adding Domain Computers to list of current user's SIDs (Machine Account Quota: %d > 0)"
+                % self.machine_account_quota
+            )
+            sids.add("%s-515" % self.domain_sid)
+
+        dns = [user.get("distinguishedName")]
+        for sid in sids:
+            object = self.lookup_sid(sid)
+            if "dn" in object:
+                dns.append(object["dn"])
+
+        member_of_queries = []
+        for dn in dns:
+            member_of_queries.append("(member:1.2.840.113556.1.4.1941:=%s)" % dn)
+
+        # Nested Group Membership
+        groups = self.search(
+            "(|%s)" % "".join(member_of_queries),
+            attributes="objectSid",
+        )
+
+        for group in groups:
+            sid = group.get("objectSid")
+            if sid is not None:
+                sids.add(sid)
+
+        self._user_sids[sanitized_username] = sids
+
+        return sids
+
+    def lookup_sid(self, sid: str) -> LDAPEntry:
+        if sid in self.sid_map:
+            return self.sid_map[sid]
+
+        if sid in WELLKNOWN_SIDS:
+            return LDAPEntry(
+                **{
+                    "attributes": {
+                        "objectSid": "%s-%s" % (self.domain.upper(), sid),
+                        "objectType": WELLKNOWN_SIDS[sid][1].capitalize(),
+                        "name": "%s\\%s" % (self.domain, WELLKNOWN_SIDS[sid][0]),
+                    }
+                }
+            )
+
+        results = self.search(
+            "(objectSid=%s)" % sid,
+            attributes=[
+                "sAMAccountType",
+                "name",
+                "msDS-GroupMSAMembership",
+                "objectSid",
+            ],
+        )
+
+        if len(results) != 1:
+            logging.warning("Failed to lookup user with SID %s" % repr(sid))
+            entry = LDAPEntry(
+                **{
+                    "attributes": {
+                        "objectSid": sid,
+                        "name": sid,
+                        "objectType": "Base",
+                    }
+                }
+            )
+        else:
+            entry = results[0]
+            entry.set("name", "%s\\%s" % (self.domain, entry.get("name")))
+            entry.set("objectType", get_account_type(entry))
+
+        self.sid_map[sid] = entry
+
+        return entry

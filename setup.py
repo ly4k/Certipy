@@ -1,23 +1,36 @@
 from setuptools import setup
 
+with open("README.md") as f:
+    readme = f.read()
+
 setup(
     name="Certipy",
-    version="3.0.0",
+    version="4.0.0",
     license="MIT",
     author="ly4k",
     url="https://github.com/ly4k/Certipy",
-    long_description="README.md",
+    long_description=readme,
     install_requires=[
         "asn1crypto",
-        "cryptography>=3.5",
+        "cryptography>=37.0",
         "impacket",
         "ldap3",
         "pyasn1",
         "dnspython",
         "dsinternals",
         "pyopenssl>=22.0.0",
+        "requests",
+        "requests_ntlm",
+        'winacl; platform_system=="Windows"',
+        'wmi; platform_system=="Windows"',
     ],
-    packages=["certipy"],
+    packages=[
+        "certipy",
+        "certipy.commands",
+        "certipy.commands.parsers",
+        "certipy.lib",
+        "certipy.lib.sspi",
+    ],
     entry_points={
         "console_scripts": ["certipy=certipy.entry:main"],
     },

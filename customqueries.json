@@ -181,6 +181,36 @@
           "query": "MATCH (n:GPO) WHERE n.type = 'Enrollment Service' and n.`Web Enrollment` = 'Enabled' RETURN n"
         }
       ]
+    },
+    {
+      "name": "Find Unsecured Certificate Templates (ESC9)",
+      "category": "Domain Escalation",
+      "queryList": [
+        {
+          "final": true,
+          "query": "MATCH (n:GPO) WHERE n.type = 'Certificate Template' and n.`Enrollee Supplies Subject` = true and n.`Client Authentication` = true and n.`Enabled` = true  RETURN n"
+        }
+      ]
+    },
+    {
+      "name": "Find Unsecured Certificate Templates (ESC9)",
+      "category": "PKI",
+      "queryList": [
+        {
+          "final": true,
+          "query": "MATCH (n:GPO) WHERE n.type = 'Certificate Template' and 'NoSecurityExtension' in n.`Enrollment Flag` and n.`Enabled` = true  RETURN n"
+        }
+      ]
+    },
+    {
+      "name": "Shortest Paths to Unsecured Certificate Templates from Owned Principals (ESC9)",
+      "category": "PKI",
+      "queryList": [
+        {
+          "final": true,
+          "query": "MATCH p=allShortestPaths((g {owned:true})-[r*1..]->(n:GPO)) WHERE n.type = 'Certificate Template' and g<>n and 'NoSecurityExtension' in n.`Enrollment Flag` and n.`Enabled` = true and NONE(rel in r WHERE type(rel) in ['EnabledBy','Read','ManageCa','ManageCertificates']) return p"
+        }
+      ]
     }
   ]
 }

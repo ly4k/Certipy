@@ -1,32 +1,31 @@
-import logging
-
 from impacket import uuid
 from impacket.dcerpc.v5 import epm, rpcrt, transport
 from impacket.dcerpc.v5.dcomrt import DCOMConnection
 
-from certipy.kerberos import get_TGS
-from certipy.target import Target
+from certipy.lib.kerberos import get_TGS
+from certipy.lib.logger import logging
+from certipy.lib.target import Target
 
 
 def get_dcom_connection(target: Target) -> DCOMConnection:
     TGS = None
+
+    logging.debug("Trying to get DCOM connection for: %s" % target.target_ip)
+    username = target.username
+    domain = target.domain
+
     if target.do_kerberos:
-        tgs, cipher, session_key = get_TGS(
-            target.username,
-            target.password,
-            target.domain,
-            target.lmhash,
-            target.nthash,
+        tgs, cipher, session_key, username, domain = get_TGS(
+            target,
             target_name=target.remote_name,
-            kdc_host=target.dc_ip,
         )
         TGS = {"KDC_REP": tgs, "cipher": cipher, "sessionKey": session_key}
 
     dcom = DCOMConnection(
         target.target_ip,
-        username=target.username,
+        username=username,
         password=target.password,
-        domain=target.domain,
+        domain=domain,
         lmhash=target.lmhash,
         nthash=target.nthash,
         TGS=TGS,
@@ -58,23 +57,21 @@ def get_dce_rpc_from_string_binding(
     rpctransport.set_connect_timeout(timeout)
     rpctransport.set_kerberos(target.do_kerberos, kdcHost=target.dc_ip)
 
+    username = target.username
+    domain = target.domain
+
     TGS = None
     if target.do_kerberos:
-        tgs, cipher, session_key = get_TGS(
-            target.username,
-            target.password,
-            target.domain,
-            target.lmhash,
-            target.nthash,
+        tgs, cipher, session_key, username, domain = get_TGS(
+            target,
             target_name=remote_name,
-            kdc_host=target.dc_ip,
         )
         TGS = {"KDC_REP": tgs, "cipher": cipher, "sessionKey": session_key}
 
     rpctransport.set_credentials(
-        target.username,
+        username,
         target.password,
-        target.domain,
+        domain,
         target.lmhash,
         target.nthash,
         TGS=TGS,

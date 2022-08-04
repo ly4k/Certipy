@@ -1,8 +1,9 @@
+NAME = "ca"
+
 import argparse
 import copy
-import logging
 import time
-from typing import Callable, List, Tuple
+from typing import List, Tuple
 
 from impacket.dcerpc.v5 import rpcrt, rrp, scmr
 from impacket.dcerpc.v5.dcom.oaut import VARIANT
@@ -15,27 +16,29 @@ from impacket.ldap import ldaptypes
 from impacket.smbconnection import SMBConnection
 from impacket.uuid import string_to_bin, uuidtup_to_bin
 
-from certipy import target
-from certipy.certificate import NameOID, create_pfx, load_pfx
-from certipy.constants import CERTIFICATION_AUTHORITY_RIGHTS
-from certipy.errors import translate_error_code
-from certipy.ldap import LDAPConnection, LDAPEntry
-from certipy.rpc import (
+from certipy.lib.certificate import NameOID, create_pfx, der_to_cert, load_pfx, x509
+from certipy.lib.constants import CERTIFICATION_AUTHORITY_RIGHTS
+from certipy.lib.errors import translate_error_code
+from certipy.lib.kerberos import get_TGS
+from certipy.lib.ldap import LDAPConnection, LDAPEntry
+from certipy.lib.logger import logging
+from certipy.lib.rpc import (
     get_dce_rpc,
     get_dce_rpc_from_string_binding,
     get_dcom_connection,
 )
-from certipy.security import CASecurity
-from certipy.target import Target
-from certipy.template import Template
+from certipy.lib.security import CASecurity
+from certipy.lib.target import Target
 
-NAME = "ca"
+from .template import Template
 
 IF_NOREMOTEICERTADMINBACKUP = 0x40
 CR_PROP_TEMPLATES = 0x0000001D
 CLSID_ICertAdminD = string_to_bin("d99e6e73-fc88-11d0-b498-00a0c90312f3")
+CLSID_CCertRequestD = string_to_bin("d99e6e74-fc88-11d0-b498-00a0c90312f3")
 IID_ICertAdminD = uuidtup_to_bin(("d99e6e71-fc88-11d0-b498-00a0c90312f3", "0.0"))
 IID_ICertAdminD2 = uuidtup_to_bin(("7fe0d935-dda6-443f-85d0-1cfb58fe41dd", "0.0"))
+IID_ICertRequestD2 = uuidtup_to_bin(("5422fd3a-d4b8-4cef-a12e-e87d4ca22e90", "0.0"))
 
 
 class DCERPCSessionError(DCERPCException):
@@ -78,6 +81,20 @@ class ICertAdminD_DenyRequest(DCOMCALL):
 
 class ICertAdminD_DenyRequestResponse(DCOMANSWER):
     structure = (("ErrorCode", ULONG),)
+
+
+class ICertRequestD2_GetCAProperty(DCOMCALL):
+    opnum = 7
+    structure = (
+        ("pwszAuthority", LPWSTR),
+        ("PropId", LONG),
+        ("PropIndex", LONG),
+        ("PropType", LONG),
+    )
+
+
+class ICertRequestD2_GetCAPropertyResponse(DCOMANSWER):
+    structure = (("pctbPropertyValue", CERTTRANSBLOB),)
 
 
 class ICertAdminD2_GetCAProperty(DCOMCALL):
@@ -140,7 +157,7 @@ class ICertAdminD2_GetConfigEntryResponse(DCOMANSWER):
     structure = (("pVariant", VARIANT),)
 
 
-class ICertAdminDCustom(IRemUnknown):
+class ICertCustom(IRemUnknown):
     def request(self, req, *args, **kwargs):
         req["ORPCthis"] = self.get_cinstance().get_ORPCthis()
         req["ORPCthis"]["flags"] = 0
@@ -162,16 +179,22 @@ class ICertAdminDCustom(IRemUnknown):
         return resp
 
 
-class ICertAdminD(ICertAdminDCustom):
+class ICertAdminD(ICertCustom):
     def __init__(self, interface):
         super().__init__(interface)
         self._iid = IID_ICertAdminD
 
 
-class ICertAdminD2(ICertAdminDCustom):
+class ICertAdminD2(ICertCustom):
     def __init__(self, interface):
         super().__init__(interface)
         self._iid = IID_ICertAdminD2
+
+
+class ICertRequestD2(ICertCustom):
+    def __init__(self, interface):
+        super().__init__(interface)
+        self._iid = IID_ICertRequestD2
 
 
 class CA:
@@ -207,6 +230,7 @@ class CA:
         self._connection: LDAPConnection = connection
         self._cert_admin: ICertAdminD = None
         self._cert_admin2: ICertAdminD2 = None
+        self._cert_request2: ICertRequestD2 = None
         self._rrp_dce = None
 
     @property
@@ -216,7 +240,7 @@ class CA:
 
         target = copy.copy(self.target)
 
-        if target.do_kerberos:
+        if target.do_kerberos or target.use_sspi:
             if self.dc_host is None:
                 raise Exception(
                     "Kerberos auth requires DNS name of the target DC. Use -dc-host."
@@ -272,6 +296,18 @@ class CA:
         return self._cert_admin2
 
     @property
+    def cert_request2(self) -> ICertRequestD2:
+        if self._cert_request2 is not None:
+            return self._cert_request2
+
+        dcom = get_dcom_connection(self.target)
+        iInterface = dcom.CoCreateInstanceEx(CLSID_CCertRequestD, IID_ICertRequestD2)
+        iInterface.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
+        self._cert_request2 = ICertRequestD2(iInterface)
+
+        return self._cert_request2
+
+    @property
     def rrp_dce(self):
         if self._rrp_dce is not None:
             return self._rrp_dce
@@ -307,6 +343,19 @@ class CA:
         self._rrp_dce = dce
 
         return self._rrp_dce
+
+    def get_exchange_certificate(self) -> x509.Certificate:
+        request = ICertRequestD2_GetCAProperty()
+        request["pwszAuthority"] = checkNullString(self.ca)
+        request["PropId"] = 0x0000000F
+        request["PropIndex"] = 0
+        request["PropType"] = 0x00000003
+
+        resp = self.cert_request2.request(request)
+
+        exchange_cert = der_to_cert(b"".join(resp["pctbPropertyValue"]["pb"]))
+
+        return exchange_cert
 
     def get_config_csra(self) -> Tuple[int, int, CASecurity]:
         request = ICertAdminD2_GetConfigEntry()
@@ -805,13 +854,23 @@ class CA:
             self.target.remote_name, self.target.target_ip, timeout=self.target.timeout
         )
         if self.target.do_kerberos:
+            tgs, cipher, session_key, username, domain = get_TGS(
+                self.target, self.target.remote_name, "cifs"
+            )
+
+            TGS = {}
+            TGS["KDC_REP"] = tgs
+            TGS["cipher"] = cipher
+            TGS["sessionKey"] = session_key
+
             smbclient.kerberosLogin(
-                self.target.username,
+                username,
                 self.target.password,
-                self.target.domain,
+                domain,
                 self.target.lmhash,
                 self.target.nthash,
                 kdcHost=self.target.dc_ip,
+                TGS=TGS,
             )
         else:
             smbclient.login(
@@ -1000,109 +1059,3 @@ def entry(options: argparse.Namespace) -> None:
         ca.disable()
     else:
         logging.error("No action specified")
-
-
-def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:
-    subparser = subparsers.add_parser(NAME, help="Manage CA and certificates")
-
-    subparser.add_argument("-ca", action="store", metavar="certificate authority name")
-    subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
-
-    group = subparser.add_argument_group("certificate template options")
-    group.add_argument(
-        "-enable-template",
-        action="store",
-        metavar="template name",
-        help="Enable a certificate template on the CA",
-    )
-    group.add_argument(
-        "-disable-template",
-        action="store",
-        metavar="template name",
-        help="Disable a certificate template on the CA",
-    )
-    group.add_argument(
-        "-list-templates",
-        action="store_true",
-        help="List enabled certificate templates on the CA",
-    )
-
-    group = subparser.add_argument_group("certificate request options")
-    group.add_argument(
-        "-issue-request",
-        action="store",
-        metavar="request ID",
-        help="Issue a pending or failed certificate request",
-    )
-    group.add_argument(
-        "-deny-request",
-        action="store",
-        metavar="request ID",
-        help="Deny a pending certificate request",
-    )
-
-    group = subparser.add_argument_group("officer options")
-    group.add_argument(
-        "-add-officer",
-        action="store",
-        metavar="officer",
-        help="Add a new officer (Certificate Manager) to the CA",
-    )
-    group.add_argument(
-        "-remove-officer",
-        action="store",
-        metavar="officer",
-        help="Remove an existing officer (Certificate Manager) from the CA",
-    )
-
-    group = subparser.add_argument_group("manager options")
-    group.add_argument(
-        "-add-manager",
-        action="store",
-        metavar="manager",
-        help="Add a new manager (CA Manager) to the CA",
-    )
-    group.add_argument(
-        "-remove-manager",
-        action="store",
-        metavar="manager",
-        help="Remove an existing manager (CA Manager) from the CA",
-    )
-
-    group = subparser.add_argument_group("backup options")
-    group.add_argument(
-        "-backup",
-        action="store_true",
-        help="Backup CA certificate and private key",
-    )
-    group.add_argument(
-        "-config",
-        action="store",
-        metavar="Machine\\CA",
-    )
-
-    group = subparser.add_argument_group("connection options")
-    group.add_argument(
-        "-scheme",
-        action="store",
-        metavar="ldap scheme",
-        choices=["ldap", "ldaps"],
-        default="ldaps",
-    )
-    group.add_argument(
-        "-dynamic-endpoint",
-        action="store_true",
-        help="Prefer dynamic TCP endpoint over named pipe",
-    )
-    group.add_argument(
-        "-dc-host",
-        action="store",
-        metavar="hostname",
-        help="Hostname of the domain controller to use. "
-        "If ommited, the domain part (FQDN) "
-        "specified in the account parameter will be used",
-    )
-
-    target.add_argument_group(subparser, connection_options=group)
-
-    return NAME, entry

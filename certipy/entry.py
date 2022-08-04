@@ -3,40 +3,15 @@ import logging
 import sys
 import traceback
 
-from impacket.examples import logger
-
-from certipy import (
-    account,
-    auth,
-    ca,
-    certificate,
-    find,
-    forge,
-    relay,
-    request,
-    shadow,
-    template,
-    version,
-)
-
-ENTRY_PARSERS = [
-    account,
-    auth,
-    ca,
-    certificate,
-    find,
-    forge,
-    relay,
-    request,
-    shadow,
-    template,
-]
+from certipy import version
+from certipy.commands.parsers import ENTRY_PARSERS
+from certipy.lib import logger
 
 
 def main() -> None:
-    print(version.BANNER, file=sys.stderr)
-
     logger.init()
+
+    print(version.BANNER, file=sys.stderr)
 
     for arg in sys.argv:
         if arg.lower() in ["--version", "-v", "-version"]:
@@ -44,7 +19,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         add_help=False,
-        description="Active Directory Certificate Services enumeration and abuse ",
+        description="Active Directory Certificate Services enumeration and abuse",
     )
 
     parser.add_argument(
@@ -77,15 +52,19 @@ def main() -> None:
     options = parser.parse_args()
 
     if options.debug is True:
-        logging.getLogger().setLevel(logging.DEBUG)
+        logger.logging.setLevel(logging.DEBUG)
     else:
-        logging.getLogger().setLevel(logging.INFO)
+        logger.logging.setLevel(logging.INFO)
 
     try:
         actions[options.action](options)
     except Exception as e:
-        logging.error("Got error: %s" % e)
+        logger.logging.error("Got error: %s" % e)
         if options.debug:
             traceback.print_exc()
         else:
-            logging.error("Use -debug to print a stacktrace")
+            logger.logging.error("Use -debug to print a stacktrace")
+
+
+if __name__ == "__main__":
+    main()

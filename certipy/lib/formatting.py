@@ -1,4 +1,6 @@
-from typing import Callable
+from typing import Callable, List, Tuple
+
+from certipy.lib.logger import logging
 
 
 def to_pascal_case(snake_str: str) -> str:
@@ -43,3 +45,17 @@ def pretty_print(
     else:
         # Shouldn't end up here
         raise NotImplementedError("Not implemented: %s" % type(d))
+
+
+def print_certificate_identifications(identifications: List[Tuple[str, str]]):
+    if len(identifications) > 1:
+        logging.info("Got certificate with multiple identifications")
+        for id_type, id_value in identifications:
+            print("    %s: %s" % (id_type, repr(id_value)))
+    elif len(identifications) == 1:
+        logging.info(
+            "Got certificate with %s %s"
+            % (identifications[0][0], repr(identifications[0][1]))
+        )
+    else:
+        logging.info("Got certificate without identification")

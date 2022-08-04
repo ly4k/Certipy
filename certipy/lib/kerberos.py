@@ -1,5 +1,4 @@
 import datetime
-import logging
 import os
 from typing import Tuple
 
@@ -13,22 +12,24 @@ from impacket.spnego import SPNEGO_NegTokenInit, TypesMech
 from pyasn1.codec.ber import decoder, encoder
 from pyasn1.type.univ import noValue
 
+from certipy.lib.logger import logging
+from certipy.lib.target import Target
+
 
 def get_TGS(
-    username: str = "",
-    password: str = "",
-    domain: str = "",
-    lmhash: str = "",
-    nthash: str = "",
-    aes_key: str = "",
-    TGT: dict = None,
-    TGS: dict = None,
-    target_name: str = "",
+    target: Target,
+    target_name,
     service: str = "host",
-    kdc_host: str = None,
-    use_cache: bool = True,
-) -> Tuple[bytes, type, Key]:
+) -> Tuple[bytes, type, Key, str, str]:
     # Modified version of impacket.krb5.kerberosv5.getKerberosType1 to just return the tgs
+
+    username = target.username
+    password = target.password
+    domain = target.domain
+    lmhash = target.lmhash
+    nthash = target.nthash
+    aes_key = target.aes
+    kdc_host = target.dc_ip
 
     # Convert to binary form, just in case we're receiving strings
     if isinstance(lmhash, str):
@@ -47,71 +48,76 @@ def get_TGS(
         except TypeError:
             pass
 
-    if TGT is None and TGS is None:
-        if use_cache is True:
-            try:
-                ccache = CCache.loadFile(os.getenv("KRB5CCNAME"))
-            except Exception:
-                # No cache present
-                pass
-            else:
-                # retrieve domain information from CCache file if needed
-                ccache_domain = ccache.principal.realm["data"].decode("utf-8")
+    TGT = None
+    TGS = None
 
-                if domain == "":
-                    domain = ccache_domain
-                    logging.debug("Domain retrieved from CCache: %s" % domain)
+    if target.use_sspi:
+        from certipy.lib.sspi import get_tgt
 
-                ccache_username = "/".join(
-                    map(lambda x: x["data"].decode(), ccache.principal.components)
-                )
+        server_name = "%s/%s" % (service, target_name)
 
-                logging.debug("Using Kerberos Cache: %s" % os.getenv("KRB5CCNAME"))
-                principal = "%s/%s@%s" % (service, target_name.upper(), domain.upper())
-                creds = ccache.getCredential(principal, anySPN=False)
-                if creds is None:
-                    # Let's try for the TGT and go from there
-                    principal = "krbtgt/%s@%s" % (domain.upper(), domain.upper())
-                    creds = ccache.getCredential(principal)
-                    if creds is not None:
-                        TGT = creds.toTGT()
-                        logging.debug("Using TGT from cache")
-                    else:
-                        logging.debug("No valid credentials found in cache. ")
-                else:
-                    TGS = creds.toTGS(principal)
+        logging.debug("Trying to get TGS for %s via SSPI" % repr(server_name))
+        ccache = get_tgt(server_name)
 
-                # retrieve user information from CCache file if needed
+        TGT = ccache.credentials[0].toTGT()
+    else:
+        try:
+            ccache = CCache.loadFile(os.getenv("KRB5CCNAME"))
+        except Exception:
+            # No cache present
+            pass
+        if ccache:
+            # retrieve domain information from CCache file if needed
+            ccache_domain = ccache.principal.realm["data"].decode("utf-8")
+
+            if domain == "":
+                domain = ccache_domain
+                logging.debug("Domain retrieved from CCache: %s" % domain)
+
+            ccache_username = "/".join(
+                map(lambda x: x["data"].decode(), ccache.principal.components)
+            )
+
+            logging.debug("Using Kerberos Cache: %s" % os.getenv("KRB5CCNAME"))
+            principal = "%s/%s@%s" % (service, target_name.upper(), domain.upper())
+            creds = ccache.getCredential(principal, anySPN=False)
+            if creds is None:
+                # Let's try for the TGT and go from there
+                principal = "krbtgt/%s@%s" % (domain.upper(), domain.upper())
+                creds = ccache.getCredential(principal)
                 if creds is not None:
-                    ccache_username = (
-                        creds["client"].prettyPrint().split(b"@")[0].decode("utf-8")
-                    )
-                    logging.debug(
-                        "Username retrieved from CCache: %s" % ccache_username
-                    )
-                elif len(ccache.principal.components) > 0:
-                    ccache_username = ccache.principal.components[0]["data"].decode(
-                        "utf-8"
-                    )
-                    logging.debug(
-                        "Username retrieved from CCache: %s" % ccache_username
-                    )
-
-                if ccache_username.lower() != username.lower():
-                    logging.warning(
-                        "Username %s does not match username in CCache %s"
-                        % (repr(username), repr(ccache_username))
-                    )
-                    TGT = None
-                    TGS = None
+                    TGT = creds.toTGT()
+                    logging.debug("Using TGT from cache")
                 else:
-                    username = ccache_username
+                    logging.debug("No valid credentials found in cache. ")
+            else:
+                TGS = creds.toTGS(principal)
 
-                if ccache_domain.lower() != domain.lower():
-                    logging.warning(
-                        "Domain %s does not match domain in CCache %s"
-                        % (repr(domain), repr(ccache_domain))
-                    )
+            # retrieve user information from CCache file if needed
+            if creds is not None:
+                ccache_username = (
+                    creds["client"].prettyPrint().split(b"@")[0].decode("utf-8")
+                )
+                logging.debug("Username retrieved from CCache: %s" % ccache_username)
+            elif len(ccache.principal.components) > 0:
+                ccache_username = ccache.principal.components[0]["data"].decode("utf-8")
+                logging.debug("Username retrieved from CCache: %s" % ccache_username)
+
+            if ccache_username.lower() != username.lower():
+                logging.warning(
+                    "Username %s does not match username in CCache %s"
+                    % (repr(username), repr(ccache_username))
+                )
+                TGT = None
+                TGS = None
+            else:
+                username = ccache_username
+
+            if ccache_domain.lower() != domain.lower():
+                logging.warning(
+                    "Domain %s does not match domain in CCache %s"
+                    % (repr(domain), repr(ccache_domain))
+                )
 
     # First of all, we need to get a TGT for the user
     username = Principal(username, type=constants.PrincipalNameType.NT_PRINCIPAL.value)
@@ -172,6 +178,7 @@ def get_TGS(
                 tgs, cipher, _, session_key = getKerberosTGS(
                     server_name, domain, kdc_host, tgt, cipher, session_key
                 )
+
                 logging.debug("Got TGS for %s" % repr("%s/%s" % (service, target_name)))
             except KerberosError as e:
                 if e.getErrorCode() == constants.ErrorCodes.KDC_ERR_ETYPE_NOSUPP.value:
@@ -203,39 +210,25 @@ def get_TGS(
             session_key = TGS["sessionKey"]
             break
 
-    return tgs, cipher, session_key
+    ticket = decoder.decode(tgs, asn1Spec=TGS_REP())[0]
+
+    client_name = Principal()
+    client_name.from_asn1(ticket, "crealm", "cname")
+
+    username = "@".join(str(client_name).split("@")[:-1])
+    domain = client_name.realm
+
+    return tgs, cipher, session_key, username, domain
 
 
 def get_kerberos_type1(
-    username: str = "",
-    password: str = "",
-    domain: str = "",
-    lmhash: str = "",
-    nthash: str = "",
-    aes_key: str = "",
-    TGT: dict = None,
-    TGS: dict = None,
+    target: Target,
     target_name: str = "",
     service: str = "host",
-    kdc_host: str = None,
-    use_cache: bool = True,
 ) -> Tuple[type, Key, bytes]:
-    tgs, cipher, session_key = get_TGS(
-        username,
-        password,
-        domain,
-        lmhash,
-        nthash,
-        aes_key,
-        TGT,
-        TGS,
-        target_name,
-        service,
-        kdc_host,
-        use_cache,
-    )
+    tgs, cipher, session_key, username, domain = get_TGS(target, target_name, service)
 
-    username = Principal(username, type=constants.PrincipalNameType.NT_PRINCIPAL.value)
+    principal = Principal(username, type=constants.PrincipalNameType.NT_PRINCIPAL.value)
 
     blob = SPNEGO_NegTokenInit()
 
@@ -256,7 +249,7 @@ def get_kerberos_type1(
     authenticator = Authenticator()
     authenticator["authenticator-vno"] = 5
     authenticator["crealm"] = domain
-    seq_set(authenticator, "cname", username.components_to_asn1)
+    seq_set(authenticator, "cname", principal.components_to_asn1)
     now = datetime.datetime.utcnow()
 
     authenticator["cusec"] = now.microsecond
@@ -274,4 +267,4 @@ def get_kerberos_type1(
 
     blob["MechToken"] = encoder.encode(ap_req)
 
-    return cipher, session_key, blob.getData()
+    return cipher, session_key, blob.getData(), username

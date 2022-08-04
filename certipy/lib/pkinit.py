@@ -14,7 +14,7 @@ from impacket.krb5.types import KerberosTime, Principal
 from pyasn1.codec.der import encoder
 from pyasn1.type.univ import noValue
 
-from certipy.certificate import (
+from certipy.lib.certificate import (
     cert_to_der,
     hash_digest,
     hashes,

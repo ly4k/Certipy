@@ -1,6 +1,6 @@
 import enum
 
-from certipy.formatting import to_pascal_case
+from certipy.lib.formatting import to_pascal_case
 
 
 class IntFlag(enum.IntFlag):

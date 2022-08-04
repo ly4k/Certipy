@@ -1,8 +1,12 @@
+import re
+
 from impacket.ldap import ldaptypes
 from impacket.uuid import bin_to_string
 from ldap3.protocol.formatters.formatters import format_sid
 
-from certipy.constants import (
+INHERITED_ACE = 0x10
+
+from certipy.lib.constants import (
     ACTIVE_DIRECTORY_RIGHTS,
     CERTIFICATE_RIGHTS,
     CERTIFICATION_AUTHORITY_RIGHTS,
@@ -31,6 +35,7 @@ class ActiveDirectorySecurity:
                 self.aces[sid] = {
                     "rights": self.RIGHTS_TYPE(0),
                     "extended_rights": [],
+                    "inherited": ace["AceFlags"] & INHERITED_ACE == INHERITED_ACE,
                 }
 
             if ace["AceType"] == ldaptypes.ACCESS_ALLOWED_ACE.ACE_TYPE:
@@ -53,3 +58,11 @@ class CASecurity(ActiveDirectorySecurity):
 
 class CertifcateSecurity(ActiveDirectorySecurity):
     RIGHTS_TYPE = CERTIFICATE_RIGHTS
+
+
+def is_admin_sid(sid: str):
+    return (
+        re.match("^S-1-5-21-.+-(498|500|502|512|516|518|519|521)$", sid) is not None
+        or sid == "S-1-5-9"
+        or sid == "S-1-5-32-544"
+    )

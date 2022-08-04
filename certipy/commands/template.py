@@ -1,16 +1,13 @@
 import argparse
 import json
-import logging
-from typing import Callable, Dict, Tuple
+from typing import Dict
 
 import ldap3
 from ldap3.protocol.microsoft import security_descriptor_control
 
-from certipy import target
-from certipy.ldap import LDAPConnection, LDAPEntry
-from certipy.target import Target
-
-NAME = "template"
+from certipy.lib.ldap import LDAPConnection, LDAPEntry
+from certipy.lib.logger import logging
+from certipy.lib.target import Target
 
 PROTECTED_ATTRIBUTES = [
     "objectClass",
@@ -245,43 +242,8 @@ class Template:
 
 
 def entry(options: argparse.Namespace) -> None:
-    target = Target.from_options(options)
+    target = Target.from_options(options, dc_as_target=True)
     del options.target
 
     template = Template(target=target, **vars(options))
     template.set_configuration()
-
-
-def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:
-    subparser = subparsers.add_parser(NAME, help="Manage certificate templates")
-
-    subparser.add_argument(
-        "-template", action="store", metavar="template name", required=True
-    )
-    subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
-
-    group = subparser.add_argument_group("configuration options")
-    group.add_argument(
-        "-configuration",
-        action="store",
-        metavar="configuration file",
-        help="Configuration to apply to the certificate template. If omitted, a default vulnerable configuration (ESC1) will be applied. Useful for restoring an old configuration",
-    )
-    group.add_argument(
-        "-save-old",
-        action="store_true",
-        help="Save the old configuration",
-    )
-
-    group = subparser.add_argument_group("connection options")
-    group.add_argument(
-        "-scheme",
-        action="store",
-        metavar="ldap scheme",
-        choices=["ldap", "ldaps"],
-        default="ldaps",
-    )
-
-    target.add_argument_group(subparser, connection_options=group)
-
-    return NAME, entry
