@@ -15,7 +15,7 @@ setup(
         "cryptography>=37.0",
         "impacket",
         "ldap3",
-        "pyasn1",
+        "pyasn1==0.4.8",
         "dnspython",
         "dsinternals",
         "pyopenssl>=22.0.0",
