@@ -241,6 +241,11 @@ class Find:
                     "Unknown",
                 )
             else:
+                user_specified_san, request_disposition, security = (
+                    "Unknown",
+                    "Unknown",
+                    None,
+                )
                 try:
                     ca_name = ca.get("name")
                     ca_remote_name = ca.get("dNSHostName")
@@ -253,21 +258,25 @@ class Find:
                     ca_service = CA(ca_target, ca=ca_name)
                     edit_flags, request_disposition, security = ca_service.get_config()
 
-                    request_disposition = (
-                        "Pending" if request_disposition & 0x100 else "Issue"
-                    )
+                    if request_disposition:
+                        request_disposition = (
+                            "Pending" if request_disposition & 0x100 else "Issue"
+                        )
+                    else:
+                        request_disposition = "Unknown"
 
-                    user_specified_san = (edit_flags & 0x00040000) == 0x00040000
-                    user_specified_san = "Enabled" if user_specified_san else "Disabled"
+                    if edit_flags:
+                        user_specified_san = (edit_flags & 0x00040000) == 0x00040000
+                        user_specified_san = (
+                            "Enabled" if user_specified_san else "Disabled"
+                        )
+                    else:
+                        user_specified_san = "Unknown"
+
                 except Exception as e:
                     logging.warning(
                         "Failed to get CA security and configuration for %s: %s"
                         % (repr(ca.get("name")), e)
-                    )
-                    user_specified_san, request_disposition, security = (
-                        "Unknown",
-                        "Unknown",
-                        None,
                     )
 
                 try:
@@ -552,7 +561,10 @@ class Find:
                 template_properties["type"] = "Certificate Template"
 
             security = CertifcateSecurity(template.get("nTSecurityDescriptor"))
-            aces = self.security_to_bloodhound_aces(security)
+            if security is None:
+                aces = []
+            else:
+                aces = self.security_to_bloodhound_aces(security)
 
             entry = {
                 "Properties": template_properties,
@@ -583,7 +595,10 @@ class Find:
                 ca_properties["type"] = "Enrollment Service"
 
             security = ca.get("security")
-            aces = self.security_to_bloodhound_aces(security)
+            if security is None:
+                aces = []
+            else:
+                aces = self.security_to_bloodhound_aces(security)
 
             entry = {
                 "Properties": ca_properties,
