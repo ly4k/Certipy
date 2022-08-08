@@ -379,7 +379,7 @@ class LDAPConnection:
             )
         except Exception as e:
             logging.warning("Failed to get user SIDs. Try increasing -timeout")
-            return set()
+            return sids
 
         for group in groups:
             sid = group.get("objectSid")
