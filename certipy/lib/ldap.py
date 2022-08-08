@@ -2,13 +2,12 @@ import ssl
 from typing import Any, List, Union
 
 import ldap3
-from ldap3.core.results import RESULT_STRONGER_AUTH_REQUIRED
-from ldap3.protocol.microsoft import security_descriptor_control
-
 from certipy.lib.constants import WELLKNOWN_SIDS
 from certipy.lib.kerberos import get_kerberos_type1
 from certipy.lib.logger import logging
 from certipy.lib.target import Target
+from ldap3.core.results import RESULT_STRONGER_AUTH_REQUIRED
+from ldap3.protocol.microsoft import security_descriptor_control
 
 
 # https://github.com/fox-it/BloodHound.py/blob/d665959c58d881900378040e6670fa12f801ccd4/bloodhound/ad/utils.py#L216
@@ -106,7 +105,9 @@ class LDAPConnection:
             logging.debug("Authenticating to LDAP server")
 
             if self.target.do_kerberos or self.target.use_sspi:
-                ldap_conn = ldap3.Connection(ldap_server)
+                ldap_conn = ldap3.Connection(
+                    ldap_server, receive_timeout=self.target.timeout * 10
+                )
                 self.LDAP3KerberosLogin(ldap_conn)
             else:
                 if self.target.hashes is not None:
@@ -119,6 +120,7 @@ class LDAPConnection:
                     password=ldap_pass,
                     authentication=ldap3.NTLM,
                     auto_referrals=False,
+                    receive_timeout=self.target.timeout * 10,
                 )
 
         if not ldap_conn.bound:
@@ -369,11 +371,15 @@ class LDAPConnection:
         for dn in dns:
             member_of_queries.append("(member:1.2.840.113556.1.4.1941:=%s)" % dn)
 
-        # Nested Group Membership
-        groups = self.search(
-            "(|%s)" % "".join(member_of_queries),
-            attributes="objectSid",
-        )
+        try:
+            # Nested Group Membership
+            groups = self.search(
+                "(|%s)" % "".join(member_of_queries),
+                attributes="objectSid",
+            )
+        except Exception as e:
+            logging.warning("Failed to get user SIDs. Try increasing -timeout")
+            return set()
 
         for group in groups:
             sid = group.get("objectSid")
