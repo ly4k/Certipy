@@ -802,6 +802,7 @@ class Find:
         properties_map = {
             "cn": "Template Name",
             "displayName": "Display Name",
+            "cas": "Certificate Authorities",
             "enabled": "Enabled",
             "client_authentication": "Client Authentication",
             "enrollment_agent": "Enrollment Agent",
