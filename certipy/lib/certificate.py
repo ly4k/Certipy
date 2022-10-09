@@ -4,7 +4,7 @@ import math
 import os
 import struct
 import sys
-from typing import Any, Callable, List, Tuple
+from typing import Callable, List, Tuple
 
 from asn1crypto import cms as asn1cms
 from asn1crypto import core as asn1core
@@ -293,7 +293,7 @@ def get_object_sid_from_certificate(
     return None
 
 
-def create_pfx(key: rsa.RSAPrivateKey, cert: x509.Certificate, password: Any) -> bytes:
+def create_pfx(key: rsa.RSAPrivateKey, cert: x509.Certificate, password=None) -> bytes:
     encryption = NoEncryption()
     if (password != None):
         encryption = (
