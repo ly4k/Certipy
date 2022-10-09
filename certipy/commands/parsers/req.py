@@ -73,6 +73,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
 
     group = subparser.add_argument_group("output options")
     group.add_argument("-out", action="store", metavar="output file name")
+    group.add_argument("-pfx-password", action="store", metavar="PFX file password")
 
     connection_group = subparser.add_argument_group("connection options")
     connection_group.add_argument(

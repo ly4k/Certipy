@@ -532,6 +532,7 @@ class Request:
         archive_key: bool = False,
         renew: bool = False,
         out: str = None,
+        pfx_password: str = None,
         key: rsa.RSAPrivateKey = None,
         web: bool = False,
         port: int = None,
@@ -553,6 +554,7 @@ class Request:
         self.archive_key = archive_key
         self.renew = renew
         self.out = out
+        self.pfx_password = pfx_password
         self.key = key
 
         self.web = web
@@ -624,7 +626,7 @@ class Request:
             logging.info("Saved certificate to %s" % repr("%s.crt" % out))
         else:
             logging.info("Loaded private key from %s" % repr("%d.key" % request_id))
-            pfx = create_pfx(key, cert)
+            pfx = create_pfx(key, cert, self.pfx_password)
             with open("%s.pfx" % out, "wb") as f:
                 f.write(pfx)
             logging.info(
@@ -740,7 +742,7 @@ class Request:
 
             out = out.rstrip("$").lower()
 
-        pfx = create_pfx(key, cert)
+        pfx = create_pfx(key, cert, self.pfx_password)
 
         outfile = "%s.pfx" % out
 
