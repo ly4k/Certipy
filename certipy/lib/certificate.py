@@ -295,7 +295,7 @@ def get_object_sid_from_certificate(
 
 def create_pfx(key: rsa.RSAPrivateKey, cert: x509.Certificate, password: any) -> bytes:
     encryption = NoEncryption()
-    if not(password == None):
+    if (password != None):
         encryption = (
             PrivateFormat.PKCS12.encryption_builder().
             kdf_rounds(50000).
