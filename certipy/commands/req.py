@@ -528,11 +528,11 @@ class Request:
         retrieve: int = 0,
         on_behalf_of: str = None,
         pfx: str = None,
+        pfx_password: str = None,
         key_size: int = None,
         archive_key: bool = False,
         renew: bool = False,
         out: str = None,
-        pfx_password: str = None,
         key: rsa.RSAPrivateKey = None,
         web: bool = False,
         port: int = None,
@@ -550,11 +550,11 @@ class Request:
         self.request_id = int(retrieve)
         self.on_behalf_of = on_behalf_of
         self.pfx = pfx
+        self.pfx_password = pfx_password
         self.key_size = key_size
         self.archive_key = archive_key
         self.renew = renew
         self.out = out
-        self.pfx_password = pfx_password
         self.key = key
 
         self.web = web
