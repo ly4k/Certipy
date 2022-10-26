@@ -357,7 +357,7 @@ class CA:
 
         return exchange_cert
 
-    def get_config_csra(self) -> Tuple[int, int, CASecurity]:
+    def get_config_csra(self) -> Tuple[int, int, int, CASecurity]:
         request = ICertAdminD2_GetConfigEntry()
         request["pwszAuthority"] = checkNullString(self.ca)
         request["pwszNodePath"] = checkNullString(
@@ -375,6 +375,13 @@ class CA:
 
         edit_flags = resp["pVariant"]["_varUnion"]["lVal"]
 
+        request["pwszNodePath"] = checkNullString("")
+        request["pwszEntry"] = checkNullString("InterfaceFlags")
+
+        resp = self.cert_admin2.request(request)
+
+        interface_flags = resp["pVariant"]["_varUnion"]["lVal"]
+
         request = ICertAdminD2_GetCASecurity()
         request["pwszAuthority"] = checkNullString(self.ca)
 
@@ -382,9 +389,9 @@ class CA:
 
         security = CASecurity(b"".join(resp["pctbSD"]["pb"]))
 
-        return (edit_flags, request_disposition, security)
+        return (edit_flags, request_disposition, interface_flags, security)
 
-    def get_config_rrp(self) -> Tuple[int, int, CASecurity]:
+    def get_config_rrp(self) -> Tuple[int, int, int, CASecurity]:
         hklm = rrp.hOpenLocalMachine(self.rrp_dce)
 
         h_root_key = hklm["phKey"]
@@ -413,15 +420,19 @@ class CA:
             "SYSTEM\\CurrentControlSet\\Services\\CertSvc\\Configuration\\%s" % self.ca,
         )
 
+        _, interface_flags = rrp.hBaseRegQueryValue(
+            self.rrp_dce, configuration_key["phkResult"], "InterfaceFlags"
+        )
+
         _, security_descriptor = rrp.hBaseRegQueryValue(
             self.rrp_dce, configuration_key["phkResult"], "Security"
         )
 
         security_descriptor = CASecurity(security_descriptor)
 
-        return (edit_flags, request_disposition, security_descriptor)
+        return (edit_flags, request_disposition, interface_flags, security_descriptor)
 
-    def get_config(self) -> Tuple[int, int, CASecurity]:
+    def get_config(self) -> Tuple[int, int, int, CASecurity]:
         try:
             logging.info(
                 "Trying to get CA configuration for %s via CSRA" % repr(self.ca)
@@ -450,7 +461,7 @@ class CA:
 
         logging.warning("Failed to get CA configuration for %s" % repr(self.ca))
 
-        return (None, None, None)
+        return (None, None, None, None)
 
     def issue(self) -> bool:
         if self.request_id is None:
