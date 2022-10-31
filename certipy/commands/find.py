@@ -958,10 +958,10 @@ class Find:
                     % list_sids(enrollable_sids)
                 )
 
-            # ESC9
+            # ESC11
             if user_can_enroll and template.get("no_security_extension"):
                 vulnerabilities[
-                    "ESC9"
+                    "ESC11"
                 ] = "%s can enroll and template has no security extension" % list_sids(
                     enrollable_sids
                 )
