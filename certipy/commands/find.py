@@ -958,10 +958,10 @@ class Find:
                     % list_sids(enrollable_sids)
                 )
 
-            # ESC11
+            # ESC9
             if user_can_enroll and template.get("no_security_extension"):
                 vulnerabilities[
-                    "ESC11"
+                    "ESC9"
                 ] = "%s can enroll and template has no security extension" % list_sids(
                     enrollable_sids
                 )
@@ -1133,13 +1133,13 @@ class Find:
                 % ca.get("request_disposition")
             )
 
-        # ESC9
+        # ESC11
         if (
             ca.get("enforce_encrypt_icertrequest") == "Disabled"
             and ca.get("request_disposition") == "Issue"
         ):
             vulnerabilities[
-                "ESC9"
+                "ESC11"
             ] = "Encryption is not enforced for ICPR requests and Request Disposition is set to Issue"
 
         return vulnerabilities
