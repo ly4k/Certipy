@@ -1,4 +1,5 @@
 import argparse
+import collections
 import json
 from typing import Dict
 
@@ -189,7 +190,7 @@ class Template:
             if key in new_configuration:
                 old_values = old_configuration.get_raw(key)
                 new_values = new_configuration[key]
-                if all(list(map(lambda x: x in new_values, old_values))):
+                if collections.Counter(old_values) == collections.Counter(new_values):
                     continue
 
                 changes[key] = [
