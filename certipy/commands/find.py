@@ -1046,7 +1046,7 @@ class Find:
             "web_enrollment": "Web Enrollment",
             "user_specified_san": "User Specified SAN",
             "request_disposition": "Request Disposition",
-            "enforce_encrypt_icertrequest": "Enforce Encryption for ICRT Requests",
+            "enforce_encrypt_icertrequest": "Enforce Encryption for Requests",
         }
 
         if ca_properties is None:
