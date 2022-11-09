@@ -22,7 +22,7 @@ Certipy is an offensive tool for enumerating and abusing Active Directory Certif
       - [ESC6](#esc6)
       - [ESC7](#esc7)
       - [ESC8](#esc8)
-      - [ESC9 & ESC10](#esc9_&_esc10)
+      - [ESC9 & ESC10](#esc9--esc10)
       - [ESC11](#esc11)
   - [Contact](#contact)
   - [Credits](#credits)
@@ -794,7 +794,8 @@ ESC9 and ESC10 is not related to any specific Certipy commands or parameters, bu
 
 ESC11 can be abused with impacket's ntlmrelayx:
 
-```# ntlmrelayx.py -t rpc://ca.corp.local -rpc-mode ICPR -icpr-ca-name corp-DC-CA -smb2support
+```bash
+$ ntlmrelayx.py -t rpc://ca.corp.local -rpc-mode ICPR -icpr-ca-name corp-DC-CA -smb2support
 ```
 
 ## Contact
