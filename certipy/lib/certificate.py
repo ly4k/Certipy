@@ -51,7 +51,6 @@ DN_MAP = {
 }
 
 PRINCIPAL_NAME = x509.ObjectIdentifier("1.3.6.1.4.1.311.20.2.3")
-
 NTDS_CA_SECURITY_EXT = x509.ObjectIdentifier("1.3.6.1.4.1.311.25.2")
 
 
@@ -60,7 +59,7 @@ szOID_ENCRYPTED_KEY_HASH = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.21.21")
 szOID_PRINCIPAL_NAME = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.20.2.3")
 szOID_ENCRYPTED_KEY_HASH = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.21.21")
 szOID_CMC_ADD_ATTRIBUTES = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.10.10.1")
-
+szOID_NTDS_CA_SECURITY_EXT = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.25.2.1")
 
 class TaggedCertificationRequest(asn1core.Sequence):
     _fields = [
@@ -100,6 +99,16 @@ class TaggedContentInfos(asn1core.SequenceOf):
 class OtherMsgs(asn1core.SequenceOf):
     _child_spec = asn1core.Any  # not implemented
 
+class SecurityExtensionContents(asn1core.Sequence):
+    _fields = [
+        ('type', asn1core.ObjectIdentifier),
+        ('values', asn1core.Any),
+    ]
+
+class SecurityExtension(asn1core.Sequence):
+    _fields = [
+        ('values', asn1core.Any),
+    ]
 
 class PKIData(asn1core.Sequence):
     _fields = [
@@ -317,6 +326,7 @@ def create_csr(
     username: str,
     alt_dns: bytes = None,
     alt_upn: bytes = None,
+    sid: str = None,
     key: rsa.RSAPrivateKey = None,
     key_size: int = 2048,
     subject: str = None,
@@ -353,74 +363,111 @@ def create_csr(
 
     cri_attributes = []
     if alt_dns or alt_upn:
-        general_names = []
+        if sid:
+            dns = None
+            upn = None
+            builder = x509.CertificateSigningRequestBuilder()
+            builder = builder.subject_name(subject_name)
+            if alt_dns:
+                dns = x509.DNSName(UTF8String(alt_dns))
+            if alt_upn:
+                upn = x509.OtherName(PRINCIPAL_NAME, encoder.encode(UTF8String(alt_upn)))
+            
+            if upn and dns:
+                builder = builder.add_extension(x509.SubjectAlternativeName([upn, dns]), False)
+            elif upn:
+                builder = builder.add_extension(x509.SubjectAlternativeName([upn]), False)
+            elif dns:
+                builder = builder.add_extension(x509.SubjectAlternativeName([dns]), False)
+            extension_contents = SecurityExtensionContents(
+                {
+                    "type": szOID_NTDS_CA_SECURITY_EXT,
+                    "values": asn1core.OctetString(bytes(sid, 'utf-8')).retag({"explicit": 0}),
+                }
+            )
+        
+            security_extension_value = SecurityExtension({'values':extension_contents.retag({'implicit':0})})
+            
+            security_extension = x509.UnrecognizedExtension(NTDS_CA_SECURITY_EXT, security_extension_value.dump())
 
-        if alt_dns:
-            if type(alt_dns) == bytes:
-                alt_dns = alt_dns.decode()
-            general_names.append(asn1x509.GeneralName({"dns_name": alt_dns}))
+            builder = builder.add_extension(security_extension, False)
 
-        #         sans.append(x509.DNSName(alt_dns))
+            request = builder.sign(key, hashes.SHA256())
 
-        if alt_upn:
-            if type(alt_upn) == bytes:
-                alt_upn = alt_upn.decode()
+            return (request.public_bytes(serialization.Encoding.DER), key)
+        
+        else:
+            general_names = []
 
-            general_names.append(
-                asn1x509.GeneralName(
+            if alt_dns:
+                if type(alt_dns) == bytes:
+                    alt_dns = alt_dns.decode()
+                general_names.append(asn1x509.GeneralName({"dns_name": alt_dns}))
+
+            #         sans.append(x509.DNSName(alt_dns))
+
+            if alt_upn:
+                if type(alt_upn) == bytes:
+                    alt_upn = alt_upn.decode()
+
+                general_names.append(
+                    asn1x509.GeneralName(
+                        {
+                            "other_name": asn1x509.AnotherName(
+                                {
+                                    "type_id": szOID_PRINCIPAL_NAME,
+                                    "value": asn1x509.UTF8String(alt_upn).retag(
+                                        {"explicit": 0}
+                                    ),
+                                }
+                            )
+                        }
+                    )
+                )
+            
+
+            san_extension = asn1x509.Extension(
+                {"extn_id": "subject_alt_name", "extn_value": general_names}
+            )
+            
+            set_of_extensions = asn1csr.SetOfExtensions([[san_extension]])
+           
+            cri_attribute = asn1csr.CRIAttribute(
+                {"type": "extension_request", "values": set_of_extensions}
+            )
+
+            cri_attributes.append(cri_attribute)
+                        
+            cri_attributes.append(cri_attribute)                        
+            
+        if renewal_cert:
+            cri_attributes.append(
+                asn1csr.CRIAttribute(
                     {
-                        "other_name": asn1x509.AnotherName(
-                            {
-                                "type_id": szOID_PRINCIPAL_NAME,
-                                "value": asn1x509.UTF8String(alt_upn).retag(
-                                    {"explicit": 0}
-                                ),
-                            }
-                        )
+                        "type": "1.3.6.1.4.1.311.13.1",
+                        "values": asn1x509.SetOf(
+                            [asn1x509.Certificate.load(cert_to_der(renewal_cert))],
+                            spec=asn1x509.Certificate,
+                        ),
                     }
                 )
             )
 
-        san_extension = asn1x509.Extension(
-            {"extn_id": "subject_alt_name", "extn_value": general_names}
+        certification_request_info["attributes"] = cri_attributes
+
+        signature = rsa_pkcs1v15_sign(certification_request_info.dump(), key)
+
+        csr = asn1csr.CertificationRequest(
+            {
+                "certification_request_info": certification_request_info,
+                "signature_algorithm": asn1csr.SignedDigestAlgorithm(
+                    {"algorithm": "sha256_rsa"}
+                ),
+                "signature": signature,
+            }
         )
 
-        set_of_extensions = asn1csr.SetOfExtensions([[san_extension]])
-
-        cri_attribute = asn1csr.CRIAttribute(
-            {"type": "extension_request", "values": set_of_extensions}
-        )
-
-        cri_attributes.append(cri_attribute)
-
-    if renewal_cert:
-        cri_attributes.append(
-            asn1csr.CRIAttribute(
-                {
-                    "type": "1.3.6.1.4.1.311.13.1",
-                    "values": asn1x509.SetOf(
-                        [asn1x509.Certificate.load(cert_to_der(renewal_cert))],
-                        spec=asn1x509.Certificate,
-                    ),
-                }
-            )
-        )
-
-    certification_request_info["attributes"] = cri_attributes
-
-    signature = rsa_pkcs1v15_sign(certification_request_info.dump(), key)
-
-    csr = asn1csr.CertificationRequest(
-        {
-            "certification_request_info": certification_request_info,
-            "signature_algorithm": asn1csr.SignedDigestAlgorithm(
-                {"algorithm": "sha256_rsa"}
-            ),
-            "signature": signature,
-        }
-    )
-
-    return (der_to_csr(csr.dump()), key)
+        return (der_to_csr(csr.dump()), key)
 
 
 def rsa_pkcs1v15_sign(

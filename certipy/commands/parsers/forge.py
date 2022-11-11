@@ -55,7 +55,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         default=2048,
         type=int,
     )
-    subparser.add_argument("-sid", action="store", metavar="sid", help="Provide the Object SID to include in the forged certificate as the 'szOID_NTDS_CA_SECURITY_EXT' flag")
+    subparser.add_argument("-extensionsid", action="store", metavar="sid", help="Provide the Object SID to include in the forged certificate as the 'szOID_NTDS_CA_SECURITY_EXT' flag")
     subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
     
     group = subparser.add_argument_group("output options")

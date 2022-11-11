@@ -1,10 +1,17 @@
 import argparse
 import datetime
 from typing import Callable, Tuple
+from binascii import hexlify
+from asn1crypto import x509 as asn1x509
+from asn1crypto import core as asn1core
+from pyasn1.codec.der import encoder, decoder
 
 from certipy.lib.certificate import (
     PRINCIPAL_NAME,
     NTDS_CA_SECURITY_EXT,
+    szOID_NTDS_CA_SECURITY_EXT,
+    SecurityExtensionContents,
+    SecurityExtension,
     NameOID,
     UTF8String,
     cert_id_to_parts,
@@ -31,7 +38,7 @@ class Forge:
         serial: str = None,
         key_size: int = 2048,
         out: str = None,
-        sid: str = None,
+        extensionsid: str = None,
         **kwargs
     ):
         self.ca_pfx = ca_pfx
@@ -44,7 +51,7 @@ class Forge:
         self.serial = serial
         self.key_size = key_size
         self.out = out
-        self.sid = sid
+        self.sid = extensionsid
         self.kwargs = kwargs
 
     def get_serial_number(self) -> int:
@@ -130,14 +137,19 @@ class Forge:
                 if extension.oid in skip_extensions:
                     continue
                 elif extension.oid == x509.ObjectIdentifier("1.3.6.1.4.1.311.25.2") and self.sid:    
-                    object_sid = extension.value.value
-                    prefix = object_sid[:object_sid.find(b"-S-1-5")]
-                    user_sid = encoder.encode(UTF8String(self.sid))
+                    extension_contents = SecurityExtensionContents(
+                        {
+                            "type": szOID_NTDS_CA_SECURITY_EXT,
+                            "values": asn1core.OctetString(bytes(self.sid, 'utf-8')).retag({"explicit": 0}),
+                        }
+                    )
+                    security_extension = SecurityExtension({'values':extension_contents.retag({'implicit':0})})
+
                     cert = cert.add_extension( 
-                        x509.UnrecognizedExtension(NTDS_CA_SECURITY_EXT, prefix + user_sid.strip()),
+                        x509.UnrecognizedExtension(NTDS_CA_SECURITY_EXT, security_extension.dump()),
                         False
                     )
-                    continue                    
+                    continue
                 cert = cert.add_extension(extension.value, extension.critical)
 
             signature_hash_algorithm = tmp_cert.signature_hash_algorithm.__class__
@@ -190,13 +202,19 @@ class Forge:
             signature_hash_algorithm = ca_cert.signature_hash_algorithm.__class__
 
             if self.sid:
-                prefix = '303fa03d060a2b060104018237190201a02f04'
-                object_sid = encoder.encode(UTF8String(self.sid))
+                extension_contents = SecurityExtensionContents(
+                    {
+                        "type": szOID_NTDS_CA_SECURITY_EXT,
+                        "values": asn1core.OctetString(bytes(self.sid, 'utf-8')).retag({"explicit": 0}),
+                    }
+                )
+                security_extension = SecurityExtension({'values':extension_contents.retag({'implicit':0})})
+
                 cert = cert.add_extension( 
-                    x509.UnrecognizedExtension(NTDS_CA_SECURITY_EXT, bytes.fromhex(prefix) + object_sid.strip()),
+                    x509.UnrecognizedExtension(NTDS_CA_SECURITY_EXT, security_extension.dump()),
                     False
                 )
-
+                
         sans = []
         sans = []
 

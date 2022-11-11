@@ -10,6 +10,7 @@ from impacket.dcerpc.v5.nrpc import checkNullString
 from impacket.uuid import uuidtup_to_bin
 from requests_ntlm import HttpNtlmAuth
 from urllib3 import connection
+from binascii import hexlify
 
 from certipy.lib.certificate import (
     cert_id_to_parts,
@@ -54,6 +55,7 @@ def _http_request(self, method, url, body=None, headers=None):
 
 connection.HTTPConnection.request = _http_request
 
+#MSRPC_UUID_ICPR = uuidtup_to_bin(('3dde7c30-165d-11d1-ab8f-00805f14db40', '1.0'))
 MSRPC_UUID_ICPR = uuidtup_to_bin(("91ae6020-9e3c-11cf-8d7c-00aa00c091be", "0.0"))
 
 
@@ -195,7 +197,7 @@ class RPCRequestInterface(RequestInterface):
         pctb_request = CERTTRANSBLOB()
         pctb_request["cb"] = len(csr)
         pctb_request["pb"] = csr
-
+       
         request = CertServerRequest()
         request["dwFlags"] = 0
         request["pwszAuthority"] = checkNullString(self.parent.ca)
@@ -524,6 +526,7 @@ class Request:
         template: str = None,
         upn: str = None,
         dns: str = None,
+        extensionsid: str = None,
         subject: str = None,
         retrieve: int = 0,
         on_behalf_of: str = None,
@@ -545,6 +548,7 @@ class Request:
         self.template = template
         self.alt_upn = upn
         self.alt_dns = dns
+        self.sid = extensionsid
         self.subject = subject
         self.request_id = int(retrieve)
         self.on_behalf_of = on_behalf_of
@@ -669,6 +673,7 @@ class Request:
             username,
             alt_dns=self.alt_dns,
             alt_upn=self.alt_upn,
+            sid = self.sid,
             key=self.key,
             key_size=self.key_size,
             subject=self.subject,
@@ -676,7 +681,8 @@ class Request:
         )
         self.key = key
 
-        csr = csr_to_der(csr)
+        if not self.sid:
+            csr = csr_to_der(csr)
 
         if self.archive_key:
             ca = CA(self.target, self.ca)
