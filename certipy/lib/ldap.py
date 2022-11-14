@@ -359,7 +359,10 @@ class LDAPConnection:
                 "Adding Domain Computers to list of current user's SIDs (Machine Account Quota: %d > 0)"
                 % self.machine_account_quota
             )
-            sids.add("%s-515" % self.domain_sid)
+            try:
+                sids.add("%s-515" % self.domain_sid)
+            except:
+                logging.debug("[-] Failed adding computer")
 
         dns = [user.get("distinguishedName")]
         for sid in sids:
