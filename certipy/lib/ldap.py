@@ -84,7 +84,8 @@ class LDAPConnection:
             return
         else:
             if self.scheme == "ldaps":
-                tls = ldap3.Tls(validate=ssl.CERT_NONE, version=version)
+                tls = ldap3.Tls(validate=ssl.CERT_NONE, version=version,
+                                ciphers='ALL:@SECLEVEL=0')
                 ldap_server = ldap3.Server(
                     self.target.target_ip,
                     use_ssl=True,

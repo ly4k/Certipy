@@ -279,6 +279,7 @@ class Authenticate:
             local_private_key_file=key_file.name,
             local_certificate_file=cert_file.name,
             validate=ssl.CERT_NONE,
+            ciphers='ALL:@SECLEVEL=0',
         )
 
         host = self.target.target_ip
