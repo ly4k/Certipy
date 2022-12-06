@@ -1,5 +1,7 @@
 import argparse
 import base64
+from binascii import hexlify
+import collections
 import datetime
 import os
 import platform
@@ -39,6 +41,9 @@ from impacket.krb5.pac import (
 from impacket.krb5.types import KerberosTime, Principal, Ticket
 from pyasn1.codec.der import decoder, encoder
 from pyasn1.type.univ import noValue
+from minikerberos.network.clientsocket import KerberosClientSocket
+from minikerberos.common.target import KerberosTarget
+from minikerberos.common.ccache import CCACHE
 
 from certipy.lib.certificate import (
     cert_id_to_parts,
@@ -54,8 +59,9 @@ from certipy.lib.certificate import (
 )
 from certipy.lib.errors import KRB5_ERROR_MESSAGES
 from certipy.lib.logger import logging
-from certipy.lib.pkinit import PA_PK_AS_REP, Enctype, KDCDHKeyInfo, build_pkinit_as_req
 from certipy.lib.target import Target
+from certipy.ext.gettgtpkinit import myPKINIT
+from certipy.ext.getnthash import GETPAC
 
 
 class LdapShell(_LdapShell):
@@ -85,20 +91,6 @@ class LdapShell(_LdapShell):
 class DummyDomainDumper:
     def __init__(self, root: str):
         self.root = root
-
-
-def truncate_key(value: bytes, keysize: int) -> bytes:
-    output = b""
-    current_num = 0
-    while len(output) < keysize:
-        current_digest = hash_digest(bytes([current_num]) + value, hashes.SHA1)
-        if len(output) + len(current_digest) > keysize:
-            output += current_digest[: keysize - len(output)]
-            break
-        output += current_digest
-        current_num += 1
-
-    return output
 
 
 class Authenticate:
@@ -336,12 +328,11 @@ class Authenticate:
         object_sid: str = None,
         upn: str = None,
     ) -> Union[str, bool]:
-        as_req, diffie = build_pkinit_as_req(username, domain, self.key, self.cert)
 
         logging.info("Trying to get TGT...")
 
         try:
-            tgt = sendReceive(encoder.encode(as_req), domain, self.target.target_ip)
+            mk_ccache, as_rep_key = gettgtpkinit(self.pfx, domain, username, self.target.dc_ip)
         except KerberosError as e:
             if e.getErrorCode() not in KRB5_ERROR_MESSAGES:
                 logging.error("Got unknown Kerberos error: %#x" % e.getErrorCode())
@@ -381,59 +372,9 @@ class Authenticate:
             return False
 
         logging.info("Got TGT")
+        # Convert from minikerberos.CCache to impacket.CCACHE
+        ccache = CCache(mk_ccache.to_bytes())
 
-        as_rep = decoder.decode(tgt, asn1Spec=AS_REP())[0]
-
-        for pa in as_rep["padata"]:
-            if pa["padata-type"] == 17:
-                pk_as_rep = PA_PK_AS_REP.load(bytes(pa["padata-value"])).native
-                break
-        else:
-            logging.error("PA_PK_AS_REP was not found in AS_REP")
-            return False
-
-        ci = cms.ContentInfo.load(pk_as_rep["dhSignedData"]).native
-        sd = ci["content"]
-        key_info = sd["encap_content_info"]
-
-        if key_info["content_type"] != "1.3.6.1.5.2.3.2":
-            logging.error("Unexpected value for key info content type")
-            return False
-
-        auth_data = KDCDHKeyInfo.load(key_info["content"]).native
-        pub_key = int(
-            "".join(["1"] + [str(x) for x in auth_data["subjectPublicKey"]]), 2
-        )
-        pub_key = int.from_bytes(
-            core.BitString(auth_data["subjectPublicKey"]).dump()[7:],
-            "big",
-            signed=False,
-        )
-        shared_key = diffie.exchange(pub_key)
-
-        server_nonce = pk_as_rep["serverDHNonce"]
-        full_key = shared_key + diffie.dh_nonce + server_nonce
-
-        etype = as_rep["enc-part"]["etype"]
-        cipher = _enctype_table[etype]
-        if etype == Enctype.AES256:
-            t_key = truncate_key(full_key, 32)
-        elif etype == Enctype.AES128:
-            t_key = truncate_key(full_key, 16)
-        else:
-            logging.error("Unexpected encryption type in AS_REP")
-            return False
-
-        key = Key(cipher.enctype, t_key)
-        enc_data = as_rep["enc-part"]["cipher"]
-        dec_data = cipher.decrypt(key, 3, enc_data)
-        enc_as_rep_part = decoder.decode(dec_data, asn1Spec=EncASRepPart())[0]
-
-        cipher = _enctype_table[int(enc_as_rep_part["key"]["keytype"])]
-        session_key = Key(cipher.enctype, bytes(enc_as_rep_part["key"]["keyvalue"]))
-
-        ccache = CCache()
-        ccache.fromTGT(tgt, key, None)
         krb_cred = ccache.toKRBCRED()
 
         if self.print:
@@ -474,158 +415,25 @@ class Authenticate:
         if not self.no_hash:
             logging.info("Trying to retrieve NT hash for %s" % repr(username))
 
-            # Try to extract NT hash via U2U
-            # https://github.com/dirkjanm/PKINITtools/blob/master/getnthash.py
-            # AP_REQ
-            ap_req = AP_REQ()
-            ap_req["pvno"] = 5
-            ap_req["msg-type"] = int(constants.ApplicationTagNumbers.AP_REQ.value)
-
-            opts = []
-            ap_req["ap-options"] = constants.encodeFlags(opts)
-
-            ticket = Ticket()
-            ticket.from_asn1(as_rep["ticket"])
-
-            seq_set(ap_req, "ticket", ticket.to_asn1)
-
-            authenticator = Authenticator()
-            authenticator["authenticator-vno"] = 5
-
-            authenticator["crealm"] = bytes(as_rep["crealm"])
-
-            client_name = Principal()
-            client_name.from_asn1(as_rep, "crealm", "cname")
-
-            seq_set(authenticator, "cname", client_name.components_to_asn1)
-
-            now = datetime.datetime.utcnow()
-            authenticator["cusec"] = now.microsecond
-            authenticator["ctime"] = KerberosTime.to_asn1(now)
-
-            encoded_authenticator = encoder.encode(authenticator)
-
-            encrypted_encoded_authenticator = cipher.encrypt(
-                session_key, 7, encoded_authenticator, None
+            options = collections.namedtuple(
+                'Options', 'dc_ip key',
             )
-
-            ap_req["authenticator"] = noValue
-            ap_req["authenticator"]["etype"] = cipher.enctype
-            ap_req["authenticator"]["cipher"] = encrypted_encoded_authenticator
-
-            encoded_ap_req = encoder.encode(ap_req)
-
-            # TGS_REQ
-            tgs_req = TGS_REQ()
-
-            tgs_req["pvno"] = 5
-            tgs_req["msg-type"] = int(constants.ApplicationTagNumbers.TGS_REQ.value)
-
-            tgs_req["padata"] = noValue
-            tgs_req["padata"][0] = noValue
-            tgs_req["padata"][0]["padata-type"] = int(
-                constants.PreAuthenticationDataTypes.PA_TGS_REQ.value
+            options = options(
+                self.target.dc_ip,
+                hexlify(as_rep_key),
             )
-            tgs_req["padata"][0]["padata-value"] = encoded_ap_req
-
-            req_body = seq_set(tgs_req, "req-body")
-
-            opts = []
-            opts.append(constants.KDCOptions.forwardable.value)
-            opts.append(constants.KDCOptions.renewable.value)
-            opts.append(constants.KDCOptions.canonicalize.value)
-            opts.append(constants.KDCOptions.enc_tkt_in_skey.value)
-            opts.append(constants.KDCOptions.forwardable.value)
-            opts.append(constants.KDCOptions.renewable_ok.value)
-
-            req_body["kdc-options"] = constants.encodeFlags(opts)
-
-            server_name = Principal(
-                username, type=constants.PrincipalNameType.NT_UNKNOWN.value
-            )
-
-            seq_set(req_body, "sname", server_name.components_to_asn1)
-
-            req_body["realm"] = str(as_rep["crealm"])
-
-            now = datetime.datetime.utcnow() + datetime.timedelta(days=1)
-
-            req_body["till"] = KerberosTime.to_asn1(now)
-            req_body["nonce"] = getrandbits(31)
-            seq_set_iter(
-                req_body,
-                "etype",
-                (int(cipher.enctype), int(constants.EncryptionTypes.rc4_hmac.value)),
-            )
-
-            ticket = ticket.to_asn1(TicketAsn1())
-            seq_set_iter(req_body, "additional-tickets", (ticket,))
-            message = encoder.encode(tgs_req)
-
-            tgs = sendReceive(message, domain, self.target.target_ip)
-
-            tgs = decoder.decode(tgs, asn1Spec=TGS_REP())[0]
-
-            ciphertext = tgs["ticket"]["enc-part"]["cipher"]
-
-            new_cipher = _enctype_table[int(tgs["ticket"]["enc-part"]["etype"])]
-
-            plaintext = new_cipher.decrypt(session_key, 2, ciphertext)
-            special_key = Key(18, t_key)
-
-            data = plaintext
-            enc_ticket_part = decoder.decode(data, asn1Spec=EncTicketPart())[0]
-            ad_if_relevant = decoder.decode(
-                enc_ticket_part["authorization-data"][0]["ad-data"],
-                asn1Spec=AD_IF_RELEVANT(),
-            )[0]
-            pac_type = PACTYPE(ad_if_relevant[0]["ad-data"].asOctets())
-            buff = pac_type["Buffers"]
-
-            nt_hash = None
-            lm_hash = "aad3b435b51404eeaad3b435b51404ee"
-
-            for _ in range(pac_type["cBuffers"]):
-                info_buffer = PAC_INFO_BUFFER(buff)
-                data = pac_type["Buffers"][info_buffer["Offset"] - 8 :][
-                    : info_buffer["cbBufferSize"]
-                ]
-                if info_buffer["ulType"] == 2:
-                    cred_info = PAC_CREDENTIAL_INFO(data)
-                    new_cipher = _enctype_table[cred_info["EncryptionType"]]
-                    out = new_cipher.decrypt(
-                        special_key, 16, cred_info["SerializedData"]
-                    )
-                    type1 = TypeSerialization1(out)
-                    new_data = out[len(type1) + 4 :]
-                    pcc = PAC_CREDENTIAL_DATA(new_data)
-                    for cred in pcc["Credentials"]:
-                        cred_structs = NTLM_SUPPLEMENTAL_CREDENTIAL(
-                            b"".join(cred["Credentials"])
-                        )
-                        if any(cred_structs["LmPassword"]):
-                            lm_hash = cred_structs["LmPassword"].hex()
-                        nt_hash = cred_structs["NtPassword"].hex()
-                        break
-                    break
-
-                buff = buff[len(info_buffer) :]
-            else:
-                logging.error("Could not find credentials in PAC")
-                return False
-
-            self.lm_hash = lm_hash
-            self.nt_hash = nt_hash
-
-            if not is_key_credential:
-                logging.info("Got hash for %s: %s:%s", repr(upn), lm_hash, nt_hash)
-
-            return nt_hash
+            os.environ['KRB5CCNAME'] = self.ccache_name
+            dumper = GETPAC(username, domain, options)
+            dumper.dump()
 
         return False
 
 
 def entry(options: argparse.Namespace) -> None:
+    import logging as _logging
+    _logging.getLogger('minikerberos').setLevel(
+        "DEBUG" if options.debug else "WARN"
+    )
     options.no_pass = True
     target = Target.create(
         domain=options.domain,
@@ -640,3 +448,28 @@ def entry(options: argparse.Namespace) -> None:
 
     authenticate = Authenticate(target=target, **vars(options))
     authenticate.authenticate()
+
+
+def gettgtpkinit(pfx, domain, username, dc_ip):
+    # Copied and modified from:
+    # https://github.com/dirkjanm/PKINITtools/blob/master/gettgtpkinit.py
+    dhparams = {
+        'p':int('00ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f24117c4b1fe649286651ece65381ffffffffffffffff', 16),
+        'g':2
+    }
+
+    ini = myPKINIT.from_pfx(pfx, '', dhparams)
+    req = ini.build_asreq(domain, username)
+    logging.info('Requesting TGT')
+
+    if not dc_ip:
+        dc_ip = domain
+
+    sock = KerberosClientSocket(KerberosTarget(dc_ip))
+    res = sock.sendrecv(req)
+
+    encasrep, session_key, cipher, t_key = ini.decrypt_asrep(res.native)
+    ccache = CCACHE()
+    ccache.add_tgt(res.native, encasrep)
+
+    return ccache, t_key
