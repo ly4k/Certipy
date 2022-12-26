@@ -234,14 +234,16 @@ class Find:
         for ca in cas:
 
             if self.dc_only:
-                user_specified_san, request_disposition, security, web_enrollment = (
+                user_specified_san, request_disposition, enforce_encrypt_icertrequest, security, web_enrollment = (
+                    "Unknown",
                     "Unknown",
                     "Unknown",
                     None,
                     "Unknown",
                 )
             else:
-                user_specified_san, request_disposition, security = (
+                user_specified_san, request_disposition, enforce_encrypt_icertrequest, security = (
+                    "Unknown",
                     "Unknown",
                     "Unknown",
                     None,
@@ -256,7 +258,7 @@ class Find:
                     ca_target.target_ip = ca_target_ip
 
                     ca_service = CA(ca_target, ca=ca_name)
-                    edit_flags, request_disposition, security = ca_service.get_config()
+                    edit_flags, request_disposition, interface_flags, security = ca_service.get_config()
 
                     if request_disposition:
                         request_disposition = (
@@ -272,6 +274,14 @@ class Find:
                         )
                     else:
                         user_specified_san = "Unknown"
+
+                    if interface_flags:
+                        enforce_encrypt_icertrequest = (interface_flags & 0x00000200) == 0x00000200
+                        enforce_encrypt_icertrequest = (
+                            "Enabled" if enforce_encrypt_icertrequest else "Disabled"
+                        )
+                    else:
+                        enforce_encrypt_icertrequest = "Unknown"
 
                 except Exception as e:
                     logging.warning(
@@ -291,6 +301,7 @@ class Find:
 
             ca.set("user_specified_san", user_specified_san)
             ca.set("request_disposition", request_disposition)
+            ca.set("enforce_encrypt_icertrequest", enforce_encrypt_icertrequest)
             ca.set("security", security)
             ca.set("web_enrollment", web_enrollment)
 
@@ -1035,6 +1046,7 @@ class Find:
             "web_enrollment": "Web Enrollment",
             "user_specified_san": "User Specified SAN",
             "request_disposition": "Request Disposition",
+            "enforce_encrypt_icertrequest": "Enforce Encryption for Requests",
         }
 
         if ca_properties is None:
@@ -1120,6 +1132,15 @@ class Find:
                 "Web Enrollment is enabled and Request Disposition is set to %s"
                 % ca.get("request_disposition")
             )
+
+        # ESC11
+        if (
+            ca.get("enforce_encrypt_icertrequest") == "Disabled"
+            and ca.get("request_disposition") == "Issue"
+        ):
+            vulnerabilities[
+                "ESC11"
+            ] = "Encryption is not enforced for ICPR requests and Request Disposition is set to Issue"
 
         return vulnerabilities
 
