@@ -731,6 +731,7 @@ class Find:
                 "msPKI-Enrollment-Flag",
                 "msPKI-Private-Key-Flag",
                 "msPKI-Certificate-Name-Flag",
+                "msPKI-Minimal-Key-Size",
                 "msPKI-RA-Signature",
                 "pKIExtendedKeyUsage",
                 "nTSecurityDescriptor",
@@ -829,6 +830,7 @@ class Find:
             "authorized_signatures_required": "Authorized Signatures Required",
             "validity_period": "Validity Period",
             "renewal_period": "Renewal Period",
+            "msPKI-Minimal-Key-Size": "Minimum RSA Key Length"
         }
 
         if template_properties is None:
