@@ -1,5 +1,7 @@
 # Certipy
 
+[![Upload Python Package](https://github.com/ly4k/Certipy/actions/workflows/python-publish.yml/badge.svg)](https://github.com/ly4k/Certipy/actions/workflows/python-publish.yml)
+
 Certipy is an offensive tool for enumerating and abusing Active Directory Certificate Services (AD CS). If you're not familiar with AD CS and the various domain escalation techniques, I highly recommend reading [Certified Pre-Owned](https://posts.specterops.io/certified-pre-owned-d95910965cd2) by [Will Schroeder](https://twitter.com/harmj0y) and [Lee Christensen](https://twitter.com/tifkin_).
 
 ## Table of Contents
