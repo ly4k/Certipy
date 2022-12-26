@@ -341,7 +341,7 @@ class Authenticate:
         logging.info("Trying to get TGT...")
 
         try:
-            tgt = sendReceive(encoder.encode(as_req), domain, self.target.target_ip)
+            tgt = sendReceive(as_req, domain, self.target.target_ip)
         except KerberosError as e:
             if e.getErrorCode() not in KRB5_ERROR_MESSAGES:
                 logging.error("Got unknown Kerberos error: %#x" % e.getErrorCode())
