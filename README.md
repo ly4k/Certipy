@@ -30,13 +30,7 @@ Certipy is an offensive tool for enumerating and abusing Active Directory Certif
 ## Installation
 
 ```bash
-pip3 install /path/to/Certipy
-```
-
-or
-
-```bash
-python3 /path/to/Certipy/setup.py install
+pip3 install certipy-ad
 ```
 
 ## Usage
