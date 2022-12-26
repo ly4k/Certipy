@@ -1,5 +1,7 @@
 import argparse
+import collections
 import json
+from itertools import groupby
 from typing import Dict
 
 import ldap3
@@ -189,7 +191,7 @@ class Template:
             if key in new_configuration:
                 old_values = old_configuration.get_raw(key)
                 new_values = new_configuration[key]
-                if all(list(map(lambda x: x in new_values, old_values))):
+                if collections.Counter(old_values) == collections.Counter(new_values):
                     continue
 
                 changes[key] = [
@@ -222,6 +224,14 @@ class Template:
         logging.info(
             "Updating certificate template %s" % repr(old_configuration.get("cn"))
         )
+
+        by_op = lambda item: item[1][0][0]
+        for op, group in groupby(sorted(changes.items(), key=by_op), by_op):
+            logging.debug("%s:" % op)
+            for item in list(group):
+                key = item[0]
+                value = item[1][0][1]
+                logging.debug("    %s: %s" % (key, repr(value)))
 
         result = self.connection.modify(
             old_configuration.get("distinguishedName"),
