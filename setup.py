@@ -4,8 +4,8 @@ with open("README.md") as f:
     readme = f.read()
 
 setup(
-    name="Certipy",
-    version="4.1.0",
+    name="certipy-ad",
+    version="4.2.0",
     license="MIT",
     author="ly4k",
     url="https://github.com/ly4k/Certipy",
