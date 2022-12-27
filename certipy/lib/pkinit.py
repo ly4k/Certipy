@@ -10,10 +10,6 @@ from asn1crypto import core as asn1core
 from asn1crypto import keys as asn1keys
 from asn1crypto import x509 as asn1x509
 from impacket.krb5 import constants
-from impacket.krb5.asn1 import AS_REQ, KERB_PA_PAC_REQUEST, seq_set, seq_set_iter
-from impacket.krb5.types import KerberosTime, Principal
-from pyasn1.codec.der import encoder
-from pyasn1.type.univ import noValue
 
 from certipy.lib.certificate import (
     cert_to_der,
@@ -23,7 +19,7 @@ from certipy.lib.certificate import (
     rsa_pkcs1v15_sign,
     x509,
 )
-from certipy.lib.sspi.structs import KDC_REQ_BODY, PrincipalName, KDCOptions, AS_REQ, PA_PAC_REQUEST
+from certipy.lib.structs import KDC_REQ_BODY, PrincipalName, KDCOptions, AS_REQ, PA_PAC_REQUEST
 
 # https://github.com/dirkjanm/PKINITtools/blob/master/gettgtpkinit.py#L292
 DH_PARAMS = {
