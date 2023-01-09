@@ -4,12 +4,13 @@ with open("README.md") as f:
     readme = f.read()
 
 setup(
-    name="Certipy",
-    version="4.0.0",
+    name="certipy-ad",
+    version="4.3.0",
     license="MIT",
     author="ly4k",
     url="https://github.com/ly4k/Certipy",
     long_description=readme,
+    long_description_content_type="text/markdown",
     install_requires=[
         "asn1crypto",
         "cryptography>=37.0",

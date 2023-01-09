@@ -18,7 +18,7 @@ from .netsecapi import (
     get_lsa_error,
     submit_tkt_helper,
 )
-from .structs import (
+from certipy.lib.structs import (
     AP_REQ,
     KRB_CRED,
     Authenticator,

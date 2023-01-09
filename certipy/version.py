@@ -2,7 +2,7 @@ import pkg_resources
 from impacket import __path__
 
 try:
-    version = pkg_resources.get_distribution("certipy").version
+    version = pkg_resources.get_distribution("certipy-ad").version
 except pkg_resources.DistributionNotFound:
     version = "?"
     print(
