@@ -857,7 +857,6 @@ class Find:
 
             if (
                 EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"]
-                or EXTENDED_RIGHTS_NAME_MAP["AutoEnroll"] in rights["extended_rights"]
             ):
                 enrollment_rights.append(self.connection.lookup_sid(sid).get("name"))
             if (
@@ -1029,7 +1028,6 @@ class Find:
                 EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"]
                 in rights["extended_rights"]
                 or EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"]
-                or EXTENDED_RIGHTS_NAME_MAP["AutoEnroll"] in rights["extended_rights"]
                 or CERTIFICATE_RIGHTS.GENERIC_ALL in rights["rights"]
             ):
                 enrollable_sids.append(sid)
