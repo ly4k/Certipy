@@ -211,6 +211,16 @@
           "query": "MATCH p=allShortestPaths((g {owned:true})-[r*1..]->(n:GPO)) WHERE n.type = 'Certificate Template' and g<>n and 'NoSecurityExtension' in n.`Enrollment Flag` and n.`Enabled` = true and NONE(rel in r WHERE type(rel) in ['EnabledBy','Read','ManageCa','ManageCertificates']) return p"
         }
       ]
+    },
+    {
+      "name": "Find Certificate Authorities with Enforce Encryption not enabled (ESC11)",
+      "category": "PKI",
+      "queryList": [
+        {
+          "final": true,
+          "query": "MATCH (n:GPO) WHERE n.type = 'Enrollment Service' and NOT n.`Enforce Encryption for Requests` = 'Enabled' RETURN n"
+        }
+      ]
     }
   ]
 }
