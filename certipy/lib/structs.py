@@ -13,7 +13,10 @@ class IntFlag(enum.IntFlag):
         return members
 
     def to_str_list(self):
-        return list(map(lambda x: str(x), self.to_list()))
+        try:
+            return list(map(lambda x: str(x), list(self)))
+        except:
+            return list(map(lambda x: str(x), self.to_list()))
 
     def __str__(self):
         cls = self.__class__
