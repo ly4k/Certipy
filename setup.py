@@ -11,6 +11,7 @@ setup(
     url="https://github.com/ly4k/Certipy",
     long_description=readme,
     long_description_content_type="text/markdown",
+    python_requires='<3.11',
     install_requires=[
         "asn1crypto",
         "cryptography>=37.0",
