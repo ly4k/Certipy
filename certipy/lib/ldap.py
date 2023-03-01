@@ -117,9 +117,8 @@ class LDAPConnection:
                     ldap_pass = self.target.password
                 ldap_conn = ldap3.Connection(
                     ldap_server,
-                    user=user,
-                    password=ldap_pass,
-                    authentication=ldap3.NTLM,
+                    self.target.username,
+                    self.target.password,
                     auto_referrals=False,
                     receive_timeout=self.target.timeout * 10,
                 )
