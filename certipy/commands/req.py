@@ -288,7 +288,7 @@ class WebRequestInterface(RequestInterface):
         session.auth = HttpNtlmAuth(principal, password)
         session.verify = False
 
-        base_url = "%s://%s:%i" % (scheme, self.target.target_ip, port)
+        base_url = "%s://%s:%i" % (scheme, self.target.remote_name, port)
         logging.info("Checking for Web Enrollment on %s" % repr(base_url))
 
         session.headers["User-Agent"] = None
@@ -317,7 +317,7 @@ class WebRequestInterface(RequestInterface):
         if not success:
             scheme = "https" if scheme == "http" else "http"
             port = 80 if scheme == "http" else 443
-            base_url = "%s://%s:%i" % (scheme, self.target.target_ip, port)
+            base_url = "%s://%s:%i" % (scheme, self.target.remote_name, port)
             logging.info(
                 "Trying to connect to Web Enrollment interface %s" % repr(base_url)
             )
