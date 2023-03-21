@@ -88,7 +88,7 @@
       "queryList": [
         {
           "final": true,
-          "query": "MATCH (n:GPO) WHERE n.type = 'Certificate Template' and n.`Enabled` = true and (n.`Extended Key Usage` = [] or 'Any Purpose' IN n.`Extended Key Usage`)  RETURN n"
+          "query": "MATCH (n:GPO) WHERE n.type = 'Certificate Template' and n.`Enabled` = true and (n.`Extended Key Usage` = [] or 'Any Purpose' IN n.`Extended Key Usage` or n.`Any Purpose` = True) RETURN n"
         }
       ]
     },
@@ -98,7 +98,7 @@
       "queryList": [
         {
           "final": true,
-          "query": "MATCH p=allShortestPaths((g {owned:true})-[*1..]->(n:GPO)) WHERE  g<>n and n.type = 'Certificate Template' and n.`Enabled` = true and (n.`Extended Key Usage` = [] or 'Any Purpose' IN n.`Extended Key Usage`) return p"
+          "query": "MATCH p=allShortestPaths((g {owned:true})-[*1..]->(n:GPO)) WHERE  g<>n and n.type = 'Certificate Template' and n.`Enabled` = true and (n.`Extended Key Usage` = [] or 'Any Purpose' IN n.`Extended Key Usage` or n.`Any Purpose` = True) RETURN p"
         }
       ]
     },
@@ -108,7 +108,7 @@
       "queryList": [
         {
           "final": true,
-          "query": "MATCH (n:GPO) WHERE n.type = 'Certificate Template' and n.`Enabled` = true and (n.`Extended Key Usage` = [] or 'Any Purpose' IN n.`Extended Key Usage` or 'Certificate Request Agent' IN n.`Extended Key Usage`)  RETURN n"
+          "query": "MATCH (n:GPO) WHERE n.type = 'Certificate Template' and n.`Enabled` = true and (n.`Extended Key Usage` = [] or 'Any Purpose' IN n.`Extended Key Usage` or 'Certificate Request Agent' IN n.`Extended Key Usage` or n.`Any Purpose` = True) RETURN n"
         }
       ]
     },
@@ -118,7 +118,7 @@
       "queryList": [
         {
           "final": true,
-          "query": "MATCH p=allShortestPaths((g {owned:true})-[*1..]->(n:GPO)) WHERE  g<>n and n.type = 'Certificate Template' and n.`Enabled` = true and (n.`Extended Key Usage` = [] or 'Any Purpose' IN n.`Extended Key Usage` or 'Certificate Request Agent' IN n.`Extended Key Usage`) return p"
+          "query": "MATCH p=allShortestPaths((g {owned:true})-[*1..]->(n:GPO)) WHERE  g<>n and n.type = 'Certificate Template' and n.`Enabled` = true and (n.`Extended Key Usage` = [] or 'Any Purpose' IN n.`Extended Key Usage` or n.`Any Purpose` = True or 'Certificate Request Agent' IN n.`Extended Key Usage`) RETURN p"
         }
       ]
     },
