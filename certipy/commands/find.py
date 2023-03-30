@@ -963,7 +963,11 @@ class Find:
                 )
 
             # ESC9
-            if user_can_enroll and template.get("no_security_extension"):
+            if (
+                user_can_enroll
+                and template.get("no_security_extension")
+                and template.get("client_authentication")
+            ):
                 vulnerabilities[
                     "ESC9"
                 ] = "%s can enroll and template has no security extension" % list_sids(
