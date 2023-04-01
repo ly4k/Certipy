@@ -763,7 +763,11 @@ class Find:
     def security_to_bloodhound_aces(self, security: ActiveDirectorySecurity) -> List:
         aces = []
 
-        owner = self.connection.lookup_sid(security.owner)
+        try:
+            owner = self.connection.lookup_sid(security.owner)
+        except:
+            # todo this is a quick fix, the root cause is unknown and should be investigated
+            return aces
 
         aces.append(
             {

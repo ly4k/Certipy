@@ -205,7 +205,11 @@ class RPCRequestInterface(RequestInterface):
 
         logging.info("Requesting certificate via RPC")
 
-        response = self.dce.request(request)
+        try:
+            response = self.dce.request(request)
+        except:
+            # todo this is a quick fix, the root cause is unknown and should be investigated
+            return False
 
         error_code = response["pdwDisposition"]
         request_id = response["pdwRequestId"]
