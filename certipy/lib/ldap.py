@@ -301,7 +301,7 @@ class LDAPConnection:
             ],
         )
         if len(results) != 1:
-            return None
+            return 0
 
         result = results[0]
         machine_account_quota = result.get("ms-DS-MachineAccountQuota")
