@@ -440,35 +440,34 @@ def create_csr(
                         
             cri_attributes.append(cri_attribute)                        
             
-        if renewal_cert:
-            cri_attributes.append(
-                asn1csr.CRIAttribute(
-                    {
-                        "type": "1.3.6.1.4.1.311.13.1",
-                        "values": asn1x509.SetOf(
-                            [asn1x509.Certificate.load(cert_to_der(renewal_cert))],
-                            spec=asn1x509.Certificate,
-                        ),
-                    }
-                )
+    if renewal_cert:
+        cri_attributes.append(
+            asn1csr.CRIAttribute(
+                {
+                    "type": "1.3.6.1.4.1.311.13.1",
+                    "values": asn1x509.SetOf(
+                        [asn1x509.Certificate.load(cert_to_der(renewal_cert))],
+                        spec=asn1x509.Certificate,
+                    ),
+                }
             )
-
-        certification_request_info["attributes"] = cri_attributes
-
-        signature = rsa_pkcs1v15_sign(certification_request_info.dump(), key)
-
-        csr = asn1csr.CertificationRequest(
-            {
-                "certification_request_info": certification_request_info,
-                "signature_algorithm": asn1csr.SignedDigestAlgorithm(
-                    {"algorithm": "sha256_rsa"}
-                ),
-                "signature": signature,
-            }
         )
 
-        return (der_to_csr(csr.dump()), key)
+    certification_request_info["attributes"] = cri_attributes
 
+    signature = rsa_pkcs1v15_sign(certification_request_info.dump(), key)
+
+    csr = asn1csr.CertificationRequest(
+        {
+            "certification_request_info": certification_request_info,
+            "signature_algorithm": asn1csr.SignedDigestAlgorithm(
+                {"algorithm": "sha256_rsa"}
+            ),
+            "signature": signature,
+        }
+    )
+
+    return (der_to_csr(csr.dump()), key)
 
 def rsa_pkcs1v15_sign(
     data: bytes, key: rsa.RSAPrivateKey, hash: hashes.HashAlgorithm = hashes.SHA256

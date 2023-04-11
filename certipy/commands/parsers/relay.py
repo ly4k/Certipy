@@ -40,6 +40,20 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         default=0,
         type=int,
     )
+    
+    group.add_argument(
+        "-on-behalf-of",
+        action="store",
+        metavar="domain\\account",
+        help="Use a Certificate Request Agent certificate to request on behalf of another user",
+    )
+    group.add_argument(
+        "-pfx",
+        action="store",
+        metavar="pfx/p12 file name",
+        help="Path to PFX for -on-behalf-of or -renew",
+    )  
+    
     group.add_argument(
         "-key-size",
         action="store",
