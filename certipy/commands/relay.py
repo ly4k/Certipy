@@ -25,6 +25,7 @@ from certipy.lib.certificate import (
     create_on_behalf_of,
     csr_to_pem,
     csr_to_der,
+    der_to_csr,
     der_to_pem,
     get_identifications_from_certificate,
     get_object_sid_from_certificate,
@@ -206,8 +207,12 @@ class ADCSAttackClient(ProtocolAttack):
             self.username,
             alt_dns=self.adcs_relay.dns,
             alt_upn=self.adcs_relay.upn,
+            sid=self.adcs_relay.sid,
             key_size=self.adcs_relay.key_size,
         )
+
+        if self.adcs_relay.sid:
+            csr = der_to_csr(csr)
 
         if self.adcs_relay.on_behalf_of:
             if self.adcs_relay.pfx is None:
@@ -404,6 +409,7 @@ class Relay:
         template=None,
         upn=None,
         dns=None,
+        extensionsid: str=None,
         retrieve=None,
         on_behalf_of: str = None,
         pfx: str = None,
@@ -421,6 +427,7 @@ class Relay:
         self.template = template
         self.upn = upn
         self.dns = dns
+        self.sid = extensionsid
         self.request_id = int(retrieve)
         self.on_behalf_of = on_behalf_of
         self.pfx = pfx

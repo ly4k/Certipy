@@ -32,6 +32,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
 
     group.add_argument("-upn", action="store", metavar="alternative UPN")
     group.add_argument("-dns", action="store", metavar="alternative DNS")
+    group.add_argument("-extensionsid", action="store", metavar="Object SID")    
     group.add_argument(
         "-retrieve",
         action="store",
