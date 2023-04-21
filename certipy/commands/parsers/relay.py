@@ -79,6 +79,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         action="store_true",
         help="Don't skip previously attacked users. Use with -forever",
     )
+    group.add_argument(
+        "-enumTemplates",
+        action="store_true",
+        help="Relay to /certsrv/certrqxt.asp and parse available certificate templates"
+    )
 
     group = subparser.add_argument_group("connection options")
     group.add_argument(

