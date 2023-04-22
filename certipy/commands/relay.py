@@ -148,13 +148,13 @@ class ADCSAttackClient(ProtocolAttack):
             select_tag = soup.find('select', {'name': 'lbCertTemplate', 'id':'lbCertTemplateID'})
             if select_tag:
                 option_tags = select_tag.find_all('option')
-                print("Templates Found:")
+                print("Templates Found for %s:" % repr(self.client.user)) 
                 for option in option_tags:
                     value = option['value']
                     split_value = value.split(';')
                     if len(split_value) > 1:
                         print(split_value[1])
-            return
+            return self.finish_run()
 
         request_id = self.adcs_relay.request_id
         if request_id:
