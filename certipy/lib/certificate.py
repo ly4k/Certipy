@@ -317,6 +317,7 @@ def create_csr(
     username: str,
     alt_dns: bytes = None,
     alt_upn: bytes = None,
+    sidextension: bytes = None,
     key: rsa.RSAPrivateKey = None,
     key_size: int = 2048,
     subject: str = None,
@@ -391,6 +392,38 @@ def create_csr(
             {"type": "extension_request", "values": set_of_extensions}
         )
 
+        cri_attributes.append(cri_attribute)
+
+    if sidextension:
+        sid = sidextension.encode('utf-8')
+        if len(sid) == 43:
+            prefix = b'\x30\x3d\xa0\x3b\x06\x0a\x2b\x06\x01\x04\x01\x82\x37\x19\x02\x01\xa0\x2d\x04\x2b'
+        elif len(sid) == 44:
+            prefix = b'\x30\x3e\xa0\x3c\x06\x0a\x2b\x06\x01\x04\x01\x82\x37\x19\x02\x01\xa0\x2e\x04\x2c'
+        elif len(sid) == 45:
+            prefix = b'\x30\x3f\xa0\x3d\x06\x0a\x2b\x06\x01\x04\x01\x82\x37\x19\x02\x01\xa0\x2f\x04\x2d'
+        elif len(sid) == 46:
+            prefix = b'\x30\x40\xa0\x3e\x06\x0a\x2b\x06\x01\x04\x01\x82\x37\x19\x02\x01\xa0\x30\x04\x2e'
+        elif len(sid) == 47:
+            prefix = b'\x30\x41\xa0\x3f\x06\x0a\x2b\x06\x01\x04\x01\x82\x37\x19\x02\x01\xa0\x31\x04\x2f'
+        elif len(sid) == 48:
+            prefix = b'\x30\x42\xa0\x40\x06\x0a\x2b\x06\x01\x04\x01\x82\x37\x19\x02\x01\xa0\x32\x04\x30'
+        else:
+            print("[-] Wrong sid length or unknown prefix to sid length")
+        sidrequest =  prefix + sid
+
+        oid_custom_attr = asn1x509.ExtensionId('1.3.6.1.4.1.311.25.2')
+        custom_attr_value = asn1core.ParsableOctetString(sidrequest)
+        custom_attr_ext = asn1x509.Extension({
+            "extn_id": oid_custom_attr,
+            "extn_value": custom_attr_value
+        })
+
+        set_of_extensions = asn1csr.SetOfExtensions([[custom_attr_ext]])
+
+        cri_attribute = asn1csr.CRIAttribute(
+            {"type": "extension_request", "values": set_of_extensions}
+        )
         cri_attributes.append(cri_attribute)
 
     if renewal_cert:

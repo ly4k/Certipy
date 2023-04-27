@@ -180,6 +180,7 @@ certificate request options:
   -template template name
   -upn alternative UPN
   -dns alternative DNS
+  -sidextension sid     e.g. S-1-5-21-364857334-1705982952-2011365673-500
   -subject subject      Subject to include certificate, e.g. CN=Administrator,CN=Users,DC=CORP,DC=LOCAL
   -retrieve request ID  Retrieve an issued certificate specified by a request ID instead of requesting a new certificate
   -on-behalf-of domain\account
