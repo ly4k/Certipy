@@ -139,7 +139,7 @@ class ADCSAttackClient(ProtocolAttack):
             )
             return
         
-        if self.adcs_relay.enumTemplates:
+        if self.adcs_relay.enum_templates:
             from bs4 import BeautifulSoup
             self.client.request("GET", "/certsrv/certrqxt.asp")
             response = self.client.getresponse()
@@ -399,7 +399,7 @@ class Relay:
         forever=False,
         no_skip=False,
         timeout=5,
-        enumTemplates=False,
+        enum_templates=False,
         debug=False,
         **kwargs
     ):
@@ -416,13 +416,13 @@ class Relay:
         self.verbose = debug
         self.interface = interface
         self.port = port
-        self.enumTemplates = enumTemplates
+        self.enum_templates = enum_templates
         self.kwargs = kwargs
 
         self.attacked_targets = []
         self.attack_lock = Lock()
         
-        if self.enumTemplates:
+        if self.enum_templates:
             target = "http://%s/certsrv/certrqxt.asp" % ca
         else:
             target = "http://%s/certsrv/certfnsh.asp" % ca
