@@ -743,6 +743,7 @@ class Find:
                 "msPKI-Minimal-Key-Size",
                 "msPKI-RA-Signature",
                 "msPKI-Template-Schema-Version",
+                "msPKI-RA-Application-Policies",
                 "pKIExtendedKeyUsage",
                 "nTSecurityDescriptor",
                 "objectGUID",
@@ -1008,6 +1009,7 @@ class Find:
                 or (
                     template.get("schema_version") > 1
                     and template.get("authorized_signatures_required") > 0
+                    and template.get("application_policies") is not None
                     and "Certificate Request Agent" in template.get("application_policies")
                 )
             )
