@@ -24,6 +24,8 @@ setup(
         "requests_ntlm",
         'winacl; platform_system=="Windows"',
         'wmi; platform_system=="Windows"',
+        "pycryptodome",
+        "unicrypto"
     ],
     packages=[
         "certipy",
