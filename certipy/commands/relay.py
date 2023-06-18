@@ -191,6 +191,7 @@ class ADCSAttackClient(ProtocolAttack):
             self.username,
             alt_dns=self.adcs_relay.dns,
             alt_upn=self.adcs_relay.upn,
+            alt_sid=self.adcs_relay.sid,
             key_size=self.adcs_relay.key_size,
         )
 
@@ -374,6 +375,7 @@ class Relay:
         template=None,
         upn=None,
         dns=None,
+        sid=None,
         retrieve=None,
         key_size: int = 2048,
         out=None,
@@ -389,6 +391,7 @@ class Relay:
         self.template = template
         self.upn = upn
         self.dns = dns
+        self.sid = sid
         self.request_id = int(retrieve)
         self.key_size = key_size
         self.out = out
