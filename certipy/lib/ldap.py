@@ -354,13 +354,11 @@ class LDAPConnection:
         if primary_group_id is not None:
             sids.add("%s-%d" % (self.domain_sid, primary_group_id))
 
-        # Add Domain Computers group if Machine Account Quota > 0
-        if self.machine_account_quota > 0:
-            logging.debug(
-                "Adding Domain Computers to list of current user's SIDs (Machine Account Quota: %d > 0)"
-                % self.machine_account_quota
-            )
-            sids.add("%s-515" % self.domain_sid)
+        # Add Domain Computers group
+        logging.debug(
+            "Adding Domain Computers to list of current user's SIDs"
+        )
+        sids.add("%s-515" % self.domain_sid)
 
         dns = [user.get("distinguishedName")]
         for sid in sids:
