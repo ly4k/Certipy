@@ -303,6 +303,7 @@ class Authenticate:
                 sasl_credentials=sasl_credentials,
                 auto_bind=ldap3.AUTO_BIND_TLS_BEFORE_BIND,
                 raise_exceptions=True,
+                receive_timeout=self.target.timeout * 10
             )
         except ldap3.core.exceptions.LDAPUnavailableResult as e:
             logging.error("LDAP not configured for SSL/TLS connections")
