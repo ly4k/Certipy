@@ -199,7 +199,7 @@ OID_TO_STR_MAP = {
     "1.3.6.1.4.1.311.10.3.2": "Microsoft Time Stamping",
     "1.3.6.1.4.1.311.76.8.1": "Microsoft Publishe",
     "1.3.6.1.5.5.7.3.2": "Client Authentication",
-    "1.3.6.1.5.2.3.4": "PKIINIT Client Authentication",
+    "1.3.6.1.5.2.3.4": "PKINIT Client Authentication",
     "1.3.6.1.4.1.311.10.3.13": "Lifetime Signing",
     "2.5.29.37.0": "Any Purpose",
     "1.3.6.1.4.1.311.64.1.1": "Server Trust",

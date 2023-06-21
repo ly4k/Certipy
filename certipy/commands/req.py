@@ -524,6 +524,7 @@ class Request:
         template: str = None,
         upn: str = None,
         dns: str = None,
+        sid: str = None,
         subject: str = None,
         retrieve: int = 0,
         on_behalf_of: str = None,
@@ -545,6 +546,7 @@ class Request:
         self.template = template
         self.alt_upn = upn
         self.alt_dns = dns
+        self.alt_sid = sid
         self.subject = subject
         self.request_id = int(retrieve)
         self.on_behalf_of = on_behalf_of
@@ -669,6 +671,7 @@ class Request:
             username,
             alt_dns=self.alt_dns,
             alt_upn=self.alt_upn,
+            alt_sid=self.alt_sid,
             key=self.key,
             key_size=self.key_size,
             subject=self.subject,

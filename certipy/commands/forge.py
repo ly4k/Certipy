@@ -4,7 +4,6 @@ from typing import Callable, Tuple
 
 from certipy.lib.certificate import (
     PRINCIPAL_NAME,
-    NameOID,
     UTF8String,
     cert_id_to_parts,
     create_pfx,
@@ -13,6 +12,9 @@ from certipy.lib.certificate import (
     get_subject_from_str,
     load_pfx,
     x509,
+    asn1x509,
+    NTDS_CA_SECURITY_EXT,
+    szOID_NTDS_OBJECTSID
 )
 from certipy.lib.logger import logging
 
@@ -23,6 +25,7 @@ class Forge:
         ca_pfx: str = None,
         upn: str = None,
         dns: str = None,
+        sid: str = None,
         template: str = None,
         subject: str = None,
         issuer: str = None,
@@ -35,6 +38,7 @@ class Forge:
         self.ca_pfx = ca_pfx
         self.alt_upn = upn
         self.alt_dns = dns
+        self.alt_sid = sid
         self.template = template
         self.subject = subject
         self.issuer = issuer
@@ -199,6 +203,30 @@ class Forge:
             x509.SubjectAlternativeName(sans),
             False,
         )
+
+        alt_sid = self.alt_sid
+        if alt_sid:
+            if type(alt_sid) == str:
+                alt_sid = alt_sid.encode()
+
+            sid_extension = asn1x509.GeneralNames([asn1x509.GeneralName(
+                    {
+                        "other_name": asn1x509.AnotherName(
+                            {
+                                "type_id": szOID_NTDS_OBJECTSID,
+                                "value": asn1x509.OctetString(alt_sid).retag(
+                                    {"explicit": 0}
+                                ),
+                            }
+                        )
+                    }
+                )]
+            )
+
+            cert = cert.add_extension(
+                x509.UnrecognizedExtension(NTDS_CA_SECURITY_EXT, sid_extension.dump()),
+                False,
+            )
 
         cert = cert.sign(ca_key, signature_hash_algorithm())
 

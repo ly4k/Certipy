@@ -4,7 +4,7 @@ import math
 import os
 import struct
 import sys
-from typing import Callable, List, Tuple
+from typing import List, Tuple
 
 from asn1crypto import cms as asn1cms
 from asn1crypto import core as asn1core
@@ -50,17 +50,29 @@ DN_MAP = {
     "DC": NameOID.DOMAIN_COMPONENT,
 }
 
+asn1x509.ExtensionId._map.update(
+    {
+        "1.3.6.1.4.1.311.25.2": "security_ext",
+    }
+)
+
+asn1x509.Extension._oid_specs.update(
+    {
+        "security_ext": asn1x509.GeneralNames,
+    }
+)
+
 PRINCIPAL_NAME = x509.ObjectIdentifier("1.3.6.1.4.1.311.20.2.3")
-
 NTDS_CA_SECURITY_EXT = x509.ObjectIdentifier("1.3.6.1.4.1.311.25.2")
-
+NTDS_OBJECTSID = x509.ObjectIdentifier("1.3.6.1.4.1.311.25.2.1")
 
 szOID_RENEWAL_CERTIFICATE = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.13.1")
 szOID_ENCRYPTED_KEY_HASH = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.21.21")
 szOID_PRINCIPAL_NAME = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.20.2.3")
 szOID_ENCRYPTED_KEY_HASH = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.21.21")
 szOID_CMC_ADD_ATTRIBUTES = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.10.10.1")
-
+szOID_NTDS_CA_SECURITY_EXT = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.25.2")
+szOID_NTDS_OBJECTSID = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.25.2.1")
 
 class TaggedCertificationRequest(asn1core.Sequence):
     _fields = [
@@ -317,6 +329,7 @@ def create_csr(
     username: str,
     alt_dns: bytes = None,
     alt_upn: bytes = None,
+    alt_sid: bytes = None,
     key: rsa.RSAPrivateKey = None,
     key_size: int = 2048,
     subject: str = None,
@@ -360,8 +373,6 @@ def create_csr(
                 alt_dns = alt_dns.decode()
             general_names.append(asn1x509.GeneralName({"dns_name": alt_dns}))
 
-        #         sans.append(x509.DNSName(alt_dns))
-
         if alt_upn:
             if type(alt_upn) == bytes:
                 alt_upn = alt_upn.decode()
@@ -383,6 +394,34 @@ def create_csr(
 
         san_extension = asn1x509.Extension(
             {"extn_id": "subject_alt_name", "extn_value": general_names}
+        )
+
+        set_of_extensions = asn1csr.SetOfExtensions([[san_extension]])
+
+        cri_attribute = asn1csr.CRIAttribute(
+            {"type": "extension_request", "values": set_of_extensions}
+        )
+
+        cri_attributes.append(cri_attribute)
+
+    if alt_sid:
+        if type(alt_sid) == str:
+            alt_sid = alt_sid.encode()
+
+
+        san_extension = asn1x509.Extension(
+            {"extn_id": "security_ext", "extn_value": [asn1x509.GeneralName(
+                {
+                    "other_name": asn1x509.AnotherName(
+                        {
+                            "type_id": szOID_NTDS_OBJECTSID,
+                            "value": asn1x509.OctetString(alt_sid).retag(
+                                {"explicit": 0}
+                            ),
+                        }
+                    )
+                }
+            )]}
         )
 
         set_of_extensions = asn1csr.SetOfExtensions([[san_extension]])
