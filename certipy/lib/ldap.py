@@ -404,14 +404,17 @@ class LDAPConnection:
                 }
             )
 
+        attributes = [
+            "sAMAccountType",
+            "name",
+            "objectSid",
+        ]
+        # Only request msDS-GroupMSAMembership when it exists in the schema. Else the ldap3 module will return an LDAPAttributeError error.
+        if self.ldap_conn.server.schema and "msDS-GroupMSAMembership" in self.ldap_conn.server.schema.attribute_types:
+            attributes.append("msDS-GroupMSAMembership")
         results = self.search(
             "(objectSid=%s)" % sid,
-            attributes=[
-                "sAMAccountType",
-                "name",
-                "msDS-GroupMSAMembership",
-                "objectSid",
-            ],
+            attributes=attributes,
         )
 
         if len(results) != 1:
