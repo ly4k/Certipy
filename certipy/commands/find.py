@@ -6,6 +6,7 @@ import socket
 import struct
 import time
 import zipfile
+import csv
 from collections import OrderedDict
 from datetime import datetime
 from typing import List
@@ -84,6 +85,7 @@ class Find:
         self,
         target: Target,
         json: bool = False,
+        csv: bool = False,
         bloodhound: bool = False,
         old_bloodhound: bool = False,
         text: bool = False,
@@ -100,6 +102,7 @@ class Find:
     ):
         self.target = target
         self.json = json
+        self.csv = csv
         self.bloodhound = bloodhound or old_bloodhound
         self.old_bloodhound = old_bloodhound
         self.text = text or stdout
@@ -475,6 +478,74 @@ class Find:
                 logging.info(
                     "Saved JSON output to %s" % repr("%s_Certipy.json" % prefix)
                 )
+
+            if self.csv:
+                self.save_templates_to_csv(prefix, output)
+                logging.info(
+                    "Saved CSV output to %s" % repr("%s_Certipy.csv" % prefix)
+                )
+
+    def save_templates_to_csv(
+        self, prefix: str, output: dict[LDAPEntry],
+    ):
+        def flatten_dict(
+            template_entries: dict, parent_key:str='', sep:str='.',
+        ):
+            items = []
+            for key, value in template_entries.items():
+                new_key = f"{parent_key}{sep}{key}" if parent_key else key
+                if isinstance(value, dict):
+                    if "Permissions" in key:
+                        for sub_key, sub_value in value.items():
+                            if 'Enrollment Permissions' in sub_key:
+                                items.append((sub_key, '\n'.join(sub_value['Enrollment Rights'])))
+                            elif 'Object Control Permissions' in sub_key:
+                                for subsub_key, subsub_value in sub_value.items():
+                                    if isinstance(subsub_value, list):
+                                        items.append((subsub_key, '\n'.join(subsub_value)))
+                                    else:
+                                        items.append((subsub_key, subsub_value))
+                    else:
+                        items.append((new_key, ", ".join([f"{key}: {value}" for key, value in value.items()])))
+                elif isinstance(value, list):
+                    items.append((new_key, '\n'.join(value)))
+                else:
+                    items.append((new_key, value))
+            return dict(items)
+        
+        column_order = ['Template Name',
+                        'Display Name',
+                        'Certificate Authorities',
+                        'Enabled',
+                        'Client Authentication',
+                        'Enrollment Agent',
+                        'Any Purpose',
+                        'Enrollee Supplies Subject',
+                        'Certificate Name Flag',
+                        'Enrollment Flag',
+                        'Private Key Flag',
+                        'Extended Key Usage',
+                        'Requires Manager Approval',
+                        'Requires Key Archival',
+                        'Authorized Signatures Required',
+                        'Validity Period',
+                        'Renewal Period',
+                        'Minimum RSA Key Length',
+                        'Enrollment Permissions',
+                        'Owner',
+                        'Write Owner Principals',
+                        'Write Dacl Principals',
+                        'Write Property Principals',
+                        '[!] Vulnerabilities']
+
+        with open("%s_Certipy.csv" % prefix, 'w', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile,
+                                    fieldnames=column_order,
+                                    extrasaction='ignore',
+                                    delimiter=';',
+                                    quoting=csv.QUOTE_ALL)
+            writer.writeheader()
+            writer.writerows([flatten_dict(output['Certificate Templates'][id_]) for id_ in output['Certificate Templates']])
 
     def get_output_for_text_and_json(
         self, templates: List[LDAPEntry], cas: List[LDAPEntry]
