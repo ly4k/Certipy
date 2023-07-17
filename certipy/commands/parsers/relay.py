@@ -14,15 +14,21 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     subparser = subparsers.add_parser(NAME, help="NTLM Relay to AD CS HTTP Endpoints")
 
     subparser.add_argument(
-        "-ca",
+        "-target",
         action="store",
         metavar="hostname",
         required=True,
-        help="IP address or hostname of certificate authority",
+        help="protocol://IP address or hostname of certificate authority. Example: http://ca.corp.local for ESC8 or rpc://ca.corp.local for ESC11",
     )
     subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
 
     group = subparser.add_argument_group("certificate request options")
+    group.add_argument(
+        "-ca",
+        action="store",
+        metavar="certificate authority name",
+        help="CA name to request certificate from. Example: 'CORP-CA'. Only required for RPC relay (ESC11)"
+    )
     group.add_argument(
         "-template",
         action="store",

