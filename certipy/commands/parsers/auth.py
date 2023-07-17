@@ -93,10 +93,17 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     group.add_argument(
         "-ldap-port",
         action="store",
-        help="LDAP port. Default: 389",
+        help="LDAP port. Default: 636",
         metavar="port",
-        default=389,
+        default=0,
         type=int,
+    )
+    group.add_argument(
+        "-ldap-scheme",
+        action="store",
+        metavar="ldap scheme",
+        choices=["ldap", "ldaps"],
+        default="ldaps",
     )
     group.add_argument(
         "-ldap-user-dn",

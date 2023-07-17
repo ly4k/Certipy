@@ -114,7 +114,8 @@ class Authenticate:
         print: bool = False,
         kirbi: bool = False,
         ldap_shell: bool = False,
-        ldap_port: int = 389,
+        ldap_port: int = 0,
+        ldap_scheme: str = "ldaps",
         ldap_user_dn: str = None,
         user_dn: str = None,
         debug=False,
@@ -130,7 +131,10 @@ class Authenticate:
         self.print = print
         self.kirbi = kirbi
         self.ldap_shell = ldap_shell
-        self.ldap_port = ldap_port
+        self.ldap_port = (
+            ldap_port if ldap_port != 0 else (389 if ldap_scheme == "ldap" else 636)
+        )
+        self.ldap_scheme = ldap_scheme
         self.ldap_user_dn = ldap_user_dn
         self.user_dn = user_dn
         self.verbose = debug
@@ -279,37 +283,47 @@ class Authenticate:
             local_private_key_file=key_file.name,
             local_certificate_file=cert_file.name,
             validate=ssl.CERT_NONE,
-            ciphers='ALL:@SECLEVEL=0',
+            ciphers="ALL:@SECLEVEL=0",
         )
 
         host = self.target.target_ip
         if host is None:
             host = domain
-        host = "ldap://%s:%d" % (host, self.ldap_port)
 
-        logging.info("Connecting to %s" % repr(host))
+        logging.info("Connecting to %s" % repr("%s://%s:%d" % (self.ldap_scheme, host, self.ldap_port)))
         ldap_server = ldap3.Server(
             host=host,
             get_info=ldap3.ALL,
+            use_ssl=True if self.ldap_scheme == "ldaps" else False,
+            port=self.ldap_port,
             tls=tls,
-            connect_timeout=5,
+            connect_timeout=self.target.timeout,
         )
+
+        conn_kwargs = dict()
+        if self.ldap_scheme == "ldap":
+            conn_kwargs = {
+                "authentication": ldap3.SASL,
+                "sasl_mechanism": ldap3.EXTERNAL,
+                "auto_bind": ldap3.AUTO_BIND_TLS_BEFORE_BIND,
+                "sasl_credentials": sasl_credentials,
+            }
 
         try:
             ldap_conn = ldap3.Connection(
                 ldap_server,
-                authentication=ldap3.SASL,
-                sasl_mechanism=ldap3.EXTERNAL,
-                sasl_credentials=sasl_credentials,
-                auto_bind=ldap3.AUTO_BIND_TLS_BEFORE_BIND,
                 raise_exceptions=True,
-                receive_timeout=self.target.timeout * 10
+                receive_timeout=self.target.timeout * 10,
+                **conn_kwargs
             )
         except ldap3.core.exceptions.LDAPUnavailableResult as e:
             logging.error("LDAP not configured for SSL/TLS connections")
             if self.verbose:
                 raise e
             return False
+
+        if self.ldap_scheme == "ldaps":
+            ldap_conn.open()
 
         who_am_i = ldap_conn.extend.standard.who_am_i()
         logging.info(
