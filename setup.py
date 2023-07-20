@@ -20,7 +20,7 @@ setup(
         "dnspython",
         "dsinternals",
         "pyopenssl>=23.0.0",
-        "requests",
+        "requests<2.30.0",
         "requests_ntlm",
         'winacl; platform_system=="Windows"',
         'wmi; platform_system=="Windows"',
