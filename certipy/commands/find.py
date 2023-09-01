@@ -778,10 +778,7 @@ class Find:
             is_inherited = rights["inherited"]
             principal = self.connection.lookup_sid(sid)
 
-            try:
-                standard_rights = list(rights["rights"])
-            except:
-                standard_rights = rights["rights"].to_list()
+            standard_rights = rights["rights"].to_list()
 
             for right in standard_rights:
                 aces.append(
@@ -1077,10 +1074,7 @@ class Find:
             for sid, rights in security.aces.items():
                 if self.hide_admins and is_admin_sid(sid):
                     continue
-                try:
-                    ca_rights = list(rights["rights"])
-                except:
-                    ca_rights = rights["rights"].to_list()
+                ca_rights = rights["rights"].to_list()
                 for ca_right in ca_rights:
                     if ca_right not in access_rights:
                         access_rights[ca_right] = [

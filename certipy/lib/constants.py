@@ -1,6 +1,4 @@
-import enum
-
-from certipy.lib.structs import IntFlag
+from certipy.lib.structs import IntFlag, _decompose
 
 # https://github.com/fox-it/BloodHound.py/blob/d665959c58d881900378040e6670fa12f801ccd4/bloodhound/ad/utils.py#L36
 WELLKNOWN_SIDS = {
@@ -237,7 +235,7 @@ class ACTIVE_DIRECTORY_RIGHTS(IntFlag):
 
     def to_list(self):
         cls = self.__class__
-        members, _ = enum._decompose(cls, self._value_)
+        members, _ = _decompose(cls, self._value_)
         filtered_members = []
         for member in members:
             found = False
@@ -262,7 +260,7 @@ class CERTIFICATE_RIGHTS(IntFlag):
         if self._value_ == self.GENERIC_ALL:
             return [CERTIFICATE_RIGHTS(self.GENERIC_ALL)]
 
-        members, _ = enum._decompose(cls, self._value_)
+        members, _ = _decompose(cls, self._value_)
         filtered_members = []
         for member in members:
             if str(member) == str(member.value):

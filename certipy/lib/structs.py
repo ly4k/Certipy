@@ -5,24 +5,53 @@ from asn1crypto import core
 
 from certipy.lib.formatting import to_pascal_case
 
+def _high_bit(value):
+    """returns index of highest bit, or -1 if value is zero or negative"""
+    return value.bit_length() - 1
+
+def _decompose(flag, value):
+    """Extract all members from the value."""
+    # _decompose is only called if the value is not named
+    not_covered = value
+    negative = value < 0
+    members = []
+    for member in flag:
+        member_value = member.value
+        if member_value and member_value & value == member_value:
+            members.append(member)
+            not_covered &= ~member_value
+    if not negative:
+        tmp = not_covered
+        while tmp:
+            flag_value = 2 ** _high_bit(tmp)
+            if flag_value in flag._value2member_map_:
+                members.append(flag._value2member_map_[flag_value])
+                not_covered &= ~flag_value
+            tmp &= ~flag_value
+    if not members and value in flag._value2member_map_:
+        members.append(flag._value2member_map_[value])
+    members.sort(key=lambda m: m._value_, reverse=True)
+    if len(members) > 1 and members[0].value == value:
+        # we have the breakdown, don't need the value member itself
+        members.pop(0)
+    return members, not_covered
+
+
 
 class IntFlag(enum.IntFlag):
     def to_list(self):
         cls = self.__class__
-        members, _ = enum._decompose(cls, self._value_)
+        members, _ = _decompose(cls, self._value_)
         return members
 
     def to_str_list(self):
-        try:
-            return list(map(lambda x: str(x), list(self)))
-        except:
-            return list(map(lambda x: str(x), self.to_list()))
+        return list(map(lambda x: str(x), self.to_list()))
 
     def __str__(self):
         cls = self.__class__
         if self._name_ is not None:
             return "%s" % (to_pascal_case(self._name_))
-        members, _ = enum._decompose(cls, self._value_)
+        members, _ = _decompose(cls, self._value_)
         if len(members) == 1 and members[0]._name_ is None:
             return "%r" % (members[0]._value_)
         else:
@@ -40,7 +69,7 @@ class Flag(enum.Flag):
         cls = self.__class__
         if self._name_ is not None:
             return "%s" % (to_pascal_case(self._name_))
-        members, _ = enum._decompose(cls, self._value_)
+        members, _ = _decompose(cls, self._value_)
         if len(members) == 1 and members[0]._name_ is None:
             return "%r" % (members[0]._value_)
         else:
