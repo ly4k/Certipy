@@ -97,3 +97,10 @@ def add_argument_group(
         action="store_true",
         help="Don't ask for password (useful for -k and -sspi)",
     )
+
+    group = parser.add_argument_group("ldap options")
+    group.add_argument(
+        "-ldap-channel-binding",
+        action="store_true",
+        help="Use LDAP channel binding for LDAP communication (LDAPS only)",
+    )

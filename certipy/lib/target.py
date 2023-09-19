@@ -158,6 +158,7 @@ class Target:
         self.target_ip: str = None
         self.timeout: int = 5
         self.resolver: Resolver = None
+        self.ldap_channel_binding = None
 
     @staticmethod
     def from_options(
@@ -267,6 +268,7 @@ class Target:
         self.dc_ip = dc_ip
         self.dc_host = dc_host
         self.timeout = options.timeout
+        self.ldap_channel_binding = options.ldap_channel_binding
 
         if dc_as_target and options.dc_ip is None and is_ip(remote_name):
             self.dc_ip = remote_name
@@ -304,6 +306,7 @@ class Target:
         ns: str = None,
         dns_tcp: bool = False,
         timeout: int = 5,
+        ldap_channel_binding: bool = False,
     ) -> "Target":
 
         self = Target()
@@ -362,6 +365,7 @@ class Target:
         self.use_sspi = use_sspi
         self.dc_ip = dc_ip
         self.timeout = timeout
+        self.ldap_channel_binding = ldap_channel_binding
 
         if ns is None:
             ns = dc_ip
