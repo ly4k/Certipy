@@ -117,11 +117,11 @@ class LDAPConnection:
                     ldap_pass = "%s:%s" % (self.target.lmhash, self.target.nthash)
                 else:
                     ldap_pass = self.target.password
-                channel_binding = None
+                channel_binding = {}
                 if self.target.ldap_channel_binding:
                     if not hasattr(ldap3, 'TLS_CHANNEL_BINDING'):
                         raise Exception("To use LDAP channel binding, install the patched ldap3 module: pip3 install git+https://github.com/ly4k/ldap3")
-                    channel_binding = ldap3.TLS_CHANNEL_BINDING if self.target.ldap_channel_binding else None
+                    channel_binding["channel_binding"] = ldap3.TLS_CHANNEL_BINDING if self.target.ldap_channel_binding else None
                 ldap_conn = ldap3.Connection(
                     ldap_server,
                     user=user,
@@ -129,7 +129,7 @@ class LDAPConnection:
                     authentication=ldap3.NTLM,
                     auto_referrals=False,
                     receive_timeout=self.target.timeout * 10,
-                    channel_binding=channel_binding,
+                    **channel_binding
                 )
 
         if not ldap_conn.bound:
