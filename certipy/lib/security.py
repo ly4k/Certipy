@@ -10,6 +10,7 @@ from certipy.lib.constants import (
     ACTIVE_DIRECTORY_RIGHTS,
     CERTIFICATE_RIGHTS,
     CERTIFICATION_AUTHORITY_RIGHTS,
+    EXTENDED_RIGHTS_NAME_MAP,
 )
 
 
@@ -38,18 +39,22 @@ class ActiveDirectorySecurity:
                     "inherited": ace["AceFlags"] & INHERITED_ACE == INHERITED_ACE,
                 }
 
+            mask = self.RIGHTS_TYPE(ace["Ace"]["Mask"]["Mask"])
             if ace["AceType"] == ldaptypes.ACCESS_ALLOWED_ACE.ACE_TYPE:
-                self.aces[sid]["rights"] |= self.RIGHTS_TYPE(ace["Ace"]["Mask"]["Mask"])
+                self.aces[sid]["rights"] |= mask
+                if self.RIGHTS_TYPE.EXTENDED_RIGHT & mask:
+                    self.aces[sid]["extended_rights"].append(EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"])
 
             if ace["AceType"] == ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ACE_TYPE:
-                if ace["Ace"]["Flags"] == 2:
-                    uuid = bin_to_string(ace["Ace"]["InheritedObjectType"]).lower()
-                elif ace["Ace"]["Flags"] == 1:
-                    uuid = bin_to_string(ace["Ace"]["ObjectType"]).lower()
-                else:
-                    continue
+                if self.RIGHTS_TYPE.EXTENDED_RIGHT & mask:
+                    if ace["Ace"]["Flags"] == 2:
+                        uuid = bin_to_string(ace["Ace"]["InheritedObjectType"]).lower()
+                    elif ace["Ace"]["Flags"] == 1:
+                        uuid = bin_to_string(ace["Ace"]["ObjectType"]).lower()
+                    else:
+                        continue
 
-                self.aces[sid]["extended_rights"].append(uuid)
+                    self.aces[sid]["extended_rights"].append(uuid)
 
 
 class CASecurity(ActiveDirectorySecurity):
