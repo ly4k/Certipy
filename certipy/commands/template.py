@@ -60,6 +60,7 @@ class Template:
         template: str = None,
         configuration: str = None,
         save_old: bool = False,
+        write_template: bool = False,
         scheme: str = "ldaps",
         connection: LDAPConnection = None,
         **kwargs,
@@ -70,7 +71,7 @@ class Template:
         self.save_old = save_old
         self.scheme = scheme
         self.kwargs = kwargs
-
+        self.write_template = write_template
         self._connection = connection
 
     @property
@@ -173,7 +174,8 @@ class Template:
                 "Saved old configuration for %s to %s"
                 % (repr(self.template_name), repr(out_file))
             )
-
+        if self.write_template == False:
+            exit()
         changes = {}
         for key in old_configuration["raw_attributes"].keys():
             if key in PROTECTED_ATTRIBUTES:

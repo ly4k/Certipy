@@ -32,7 +32,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         action="store_true",
         help="Save the old configuration",
     )
-
+    group.add_argument(
+        "-write-template",
+        action="store_true",
+        help="Write vulnerable properties to existing template or applies specified configuration to existing template",
+    )
     group = subparser.add_argument_group("connection options")
     group.add_argument(
         "-scheme",
