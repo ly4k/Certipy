@@ -470,7 +470,7 @@ class Find:
 
             if self.json or not_specified:
                 with open("%s_Certipy.json" % prefix, "w") as f:
-                    json.dump(output, f, indent=2)
+                    json.dump(output, f, indent=2, default=str)
 
                 logging.info(
                     "Saved JSON output to %s" % repr("%s_Certipy.json" % prefix)
@@ -635,6 +635,7 @@ class Find:
                         },
                     },
                     f,
+                    default=str,
                 )
             zipf.write(gpos_filename, gpos_filename)
             os.unlink(gpos_filename)
@@ -667,6 +668,7 @@ class Find:
                         },
                     },
                     f,
+                    default=str,
                 )
             zipf.write(templates_filename, templates_filename)
             os.unlink(templates_filename)
@@ -736,6 +738,8 @@ class Find:
                 "pKIExtendedKeyUsage",
                 "nTSecurityDescriptor",
                 "objectGUID",
+                "whenCreated",
+                "whenChanged",
             ],
             query_sd=True,
         )
@@ -830,7 +834,9 @@ class Find:
             "authorized_signatures_required": "Authorized Signatures Required",
             "validity_period": "Validity Period",
             "renewal_period": "Renewal Period",
-            "msPKI-Minimal-Key-Size": "Minimum RSA Key Length"
+            "msPKI-Minimal-Key-Size": "Minimum RSA Key Length",
+            "whenCreated": "Template Created",
+            "whenChanged": "Template Last Modified",
         }
 
         if template_properties is None:
