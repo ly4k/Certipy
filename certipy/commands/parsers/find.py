@@ -66,6 +66,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Show only vulnerable certificate templates based on nested group memberships. Does not affect BloodHound output",
     )
     group.add_argument(
+        "-oids",
+        action="store_true",
+        help="Show OIDs (Issuance Policies) and their properties.",
+    )
+    group.add_argument(
         "-hide-admins",
         action="store_true",
         help="Don't show administrator permissions for -text, -stdout, and -json. Does not affect BloodHound output",
