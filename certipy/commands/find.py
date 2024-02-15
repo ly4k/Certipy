@@ -248,9 +248,25 @@ class Find:
         no_enabled_oids = 0
         for template in templates:
             object_id = template.get("objectGUID").lstrip("{").rstrip("}")
-            issuance_policy = template.get_raw("msPKI-Certificate-Policy")
+            issuance_policies = template.get_raw("msPKI-Certificate-Policy")
+            if not isinstance(issuance_policies, list):
+                if issuance_policies is None:
+                    issuance_policies = []
+                else:
+                    issuance_policies = [issuance_policies]
+
+            issuance_policies = list(map(lambda x: x.decode(), issuance_policies))
+
+            issuance_policies = list(
+                map(
+                    lambda x: OID_TO_STR_MAP[x] if x in OID_TO_STR_MAP else x,
+                    issuance_policies,
+                )
+            )
+            template.set("issuance_policies", issuance_policies)
+
             for oid in oids:
-                if oid.get_raw("msPKI-Cert-Template-OID") == issuance_policy:
+                if oid.get_raw("msPKI-Cert-Template-OID") in issuance_policies:
                     no_enabled_oids += 1
                     linked_group = b''.join(oid.get_raw("msDS-OIDToGroupLink")).decode()
                     if "templates" in oid["attributes"].keys():
@@ -260,8 +276,10 @@ class Find:
                         oid.set("templates", [template.get("name")])
                         oid.set("templates_ids", [object_id])
                     oid.set("linked_group", linked_group)
-                    template.set("issuance_policy", oid.get("displayName"))
-                    template.set("issuance_policy_linked_group", linked_group)
+                    if "issuance_policies_linked_groups" in template["attributes"].keys():
+                        template.get("issuance_policies_linked_groups").append(linked_group)
+                    else:
+                        template.set("issuance_policies_linked_groups", [linked_group])
 
         logging.info(
             "Found %d OID%s linked to %s"
@@ -918,8 +936,8 @@ class Find:
             "validity_period": "Validity Period",
             "renewal_period": "Renewal Period",
             "msPKI-Minimal-Key-Size": "Minimum RSA Key Length",
-            "msPKI-Certificate-Policy": "Issuance Policy",
-            "issuance_policy_linked_group" : "Linked Group"
+            "msPKI-Certificate-Policy": "Issuance Policies",
+            "issuance_policies_linked_groups" : "Linked Groups"
         }
 
         if template_properties is None:
@@ -1061,13 +1079,13 @@ class Find:
                 user_can_enroll
                 and template.get("client_authentication")
                 and template.get("msPKI-Certificate-Policy")
-                and template.get("issuance_policy_linked_group")
+                and template.get("issuance_policies_linked_groups")
             ):
                 vulnerabilities[
                     "ESC13"
                 ] = "%s can enroll, template allows client authentication and issuance policy is linked to group %s" % (list_sids(
                     enrollable_sids
-                ), template.get("issuance_policy_linked_group"))
+                ), template.get("issuance_policies_linked_groups"))
 
         # ESC4
         security = CertifcateSecurity(template.get("nTSecurityDescriptor"))
@@ -1294,70 +1312,33 @@ class Find:
             return oid_properties
 
     def get_oid_permissions(self, oid: LDAPEntry):
-        security = OIDSecurity(oid.get("nTSecurityDescriptor"))
-        permissions = {}
-        enrollment_permissions = {}
-        enrollment_rights = []
-        all_extended_rights = []
+        security = ActiveDirectorySecurity(oid.get("nTSecurityDescriptor"))
+        oid_permissions = {}
+        access_rights = {}
+        if security is not None:
+            if not self.hide_admins or not is_admin_sid(security.owner):
+                oid_permissions["Owner"] = self.connection.lookup_sid(
+                    security.owner
+                ).get("name")
 
-        for sid, rights in security.aces.items():
-            if self.hide_admins and is_admin_sid(sid):
-                continue
+            for sid, rights in security.aces.items():
+                if self.hide_admins and is_admin_sid(sid):
+                    continue
+                oid_rights = rights["rights"].to_list()
+                for oid_right in oid_rights:
+                    if oid_right not in access_rights:
+                        access_rights[ca_right] = [
+                            self.connection.lookup_sid(sid).get("name")
+                        ]
+                    else:
+                        access_rights[ca_right].append(
+                            self.connection.lookup_sid(sid).get("name")
+                        )
 
-            if (
-                EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"]
-            ):
-                enrollment_rights.append(self.connection.lookup_sid(sid).get("name"))
-            if (
-                EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"]
-                in rights["extended_rights"]
-            ):
-                all_extended_rights.append(self.connection.lookup_sid(sid).get("name"))
+            oid_permissions["Access Rights"] = access_rights
 
-        if len(enrollment_rights) > 0:
-            enrollment_permissions["Enrollment Rights"] = enrollment_rights
+        return oid_permissions
 
-        if len(all_extended_rights) > 0:
-            enrollment_permissions["All Extended Rights"] = all_extended_rights
-
-        if len(enrollment_permissions) > 0:
-            permissions["Enrollment Permissions"] = enrollment_permissions
-
-        object_control_permissions = {}
-        if not self.hide_admins or not is_admin_sid(security.owner):
-            object_control_permissions["Owner"] = self.connection.lookup_sid(
-                security.owner
-            ).get("name")
-
-        rights_mapping = [
-            (CERTIFICATE_RIGHTS.GENERIC_ALL, [], "Full Control Principals"),
-            (CERTIFICATE_RIGHTS.WRITE_OWNER, [], "Write Owner Principals"),
-            (CERTIFICATE_RIGHTS.WRITE_DACL, [], "Write Dacl Principals"),
-            (
-                CERTIFICATE_RIGHTS.WRITE_PROPERTY,
-                [],
-                "Write Property Principals",
-            ),
-        ]
-        for sid, rights in security.aces.items():
-            if self.hide_admins and is_admin_sid(sid):
-                continue
-
-            rights = rights["rights"]
-            sid = self.connection.lookup_sid(sid).get("name")
-
-            for (right, principal_list, _) in rights_mapping:
-                if right in rights:
-                    principal_list.append(sid)
-
-        for _, rights, name in rights_mapping:
-            if len(rights) > 0:
-                object_control_permissions[name] = rights
-
-        if len(object_control_permissions) > 0:
-            permissions["Object Control Permissions"] = object_control_permissions
-
-        return permissions
 
     def get_oid_vulnerabilities(self, oid: LDAPEntry):
         def list_sids(sids: List[str]):
@@ -1421,13 +1402,13 @@ class Find:
                 user_can_enroll
                 and template.get("client_authentication")
                 and template.get("msPKI-Certificate-Policy")
-                and template.get("issuance_policy_linked_group")
+                and template.get("issuance_policy_linked_groups")
             ):
                 vulnerabilities[
                     "ESC13"
-                ] = "%s can enroll, template allows client authentication and issuance policy is linked to group %s" % (list_sids(
+                ] = "%s can enroll, template allows client authentication and issuance policy is linked to group(s) %s" % (list_sids(
                     enrollable_sids
-                ), template.get("issuance_policy_linked_group"))
+                ), template.get("issuance_policy_linked_groups"))
 
         # ESC4
         security = CertifcateSecurity(template.get("nTSecurityDescriptor"))
