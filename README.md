@@ -116,6 +116,11 @@ authentication options:
   -sspi                 Use Windows Integrated Authentication (SSPI)
   -aes hex key          AES key to use for Kerberos Authentication (128 or 256 bits)
   -no-pass              Don't ask for password (useful for -k and -sspi)
+
+ldap options:
+  -ldap-channel-binding
+                        Use LDAP channel binding for LDAP communication (LDAPS only)
+  -ldap-port LDAP_PORT  Choose LDAP port
 ```
 
 The output can come in various formats. By default, Certipy will output the enumeration results as text, JSON, and BloodHound data.
