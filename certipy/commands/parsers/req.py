@@ -81,6 +81,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         action="store_true",
         help="Use Web Enrollment instead of RPC",
     )
+    connection_group.add_argument(
+        "-dcom",
+        action="store_true",
+        help="Use DCOM Enrollment instead of RPC",
+    )
 
     group = subparser.add_argument_group("rpc connection options")
     group.add_argument(
