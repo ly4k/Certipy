@@ -2,9 +2,11 @@ import argparse
 import copy
 import json
 import os
+import requests
 import socket
 import struct
 import time
+import urllib3
 import zipfile
 from collections import OrderedDict
 from datetime import datetime
@@ -290,8 +292,12 @@ class Find:
                     )
 
                 try:
-                    web_enrollment = self.check_web_enrollment(ca)
-                    web_enrollment = "Enabled" if web_enrollment else "Disabled"
+                    for port in (80, 443):
+                        web_enrollment = self.check_web_enrollment(ca, port)
+                        web_enrollment = "Enabled" if web_enrollment else "Disabled"
+
+                        if web_enrollment == "Enabled":
+                            break
                 except Exception as e:
                     logging.warning(
                         "Failed to check Web Enrollment for CA %s: %s"
@@ -685,30 +691,24 @@ class Find:
             )
         )
 
-    def check_web_enrollment(self, ca: LDAPEntry) -> bool:
+    def check_web_enrollment(self, ca: LDAPEntry, port) -> bool:
         target_name = ca.get("dNSHostName")
 
         target_ip = self.target.resolver.resolve(target_name)
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(self.target.timeout)
+            channel = "http" if port == 80 else "https"
+            url = "%s://%s/certsrv" % (channel, target_ip)
 
-            logging.debug("Connecting to %s:80" % target_ip)
-            sock.connect((target_ip, 80))
-            sock.sendall(
-                "\r\n".join(
-                    ["HEAD /certsrv/ HTTP/1.1", "Host: %s" % target_name, "\r\n"]
-                ).encode()
+            logging.debug("Connecting to %s:%d" % (target_ip, port))
+            response = requests.head(
+                url, headers={ "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.2365.80" },
+                timeout=30, verify=False
             )
-            resp = sock.recv(256)
-            sock.close()
-            head = resp.split(b"\r\n")[0].decode()
 
-            return " 404 " not in head
-        except ConnectionRefusedError:
-            return False
-        except socket.timeout:
+            return response.status_code == 401
+        except requests.exceptions.Timeout:
             return False
         except Exception as e:
             logging.warning(
