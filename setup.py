@@ -14,7 +14,7 @@ setup(
     install_requires=[
         "asn1crypto",
         "cryptography>=39.0",
-        "impacket",
+        "impacket@git+https://github.com/blacklanternsecurity/impacket",
         "ldap3",
         "pyasn1==0.4.8",
         "dnspython",
