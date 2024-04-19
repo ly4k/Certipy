@@ -744,7 +744,7 @@ class Find:
 
     def get_certificate_authorities(self) -> List[LDAPEntry]:
         cas = self.connection.search(
-            "(&(objectClass=pKIEnrollmentService))",
+            "(&(objectClass~=pKIEnrollmentService))",
             search_base="CN=Enrollment Services,CN=Public Key Services,CN=Services,%s"
             % self.connection.configuration_path,
             attributes=[

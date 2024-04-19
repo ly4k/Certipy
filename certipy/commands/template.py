@@ -98,14 +98,14 @@ class Template:
 
     def get_configuration(self, template) -> LDAPEntry:
         results = self.connection.search(
-            "(&(cn=%s)(objectClass=pKICertificateTemplate))" % template,
+            "(&(cn=%s)(objectClass~=pKICertificateTemplate))" % template,
             search_base=self.connection.configuration_path,
             query_sd=True,
         )
 
         if len(results) == 0:
             results = self.connection.search(
-                "(&(displayName=%s)(objectClass=pKICertificateTemplate))" % template,
+                "(&(displayName=%s)(objectClass~=pKICertificateTemplate))" % template,
                 search_base=self.connection.configuration_path,
                 query_sd=True,
             )

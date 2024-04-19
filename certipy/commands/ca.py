@@ -838,7 +838,7 @@ class CA:
 
     def get_enrollment_services(self) -> List["LDAPEntry"]:
         enrollment_services = self.connection.search(
-            "(&(objectClass=pKIEnrollmentService))",
+            "(&(objectClass~=pKIEnrollmentService))",
             search_base="CN=Enrollment Services,CN=Public Key Services,CN=Services,%s"
             % self.connection.configuration_path,
         )
@@ -847,7 +847,7 @@ class CA:
 
     def get_enrollment_service(self, ca: str) -> LDAPEntry:
         enrollment_services = self.connection.search(
-            "(&(cn=%s)(objectClass=pKIEnrollmentService))" % ca,
+            "(&(cn=%s)(objectClass~=pKIEnrollmentService))" % ca,
             search_base="CN=Enrollment Services,CN=Public Key Services,CN=Services,%s"
             % self.connection.configuration_path,
         )
