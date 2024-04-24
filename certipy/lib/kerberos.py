@@ -80,7 +80,7 @@ def get_TGS(
 
             logging.debug("Using Kerberos Cache: %s" % os.getenv("KRB5CCNAME"))
             principal = "%s/%s@%s" % (service, target_name.upper(), domain.upper())
-            creds = ccache.getCredential(principal, anySPN=False)
+            creds = ccache.getCredential(principal)
             if creds is None:
                 # Let's try for the TGT and go from there
                 principal = "krbtgt/%s@%s" % (domain.upper(), domain.upper())
