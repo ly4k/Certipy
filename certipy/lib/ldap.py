@@ -351,16 +351,24 @@ class LDAPConnection:
 
         return domain_sid
 
-    def get_user_sids(self, username: str):
+    def get_user_sids(self, username: str, user_sid: str = None, user_dn: str = None):
         sanitized_username = username.lower().strip()
         if sanitized_username in self._user_sids:
             return self._user_sids[sanitized_username]
 
         user = self.get_user(username)
+        if not user:
+            user = {"objectSid": user_sid, "distinguishedName": user_dn}
+            if not user_sid:
+                logging.warning(
+                    "User SID can't be retrieved, for more accurate results, add it manually with -sid"
+                )
 
         sids = set()
-
-        sids.add(user.get("objectSid"))
+        
+        object_sid = user.get("objectSid")
+        if object_sid:
+            sids.add(object_sid)
 
         # Everyone, Authenticated Users, Users
         sids |= set(["S-1-1-0", "S-1-5-11", "S-1-5-32-545"])
