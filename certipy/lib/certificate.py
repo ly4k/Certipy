@@ -334,15 +334,14 @@ def create_csr(
     key_size: int = 2048,
     subject: str = None,
     renewal_cert: x509.Certificate = None,
+    application_policies: List[str] = None,  # Application policies parameter
 ) -> Tuple[x509.CertificateSigningRequest, rsa.RSAPrivateKey]:
     if key is None:
         logging.debug("Generating RSA key")
         key = generate_rsa_key(key_size)
 
-    # csr = asn1csr.CertificationRequest()
     certification_request_info = asn1csr.CertificationRequestInfo()
     certification_request_info["version"] = "v1"
-    # csr = x509.CertificateSigningRequestBuilder()
 
     if subject:
         subject_name = get_subject_from_str(subject)
@@ -408,7 +407,6 @@ def create_csr(
         if type(alt_sid) == str:
             alt_sid = alt_sid.encode()
 
-
         san_extension = asn1x509.Extension(
             {"extn_id": "security_ext", "extn_value": [asn1x509.GeneralName(
                 {
@@ -445,6 +443,33 @@ def create_csr(
             )
         )
 
+    # Add Microsoft Application Policies (Windows-specific)
+    if application_policies:
+        # Convert each policy OID string to asn1x509.PolicyIdentifier
+        application_policy_oids = [
+            asn1x509.PolicyInformation({
+                'policy_identifier': asn1x509.PolicyIdentifier(ap)
+            }) for ap in application_policies
+        ]
+
+        # Convert CertificatePolicies to a DER-encoded byte string
+        cert_policies = asn1x509.CertificatePolicies(application_policy_oids)
+        der_encoded_cert_policies = cert_policies.dump()
+        
+        app_policy_extension = asn1x509.Extension(
+            {
+                "extn_id": "1.3.6.1.4.1.311.21.10",  # OID for Microsoft Application Policies
+                "critical": False,
+                "extn_value": asn1x509.ParsableOctetString(der_encoded_cert_policies)
+            }
+        )
+
+        set_of_extensions = asn1csr.SetOfExtensions([[app_policy_extension]])
+        cri_attribute = asn1csr.CRIAttribute(
+            {"type": "extension_request", "values": set_of_extensions}
+        )
+        cri_attributes.append(cri_attribute)
+
     certification_request_info["attributes"] = cri_attributes
 
     signature = rsa_pkcs1v15_sign(certification_request_info.dump(), key)
@@ -460,7 +485,6 @@ def create_csr(
     )
 
     return (der_to_csr(csr.dump()), key)
-
 
 def rsa_pkcs1v15_sign(
     data: bytes, key: rsa.RSAPrivateKey, hash: hashes.HashAlgorithm = hashes.SHA256

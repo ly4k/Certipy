@@ -5,12 +5,10 @@ from typing import Callable, Tuple
 
 from . import target
 
-
 def entry(options: argparse.Namespace):
     from certipy.commands import req
 
     req.entry(options)
-
 
 def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:
     subparser = subparsers.add_parser(NAME, help="Request certificates")
@@ -31,7 +29,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         "-subject",
         action="store",
         metavar="subject",
-        help="Subject to include certificate, e.g. CN=Administrator,CN=Users,DC=CORP,DC=LOCAL",
+        help="Subject to include in certificate, e.g. CN=Administrator,CN=Users,DC=CORP,DC=LOCAL",
     )
     group.add_argument(
         "-retrieve",
@@ -70,6 +68,13 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         "-renew",
         action="store_true",
         help="Create renewal request",
+    )
+    group.add_argument(
+        "--application-policies",
+        action="store",
+        nargs='+',
+        metavar="Application Policy",
+        help="Specify application policies for the certificate request using OIDs (e.g., '1.3.6.1.4.1.311.10.3.4' or 'Client Authentication')"
     )
 
     group = subparser.add_argument_group("output options")
