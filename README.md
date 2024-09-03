@@ -826,7 +826,7 @@ ESC15 is when a certificate template has most of the primary conditions for ESC1
 However, the template does not have the 'Client Authentication' EKU. Example output of a vulnerable template would look like the following:
 
 ```bash
-  17
+  6
     Template Name                       : WebServer
     Display Name                        : Web Server
     Certificate Authorities             : CORP-DC-CA
@@ -845,9 +845,11 @@ However, the template does not have the 'Client Authentication' EKU. Example out
     Validity Period                     : 2 years
     Renewal Period                      : 6 weeks
     Minimum RSA Key Length              : 2048
+    Template Schema Version             : 1
     Permissions
       Enrollment Permissions
-        Enrollment Rights               : CORP.COM\Domain Admins
+        Enrollment Rights               : CORP.COM\Domain Users
+                                          CORP.COM\Domain Admins
                                           CORP.COM\Enterprise Admins
                                           CORP.COM\Authenticated Users
       Object Control Permissions
@@ -858,7 +860,8 @@ However, the template does not have the 'Client Authentication' EKU. Example out
                                           CORP.COM\Enterprise Admins
         Write Property Principals       : CORP.COM\Domain Admins
                                           CORP.COM\Enterprise Admins
-
+    [!] Vulnerabilities
+      ESC15                             : 'CORP.COM\\Domain Users' and 'CORP.COM\\Authenticated Users' can enroll, enrollee supplies subject and schema version is 1
 ```
 
 We can supply arbitrary Application Policies by using the `--application-policies` parameter.
