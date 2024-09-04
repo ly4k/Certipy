@@ -752,7 +752,11 @@ class Request:
 
             out = out.rstrip("$").lower()
 
-        pfx = create_pfx(key, cert)
+        if self.csrfile:
+            pfx = create_pfx(None, cert)
+
+        else:
+            pfx = create_pfx(key, cert)
 
         outfile = "%s.pfx" % out
 
