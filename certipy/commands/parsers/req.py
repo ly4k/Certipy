@@ -54,6 +54,13 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Path to PFX for -on-behalf-of or -renew",
     )
     group.add_argument(
+        "-csrfile",
+        action="store",
+        metavar="CSR file name",
+        help="Path to CSR file for use with OpenSSL-generated Certificate Requests",
+        # Conflicts with -upn,-dns,-sid,-subject,-retrieve,-on-behalf-of,-pfx
+    )    
+    group.add_argument(
         "-key-size",
         action="store",
         metavar="RSA key length",
