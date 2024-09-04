@@ -763,7 +763,10 @@ class Request:
         with open(outfile, "wb") as f:
             f.write(pfx)
 
-        logging.info("Saved certificate and private key to %s" % repr(outfile))
+        if self.csrfile:
+            logging.info("Saved certificate without private key to %s" % repr(outfile))
+        else:
+            logging.info("Saved certificate and private key to %s" % repr(outfile))
 
         return pfx, outfile
 
