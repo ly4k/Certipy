@@ -22,6 +22,7 @@ from certipy.lib.certificate import (
     csr_to_der,
     der_to_cert,
     der_to_csr,
+    pem_to_csr,
     der_to_pem,
     get_identifications_from_certificate,
     get_object_sid_from_certificate,
@@ -526,6 +527,7 @@ class Request:
         dns: str = None,
         sid: str = None,
         subject: str = None,
+        csrfile: str = None,
         retrieve: int = 0,
         on_behalf_of: str = None,
         pfx: str = None,
@@ -548,6 +550,7 @@ class Request:
         self.alt_dns = dns
         self.alt_sid = sid
         self.subject = subject
+        self.csrfile = csrfile
         self.request_id = int(retrieve)
         self.on_behalf_of = on_behalf_of
         self.pfx = pfx
@@ -667,17 +670,23 @@ class Request:
             with open(self.pfx, "rb") as f:
                 renewal_key, renewal_cert = load_pfx(f.read())
 
-        csr, key = create_csr(
-            username,
-            alt_dns=self.alt_dns,
-            alt_upn=self.alt_upn,
-            alt_sid=self.alt_sid,
-            key=self.key,
-            key_size=self.key_size,
-            subject=self.subject,
-            renewal_cert=renewal_cert,
-        )
-        self.key = key
+        if self.csrfile:
+            # Read file
+            with open(self.csrfile, "rb") as c:
+                csr = pem_to_csr(c.read())
+                
+        else:
+            csr, key = create_csr(
+                username,
+                alt_dns=self.alt_dns,
+                alt_upn=self.alt_upn,
+                alt_sid=self.alt_sid,
+                key=self.key,
+                key_size=self.key_size,
+                subject=self.subject,
+                renewal_cert=renewal_cert,
+            )
+            self.key = key
 
         csr = csr_to_der(csr)
 

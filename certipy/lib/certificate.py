@@ -220,6 +220,8 @@ def der_to_pem(der: bytes, pem_type: str) -> bytes:
 def der_to_csr(csr: bytes) -> x509.CertificateSigningRequest:
     return x509.load_der_x509_csr(csr)
 
+def pem_to_csr(csr: bytes) -> x509.CertificateSigningRequest:
+    return x509.load_pem_x509_csr(csr)
 
 def der_to_key(key: bytes) -> rsa.RSAPrivateKey:
     return serialization.load_der_private_key(key, None)
