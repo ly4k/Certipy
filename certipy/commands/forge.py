@@ -119,6 +119,7 @@ class Forge:
                 x509.AuthorityKeyIdentifier.oid,
                 x509.SubjectAlternativeName.oid,
                 x509.ExtendedKeyUsage.oid,
+                NTDS_CA_SECURITY_EXT,
             ]
 
             crl = self.get_crl()
