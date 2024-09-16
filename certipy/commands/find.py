@@ -12,6 +12,7 @@ from typing import List
 
 from asn1crypto import x509
 from certipy.lib.constants import (
+    ACTIVE_DIRECTORY_RIGHTS,
     CERTIFICATE_RIGHTS,
     CERTIFICATION_AUTHORITY_RIGHTS,
     EXTENDED_RIGHTS_MAP,
@@ -856,12 +857,13 @@ class Find:
                 continue
 
             if (
-                EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"]
+                ( rights['rights'] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT ) and
+                ( EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"] )
             ):
                 enrollment_rights.append(self.connection.lookup_sid(sid).get("name"))
             if (
-                EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"]
-                in rights["extended_rights"]
+                ( rights['rights'] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT ) and
+                ( EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"] in rights["extended_rights"] )
             ):
                 all_extended_rights.append(self.connection.lookup_sid(sid).get("name"))
 
@@ -884,26 +886,45 @@ class Find:
             (CERTIFICATE_RIGHTS.GENERIC_ALL, [], "Full Control Principals"),
             (CERTIFICATE_RIGHTS.WRITE_OWNER, [], "Write Owner Principals"),
             (CERTIFICATE_RIGHTS.WRITE_DACL, [], "Write Dacl Principals"),
-            (
-                CERTIFICATE_RIGHTS.WRITE_PROPERTY,
-                [],
-                "Write Property Principals",
-            ),
         ]
+        write_permissions = {}
+
         for sid, rights in security.aces.items():
             if self.hide_admins and is_admin_sid(sid):
                 continue
 
+            extended_rights = rights["extended_rights"]
             rights = rights["rights"]
             sid = self.connection.lookup_sid(sid).get("name")
 
             for (right, principal_list, _) in rights_mapping:
                 if right in rights:
-                    principal_list.append(sid)
-
-        for _, rights, name in rights_mapping:
-            if len(rights) > 0:
-                object_control_permissions[name] = rights
+                    if rights & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT:
+                        principal_list.append(sid)
+            
+            if( 
+                ( CERTIFICATE_RIGHTS.WRITE_PROPERTY in rights ) and
+                ( rights & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT )
+            ):
+                for extended_right in extended_rights:
+                    resolved_extended_right = EXTENDED_RIGHTS_MAP.get(extended_right, extended_right)
+                    principal_list = write_permissions.get(resolved_extended_right, [])
+                    if sid not in principal_list:
+                        principal_list.append(sid)
+                    write_permissions[resolved_extended_right] = principal_list
+        
+        for extended_right, principal_list in write_permissions.items():
+            rights_mapping.append(
+                (
+                CERTIFICATE_RIGHTS.WRITE_PROPERTY,
+                principal_list,
+                f"Write Property {extended_right}"
+                )
+            )
+        
+        for _, principal_list, name in rights_mapping:
+            if len(principal_list) > 0:
+                object_control_permissions[name] = principal_list
 
         if len(object_control_permissions) > 0:
             permissions["Object Control Permissions"] = object_control_permissions
@@ -1000,14 +1021,16 @@ class Find:
                 continue
 
             ad_rights = rights["rights"]
-            if any(
-                right in ad_rights
-                for right in [
-                    CERTIFICATE_RIGHTS.GENERIC_ALL,
-                    CERTIFICATE_RIGHTS.WRITE_OWNER,
-                    CERTIFICATE_RIGHTS.WRITE_DACL,
-                    CERTIFICATE_RIGHTS.WRITE_PROPERTY,
-                ]
+            ad_extended_rights = rights["extended_rights"]
+            for right in [CERTIFICATE_RIGHTS.GENERIC_ALL, CERTIFICATE_RIGHTS.WRITE_OWNER, CERTIFICATE_RIGHTS.WRITE_DACL, CERTIFICATE_RIGHTS.GENERIC_WRITE]:
+                if right in ad_rights:
+                    vulnerable_acl_sids.append(sid)
+                    has_vulnerable_acl = True
+            
+            ## WRITE_PROPERTY is only interesting if you can write the entire object
+            if (
+                CERTIFICATE_RIGHTS.WRITE_PROPERTY in ad_rights and
+                ( '00000000-0000-0000-0000-000000000000' in ad_extended_rights and ad_rights & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT )
             ):
                 vulnerable_acl_sids.append(sid)
                 has_vulnerable_acl = True
@@ -1025,9 +1048,8 @@ class Find:
                 continue
 
             if (
-                EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"]
-                in rights["extended_rights"]
-                or EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"]
+                ( EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"] in rights["extended_rights"] and rights['rights'] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT )
+                or ( EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"] and rights['rights'] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT )
                 or CERTIFICATE_RIGHTS.GENERIC_ALL in rights["rights"]
             ):
                 enrollable_sids.append(sid)
