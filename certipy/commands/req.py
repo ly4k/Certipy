@@ -68,14 +68,14 @@ class DCERPCSessionError(rpcrt.DCERPCException):
         return "RequestSessionError: %s" % error_msg
 
 
-# Define NDR structures for CertServerRequest and Response
+# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-wcce/d6bee093-d862-4122-8f2b-7b49102097dc
 class CERTTRANSBLOB(NDRSTRUCT):
     structure = (
         ("cb", ULONG),
         ("pb", PBYTE),
     )
 
-
+# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-icpr/0c6f150e-3ead-4006-b37f-ebbf9e2cf2e7
 class CertServerRequest(NDRCALL):
     opnum = 0
     structure = (
@@ -86,7 +86,7 @@ class CertServerRequest(NDRCALL):
         ("pctbRequest", CERTTRANSBLOB),
     )
 
-
+# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-icpr/0c6f150e-3ead-4006-b37f-ebbf9e2cf2e7
 class CertServerRequestResponse(NDRCALL):
     structure = (
         ("pdwRequestId", DWORD),
