@@ -307,20 +307,24 @@ class Find:
 
             subject_name = ca.get("cACertificateDN")
 
-            ca_cert = x509.Certificate.load(ca.get("cACertificate")[0])[
-                "tbs_certificate"
-            ]
+            try:
+                ca_cert = x509.Certificate.load(ca.get("cACertificate")[0])[
+                    "tbs_certificate"
+                ]
 
-            serial_number = hex(int(ca_cert["serial_number"]))[2:].upper()
+                serial_number = hex(int(ca_cert["serial_number"]))[2:].upper()
 
-            validity = ca_cert["validity"].native
-            validity_start = str(validity["not_before"])
-            validity_end = str(validity["not_after"])
+                validity = ca_cert["validity"].native
+                validity_start = str(validity["not_before"])
+                validity_end = str(validity["not_after"])
 
-            ca.set("subject_name", subject_name)
-            ca.set("serial_number", serial_number)
-            ca.set("validity_start", validity_start)
-            ca.set("validity_end", validity_end)
+                ca.set("subject_name", subject_name)
+                ca.set("serial_number", serial_number)
+                ca.set("validity_start", validity_start)
+                ca.set("validity_end", validity_end)
+            except ValueError:
+                logging.warning("Could not parse CA certificate")
+                pass
 
         for template in templates:
             template_cas = template.get("cas")
