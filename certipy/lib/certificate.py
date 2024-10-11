@@ -53,12 +53,14 @@ DN_MAP = {
 asn1x509.ExtensionId._map.update(
     {
         "1.3.6.1.4.1.311.25.2": "security_ext",
+        "1.2.840.113549.1.9.15": "smime_capability",
     }
 )
 
 asn1x509.Extension._oid_specs.update(
     {
         "security_ext": asn1x509.GeneralNames,
+        "smime_capability": asn1core.ObjectIdentifier,
     }
 )
 
@@ -73,6 +75,16 @@ szOID_ENCRYPTED_KEY_HASH = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.21.21")
 szOID_CMC_ADD_ATTRIBUTES = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.10.10.1")
 szOID_NTDS_CA_SECURITY_EXT = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.25.2")
 szOID_NTDS_OBJECTSID = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.25.2.1")
+
+# https://learn.microsoft.com/en-us/windows/win32/api/certenroll/nn-certenroll-ix509extensionsmimecapabilities
+smimedict = {
+    "des":"1.3.14.3.2.7",
+    "rc4":"1.2.840.113549.3.4",
+    "3des":"1.2.840.113549.1.9.16.3.6",
+    "aes128":"2.16.840.1.101.3.4.1.5",
+    "aes192":"2.16.840.1.101.3.4.1.25",
+    "aes256":"2.16.840.1.101.3.4.1.45",
+}
 
 class TaggedCertificationRequest(asn1core.Sequence):
     _fields = [
@@ -334,6 +346,7 @@ def create_csr(
     key_size: int = 2048,
     subject: str = None,
     renewal_cert: x509.Certificate = None,
+    smime: str = None,
 ) -> Tuple[x509.CertificateSigningRequest, rsa.RSAPrivateKey]:
     if key is None:
         logging.debug("Generating RSA key")
@@ -397,6 +410,20 @@ def create_csr(
         )
 
         set_of_extensions = asn1csr.SetOfExtensions([[san_extension]])
+
+        cri_attribute = asn1csr.CRIAttribute(
+            {"type": "extension_request", "values": set_of_extensions}
+        )
+
+        cri_attributes.append(cri_attribute)
+
+    if smime:
+        # https://learn.microsoft.com/en-us/windows/win32/api/certenroll/nn-certenroll-ix509extensionsmimecapabilities
+        smime_extension = asn1x509.Extension(
+                {"extn_id": "1.2.840.113549.1.9.15", "extn_value": smimedict[smime]}
+        )
+
+        set_of_extensions = asn1csr.SetOfExtensions([[smime_extension]])
 
         cri_attribute = asn1csr.CRIAttribute(
             {"type": "extension_request", "values": set_of_extensions}

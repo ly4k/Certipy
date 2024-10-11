@@ -71,7 +71,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         action="store_true",
         help="Create renewal request",
     )
-
+    group.add_argument(
+        "-smime",
+        action="store",
+        help="Specify SMIME Extension that gets added to CSR eg: des, rc4, 3des, aes128, aes192, aes256",
+    )
     group = subparser.add_argument_group("output options")
     group.add_argument("-out", action="store", metavar="output file name")
 
