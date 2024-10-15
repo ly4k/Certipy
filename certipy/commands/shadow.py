@@ -129,7 +129,7 @@ class Shadow:
         self, target_dn: str, user: LDAPEntry
     ) -> Tuple[X509Certificate2, KeyCredential, List[bytes], str]:
         cert, key_credential, device_id = self.generate_key_credential(
-            target_dn, "CN=%s" % user.get("sAMAccountName")
+            target_dn, "%s" % user.get("sAMAccountName")
         )
 
         if self.verbose:
