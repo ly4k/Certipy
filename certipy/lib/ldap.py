@@ -2,12 +2,13 @@ import ssl
 from typing import Any, List, Union
 
 import ldap3
+from ldap3.core.results import RESULT_STRONGER_AUTH_REQUIRED
+from ldap3.protocol.microsoft import security_descriptor_control
+
 from certipy.lib.constants import WELLKNOWN_SIDS
 from certipy.lib.kerberos import get_kerberos_type1
 from certipy.lib.logger import logging
 from certipy.lib.target import Target
-from ldap3.core.results import RESULT_STRONGER_AUTH_REQUIRED
-from ldap3.protocol.microsoft import security_descriptor_control
 
 
 # https://github.com/fox-it/BloodHound.py/blob/d665959c58d881900378040e6670fa12f801ccd4/bloodhound/ad/utils.py#L216
@@ -70,7 +71,12 @@ class LDAPConnection:
         self._user_sids = {}
 
     def connect(self, version: ssl._SSLMethod = None) -> None:
-        user = "%s\\%s" % (self.target.domain, self.target.username)
+        if self.target.auth_type == 'simple':
+            user = f'{self.target.username}@{self.target.domain}'
+            auth_type = ldap3.SIMPLE
+        else:
+            user = "%s\\%s" % (self.target.domain, self.target.username)
+            auth_type = ldap3.NTLM
 
         if version is None:
             try:
@@ -126,7 +132,7 @@ class LDAPConnection:
                     ldap_server,
                     user=user,
                     password=ldap_pass,
-                    authentication=ldap3.NTLM,
+                    authentication=auth_type,
                     auto_referrals=False,
                     receive_timeout=self.target.timeout * 10,
                     **channel_binding
@@ -150,7 +156,7 @@ class LDAPConnection:
                 else:
                     if result["description"] == "invalidCredentials" and result["message"].split(":")[0] == "80090346":
                         raise Exception(
-                            "Failed to bind to LDAP. LDAP channel binding or signing is required. Use -scheme ldaps -ldap-channel-binding"
+                            "Failed to bind to LDAP. LDAP channel binding or signing is required. Use -scheme ldaps -ldap-channel-binding or try with -ldap-auth-simple"
                         )
                     raise Exception(
                         "Failed to authenticate to LDAP: (%s) %s"

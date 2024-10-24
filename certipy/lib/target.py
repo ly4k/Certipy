@@ -1,10 +1,12 @@
 import os
 import platform
 import socket
+from typing import Literal
 
-from certipy.lib.logger import logging
 from dns.resolver import Resolver
 from impacket.krb5.ccache import CCache
+
+from certipy.lib.logger import logging
 
 
 def is_ip(hostname: str) -> bool:
@@ -106,8 +108,9 @@ def get_logon_session():
     if platform.system().lower() != "windows":
         raise Exception("Cannot use SSPI on non-Windows platform")
 
-    from certipy.lib.sspi import get_tgt
     from winacl.functions.highlevel import get_logon_info
+
+    from certipy.lib.sspi import get_tgt
 
     info = get_logon_info()
 
@@ -159,12 +162,15 @@ class Target:
         self.timeout: int = 5
         self.resolver: Resolver = None
         self.ldap_channel_binding = None
+        self.auth_type: Literal['ntlm', 'simple'] = None
 
     @staticmethod
     def from_options(
         options, dc_as_target: bool = False, ptt: bool = False
     ) -> "Target":
         self = Target()
+
+        self.auth_type = 'simple' if options.ldap_auth_simple else 'ntlm'
 
         principal = options.username
         domain = ""
