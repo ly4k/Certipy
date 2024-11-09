@@ -97,15 +97,21 @@ class Template:
         return json.dumps(output)
 
     def get_configuration(self, template) -> LDAPEntry:
+        ldap_formatted_template = (template.replace("\\", "\\5c")
+                                   .replace("(", "\\28")
+                                   .replace(")", "\\29")
+                                   .replace("*", "\\2a")
+                                   )
+        print(ldap_formatted_template)
         results = self.connection.search(
-            "(&(cn=%s)(objectClass=pKICertificateTemplate))" % template,
+            search_filter=f"(&(cn={ldap_formatted_template})(objectClass=pKICertificateTemplate))",
             search_base=self.connection.configuration_path,
             query_sd=True,
         )
 
         if len(results) == 0:
             results = self.connection.search(
-                "(&(displayName=%s)(objectClass=pKICertificateTemplate))" % template,
+                f"(&(displayName={ldap_formatted_template})(objectClass=pKICertificateTemplate))",
                 search_base=self.connection.configuration_path,
                 query_sd=True,
             )
@@ -166,6 +172,8 @@ class Template:
             )
 
             out_file = "%s.json" % old_configuration.get("cn")
+            # Get rid of slashes to ensure template names with slashes don't break the filenames:
+            out_file = out_file.replace("\\", "").replace("/", "")
             with open(out_file, "w") as f:
                 f.write(old_configuration_json)
 
