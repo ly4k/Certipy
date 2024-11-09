@@ -19,6 +19,7 @@ from certipy.lib.constants import (
     CERTIFICATION_AUTHORITY_RIGHTS,
     EXTENDED_RIGHTS_MAP,
     EXTENDED_RIGHTS_NAME_MAP,
+    ISSUANCE_POLICY_RIGHTS,
     MS_PKI_CERTIFICATE_NAME_FLAG,
     MS_PKI_ENROLLMENT_FLAG,
     MS_PKI_PRIVATE_KEY_FLAG,
@@ -32,6 +33,7 @@ from certipy.lib.rpc import get_dce_rpc_from_string_binding
 from certipy.lib.security import (
     ActiveDirectorySecurity,
     CertifcateSecurity,
+    IssuancePolicySecurity,
     is_admin_sid,
 )
 from certipy.lib.target import Target
@@ -93,6 +95,7 @@ class Find:
         stdout: bool = False,
         output: str = None,
         enabled: bool = False,
+        oids: bool = False,
         vulnerable: bool = False,
         hide_admins: bool = False,
         sid: str = None,
@@ -111,6 +114,7 @@ class Find:
         self.stdout = stdout
         self.output = output
         self.enabled = enabled
+        self.oids = oids
         self.vuln = vulnerable
         self.hide_admins = hide_admins
         self.sid = sid
@@ -235,6 +239,54 @@ class Find:
             % (
                 no_enabled_templates,
                 "s" if no_enabled_templates != 1 else "",
+            )
+        )
+
+        logging.info("Finding issuance policies")
+
+        oids = self.get_issuance_policies()
+
+        logging.info(
+            "Found %d issuance polic%s"
+            % (
+                len(cas),
+                "ies" if len(cas) != 1 else "y",
+            )
+        )
+
+        no_enabled_oids = 0
+        for template in templates:
+            object_id = template.get("objectGUID").lstrip("{").rstrip("}")
+            issuance_policies = template.get("msPKI-Certificate-Policy")
+            if not isinstance(issuance_policies, list):
+                if issuance_policies is None:
+                    issuance_policies = []
+                else:
+                    issuance_policies = [issuance_policies]
+            template.set("issuance_policies", issuance_policies)
+
+            for oid in oids:
+                if oid.get("msPKI-Cert-Template-OID") in issuance_policies:
+                    no_enabled_oids += 1
+                    linked_group = b''.join(oid.get_raw("msDS-OIDToGroupLink")).decode()
+                    if "templates" in oid["attributes"].keys():
+                        oid.get("templates").append(template.get("name"))
+                        oid.get("templates_ids").append(object_id)
+                    else:
+                        oid.set("templates", [template.get("name")])
+                        oid.set("templates_ids", [object_id])
+                    oid.set("linked_group", linked_group)
+                    if "issuance_policies_linked_groups" in template["attributes"].keys():
+                        template.get("issuance_policies_linked_groups").append(linked_group)
+                    else:
+                        template.set("issuance_policies_linked_groups", [linked_group])
+
+        logging.info(
+            "Found %d OID%s linked to %s"
+            % (
+                no_enabled_oids,
+                "s" if no_enabled_oids != 1 else "",
+                "templates" if no_enabled_oids != 1 else "a template",
             )
         )
 
@@ -466,7 +518,7 @@ class Find:
             self.output_bloodhound_data(prefix, templates, cas)
 
         if self.text or self.json or not_specified:
-            output = self.get_output_for_text_and_json(templates, cas)
+            output = self.get_output_for_text_and_json(templates, cas, oids)
 
             if self.text or not_specified:
                 if self.stdout:
@@ -488,10 +540,11 @@ class Find:
                 )
 
     def get_output_for_text_and_json(
-        self, templates: List[LDAPEntry], cas: List[LDAPEntry]
+        self, templates: List[LDAPEntry], cas: List[LDAPEntry], oids: List[LDAPEntry]
     ):
         ca_entries = {}
         template_entries = {}
+        oids_entries ={} 
 
         for template in templates:
             if self.enabled and template.get("enabled") is not True:
@@ -527,6 +580,24 @@ class Find:
 
             ca_entries[len(ca_entries)] = entry
 
+        if self.oids is True:
+            for oid in oids:
+                vulnerabilities = self.get_oid_vulnerabilities(oid)
+                if self.vuln and len(vulnerabilities) == 0:
+                    continue
+
+                entry = OrderedDict()
+                entry = self.get_oid_properties(oid, entry)
+
+                permissions = self.get_oid_permissions(oid)
+                if len(permissions) > 0:
+                    entry["Permissions"] = permissions
+
+                if len(vulnerabilities) > 0:
+                    entry["[!] Vulnerabilities"] = vulnerabilities
+
+                oids_entries[len(oids_entries)] = entry
+
         output = {}
 
         if len(ca_entries) == 0:
@@ -540,6 +611,14 @@ class Find:
             ] = "[!] Could not find any certificate templates"
         else:
             output["Certificate Templates"] = template_entries
+
+        if self.oids is True:
+            if len(oids_entries) == 0:
+                output[
+                    "Issuance Policies"
+                ] = "[!] Could not find any issuance policy"
+            else:
+                output["Issuance Policies"] = oids_entries
 
         return output
 
@@ -736,12 +815,32 @@ class Find:
                 "msPKI-Enrollment-Flag",
                 "msPKI-Private-Key-Flag",
                 "msPKI-Certificate-Name-Flag",
+                "msPKI-Certificate-Policy",
                 "msPKI-Minimal-Key-Size",
                 "msPKI-RA-Signature",
                 "pKIExtendedKeyUsage",
                 "nTSecurityDescriptor",
                 "objectGUID",
                 "msPKI-Template-Schema-Version"
+            ],
+            query_sd=True,
+        )
+
+        return templates
+
+    def get_issuance_policies(self) -> List[LDAPEntry]:
+        templates = self.connection.search(
+            "(objectclass=msPKI-Enterprise-Oid)",
+            search_base="CN=OID,CN=Public Key Services,CN=Services,%s"
+            % self.connection.configuration_path,
+            attributes=[
+                "cn",
+                "name",
+                "displayName",
+                "msDS-OIDToGroupLink",
+                "msPKI-Cert-Template-OID",
+                "nTSecurityDescriptor",
+                "objectGUID",
             ],
             query_sd=True,
         )
@@ -837,7 +936,9 @@ class Find:
             "validity_period": "Validity Period",
             "renewal_period": "Renewal Period",
             "msPKI-Minimal-Key-Size": "Minimum RSA Key Length",
-            "msPKI-Template-Schema-Version": "Template Schema Version"
+            "msPKI-Template-Schema-Version": "Template Schema Version",
+            "msPKI-Certificate-Policy": "Issuance Policies",
+            "issuance_policies_linked_groups" : "Linked Groups"
         }
 
         if template_properties is None:
@@ -993,6 +1094,20 @@ class Find:
                 ] = "%s can enroll and template has no security extension" % list_sids(
                     enrollable_sids
                 )
+
+            # ESC13
+            if (
+                user_can_enroll
+                and template.get("client_authentication")
+                and template.get("msPKI-Certificate-Policy")
+                and template.get("issuance_policies_linked_groups")
+            ):
+                vulnerabilities[
+                    "ESC13"
+                ] = "%s can enroll, template allows client authentication and issuance policy is linked to group %s" % (list_sids(
+                    enrollable_sids
+                ), template.get("issuance_policies_linked_groups"))
+
 
             # ESC15 Check: User can enroll, enrollee supplies subject, and schema version is 1
             if (
@@ -1203,6 +1318,120 @@ class Find:
                 for right in [
                     CERTIFICATION_AUTHORITY_RIGHTS.MANAGE_CA,
                     CERTIFICATION_AUTHORITY_RIGHTS.MANAGE_CERTIFICATES,
+                ]
+            ):
+                vulnerable_acl_sids.append(sid)
+                has_vulnerable_acl = True
+
+        return has_vulnerable_acl, vulnerable_acl_sids
+
+    def get_oid_properties(
+            self, oid: LDAPEntry, oid_properties: dict = None
+        ) -> dict:
+            properties_map = {
+                "cn": "Issuance Policy Name",
+                "displayName": "Display Name",
+                "templates": "Certificate Template(s)",
+                "linked_group" : "Linked Group"
+            }
+
+            if oid_properties is None:
+                oid_properties = OrderedDict()
+
+            for property_key, property_display in properties_map.items():
+                property_value = oid.get(property_key)
+                if property_value is None:
+                    continue
+                oid_properties[property_display] = property_value
+
+            return oid_properties
+
+    def get_oid_permissions(self, oid: LDAPEntry):
+        security = IssuancePolicySecurity(oid.get("nTSecurityDescriptor"))
+        oid_permissions = {}
+        access_rights = {}
+        if security is not None:
+            if not self.hide_admins or not is_admin_sid(security.owner):
+                oid_permissions["Owner"] = self.connection.lookup_sid(
+                    security.owner
+                ).get("name")
+
+            for sid, rights in security.aces.items():
+                if self.hide_admins and is_admin_sid(sid):
+                    continue
+                oid_rights = rights["rights"].to_list()
+                for oid_right in oid_rights:
+                    if oid_right not in access_rights:
+                        access_rights[oid_right] = [
+                            self.connection.lookup_sid(sid).get("name")
+                        ]
+                    else:
+                        access_rights[oid_right].append(
+                            self.connection.lookup_sid(sid).get("name")
+                        )
+
+            oid_permissions["Access Rights"] = access_rights
+
+        return oid_permissions
+
+
+    def get_oid_vulnerabilities(self, oid: LDAPEntry):
+        def list_sids(sids: List[str]):
+            sids_mapping = list(
+                map(
+                    lambda sid: repr(self.connection.lookup_sid(sid).get("name")),
+                    sids,
+                )
+            )
+            if len(sids_mapping) == 1:
+                return sids_mapping[0]
+
+            return ", ".join(sids_mapping[:-1]) + " and " + sids_mapping[-1]
+
+        if oid.get("vulnerabilities"):
+            return oid.get("vulnerabilities")
+
+        vulnerabilities = {}
+
+        # ESC13
+        security = IssuancePolicySecurity(oid.get("nTSecurityDescriptor"))
+        owner_sid = security.owner
+
+        if owner_sid in self.connection.get_user_sids(self.target.username):
+            vulnerabilities[
+                "ESC13"
+            ] = "Issuance Policy OID is owned by %s" % self.connection.lookup_sid(owner_sid).get(
+                "name"
+            )
+        else:
+            has_vulnerable_acl, vulnerable_acl_sids = self.oid_has_vulnerable_acl(
+                oid
+            )
+            if has_vulnerable_acl:
+                vulnerabilities["ESC13"] = "%s has dangerous permissions" % list_sids(
+                    vulnerable_acl_sids
+                )
+
+        return vulnerabilities
+
+    def oid_has_vulnerable_acl(self, oid: LDAPEntry):
+        has_vulnerable_acl = False
+
+        security = IssuancePolicySecurity(oid.get("nTSecurityDescriptor"))
+        aces = security.aces
+        vulnerable_acl_sids = []
+        for sid, rights in aces.items():
+            if sid not in self.connection.get_user_sids(self.target.username):
+                continue
+
+            ad_rights = rights["rights"]
+            if any(
+                right in ad_rights
+                for right in [
+                    ISSUANCE_POLICY_RIGHTS.GENERIC_ALL,
+                    ISSUANCE_POLICY_RIGHTS.WRITE_OWNER,
+                    ISSUANCE_POLICY_RIGHTS.WRITE_DACL,
+                    ISSUANCE_POLICY_RIGHTS.WRITE_PROPERTY,
                 ]
             ):
                 vulnerable_acl_sids.append(sid)

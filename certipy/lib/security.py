@@ -10,6 +10,7 @@ from certipy.lib.constants import (
     ACTIVE_DIRECTORY_RIGHTS,
     CERTIFICATE_RIGHTS,
     CERTIFICATION_AUTHORITY_RIGHTS,
+    ISSUANCE_POLICY_RIGHTS,
 )
 
 
@@ -59,6 +60,9 @@ class CASecurity(ActiveDirectorySecurity):
 
 class CertifcateSecurity(ActiveDirectorySecurity):
     RIGHTS_TYPE = CERTIFICATE_RIGHTS
+
+class IssuancePolicySecurity(ActiveDirectorySecurity):
+    RIGHTS_TYPE = ISSUANCE_POLICY_RIGHTS
 
 
 def is_admin_sid(sid: str):
