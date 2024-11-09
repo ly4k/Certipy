@@ -13,7 +13,7 @@
 - 210: add cross domain authentication
 - 209: accept tgs other than HOST/target@domain
 - 203: check web enrollment for https
-
+- 201: add dcom support
 
 # Certipy
 
