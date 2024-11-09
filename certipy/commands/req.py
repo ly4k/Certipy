@@ -539,6 +539,7 @@ class Request:
         scheme: str = None,
         dynamic_endpoint: bool = False,
         debug=False,
+        smime: str = None,
         **kwargs
     ):
         self.target = target
@@ -556,6 +557,7 @@ class Request:
         self.renew = renew
         self.out = out
         self.key = key
+        self.smime = smime
 
         self.web = web
         self.port = port
@@ -676,6 +678,7 @@ class Request:
             key_size=self.key_size,
             subject=self.subject,
             renewal_cert=renewal_cert,
+            smime=self.smime,
         )
         self.key = key
 
