@@ -14,4 +14,4 @@
 - 209: accept tgs other than HOST/target@domain
 - 203: check web enrollment for https
 - 201: add dcom support
-
+- 200: add possibility to add more than 1 keycredential and correctly list them
