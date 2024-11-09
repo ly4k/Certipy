@@ -53,9 +53,15 @@ class LDAPConnection:
         self.target = target
         self.scheme = scheme
         if self.scheme == "ldap":
-            self.port = 389
+            if target.ldap_port is not None:
+                self.port = int(target.ldap_port)
+            else:
+                self.port = 389
         elif self.scheme == "ldaps":
-            self.port = 636
+            if target.ldap_port is not None:
+                self.port = int(target.ldap_port)
+            else:
+                self.port = 636
 
         self.default_path: str = None
         self.configuration_path: str = None
@@ -111,7 +117,7 @@ class LDAPConnection:
                     connect_timeout=self.target.timeout,
                 )
 
-            logging.debug("Authenticating to LDAP server")
+            logging.debug("Authenticating to LDAP server on port %s", self.port)
 
             if self.target.do_kerberos or self.target.use_sspi:
                 ldap_conn = ldap3.Connection(
@@ -151,7 +157,10 @@ class LDAPConnection:
                         "Trying to connect over LDAPS instead..."
                     )
                     self.scheme = "ldaps"
-                    self.port = 636
+                    if self.target.ldap_port is not None:
+                        self.port = int(self.target.ldap_port)
+                    else:
+                        self.port = 636
                     return self.connect()
                 else:
                     if result["description"] == "invalidCredentials" and result["message"].split(":")[0] == "80090346":

@@ -3,10 +3,9 @@ import platform
 import socket
 from typing import Literal
 
+from certipy.lib.logger import logging
 from dns.resolver import Resolver
 from impacket.krb5.ccache import CCache
-
-from certipy.lib.logger import logging
 
 
 def is_ip(hostname: str) -> bool:
@@ -162,6 +161,7 @@ class Target:
         self.timeout: int = 5
         self.resolver: Resolver = None
         self.ldap_channel_binding = None
+        self.ldap_port: int = 0
         self.auth_type: Literal['ntlm', 'simple'] = None
 
     @staticmethod
@@ -261,6 +261,9 @@ class Target:
             else:
                 raise Exception("Could not find a target in the specified options")
 
+        if options.ldap_port is not None:
+            ldap_port = options.ldap_port
+
         self.domain = domain
         self.username = username
         self.password = password
@@ -275,6 +278,7 @@ class Target:
         self.dc_host = dc_host
         self.timeout = options.timeout
         self.ldap_channel_binding = options.ldap_channel_binding
+        self.ldap_port = ldap_port
 
         if dc_as_target and options.dc_ip is None and is_ip(remote_name):
             self.dc_ip = remote_name
@@ -313,6 +317,7 @@ class Target:
         dns_tcp: bool = False,
         timeout: int = 5,
         ldap_channel_binding: bool = False,
+        ldap_port: int = 0,
     ) -> "Target":
 
         self = Target()
@@ -372,6 +377,7 @@ class Target:
         self.dc_ip = dc_ip
         self.timeout = timeout
         self.ldap_channel_binding = ldap_channel_binding
+        self.ldap_port = ldap_port
 
         if ns is None:
             ns = dc_ip
