@@ -736,6 +736,7 @@ class Find:
                 "pKIExtendedKeyUsage",
                 "nTSecurityDescriptor",
                 "objectGUID",
+                "msPKI-Template-Schema-Version"
             ],
             query_sd=True,
         )
@@ -830,7 +831,8 @@ class Find:
             "authorized_signatures_required": "Authorized Signatures Required",
             "validity_period": "Validity Period",
             "renewal_period": "Renewal Period",
-            "msPKI-Minimal-Key-Size": "Minimum RSA Key Length"
+            "msPKI-Minimal-Key-Size": "Minimum RSA Key Length",
+            "msPKI-Template-Schema-Version": "Template Schema Version"
         }
 
         if template_properties is None:
@@ -964,6 +966,18 @@ class Find:
                 vulnerabilities[
                     "ESC9"
                 ] = "%s can enroll and template has no security extension" % list_sids(
+                    enrollable_sids
+                )
+
+            # ESC15 Check: User can enroll, enrollee supplies subject, and schema version is 1
+            if (
+                user_can_enroll
+                and template.get("enrollee_supplies_subject")
+                and template.get("msPKI-Template-Schema-Version") == 1
+            ):
+                vulnerabilities[
+                    "ESC15"
+                ] = "%s can enroll, enrollee supplies subject and schema version is 1" % list_sids(
                     enrollable_sids
                 )
 

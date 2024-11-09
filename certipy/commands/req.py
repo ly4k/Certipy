@@ -37,6 +37,7 @@ from certipy.lib.formatting import print_certificate_identifications
 from certipy.lib.logger import logging
 from certipy.lib.rpc import get_dce_rpc
 from certipy.lib.target import Target
+from certipy.lib.constants import OID_TO_STR_MAP
 
 from .ca import CA
 
@@ -74,7 +75,6 @@ class CERTTRANSBLOB(NDRSTRUCT):
         ("pb", PBYTE),
     )
 
-
 # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-icpr/0c6f150e-3ead-4006-b37f-ebbf9e2cf2e7
 class CertServerRequest(NDRCALL):
     opnum = 0
@@ -85,7 +85,6 @@ class CertServerRequest(NDRCALL):
         ("pctbAttribs", CERTTRANSBLOB),
         ("pctbRequest", CERTTRANSBLOB),
     )
-
 
 # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-icpr/0c6f150e-3ead-4006-b37f-ebbf9e2cf2e7
 class CertServerRequestResponse(NDRCALL):
@@ -148,7 +147,7 @@ class RPCRequestInterface(RequestInterface):
         request["pctbAttribs"] = empty
         request["pctbRequest"] = empty
 
-        logging.info("Rerieving certificate with ID %d" % request_id)
+        logging.info("Retrieving certificate with ID %d" % request_id)
 
         response = self.dce.request(request, checkError=False)
 
@@ -539,7 +538,8 @@ class Request:
         scheme: str = None,
         dynamic_endpoint: bool = False,
         debug=False,
-        smime: str = None,
+        application_policies: List[str] = None,
+	smime: str = None,
         **kwargs
     ):
         self.target = target
@@ -557,8 +557,11 @@ class Request:
         self.renew = renew
         self.out = out
         self.key = key
-        self.smime = smime
-
+	self.smime = smime
+        self.application_policies = [
+            OID_TO_STR_MAP.get(policy, policy) for policy in (application_policies or [])
+        ]
+	
         self.web = web
         self.port = port
         self.scheme = scheme
@@ -669,6 +672,13 @@ class Request:
             with open(self.pfx, "rb") as f:
                 renewal_key, renewal_cert = load_pfx(f.read())
 
+        converted_policies = []
+        for policy in self.application_policies:
+            oid = next((k for k, v in OID_TO_STR_MAP.items() if v.lower() == policy.lower()), policy)
+            converted_policies.append(oid)
+        
+        self.application_policies = converted_policies
+
         csr, key = create_csr(
             username,
             alt_dns=self.alt_dns,
@@ -678,6 +688,7 @@ class Request:
             key_size=self.key_size,
             subject=self.subject,
             renewal_cert=renewal_cert,
+            application_policies=self.application_policies
             smime=self.smime,
         )
         self.key = key
@@ -707,6 +718,7 @@ class Request:
 
             csr = create_on_behalf_of(csr, self.on_behalf_of, agent_cert, agent_key)
 
+        # Construct attributes list
         attributes = ["CertificateTemplate:%s" % self.template]
 
         if self.alt_upn is not None or self.alt_dns is not None:
@@ -717,6 +729,10 @@ class Request:
                 san.append("upn=%s" % self.alt_upn)
 
             attributes.append("SAN:%s" % "&".join(san))
+
+        if self.application_policies:
+            policy_string = "&".join(self.application_policies)
+            attributes.append(f"ApplicationPolicies:{policy_string}")
 
         cert = self.interface.request(csr, attributes)
 

