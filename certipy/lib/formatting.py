@@ -1,4 +1,5 @@
 from typing import Callable, List, Tuple
+import datetime
 
 from certipy.lib.logger import logging
 
@@ -7,7 +8,6 @@ def to_pascal_case(snake_str: str) -> str:
     components = snake_str.split("_")
     return "".join(x.title() for x in components)
 
-
 def pretty_print(
     d: dict, indent: int = 0, padding: int = 40, print: Callable = print
 ) -> None:
@@ -15,6 +15,8 @@ def pretty_print(
         for key, value in d.items():
             if isinstance(value, str) or isinstance(value, int):
                 print(("  " * indent + str(key)).ljust(padding, " ") + ": %s" % value)
+            elif isinstance(value, datetime.datetime):
+                print(("  " * indent + str(key)).ljust(padding, " ") + ": %s" % value.isoformat())
             elif isinstance(value, dict):
                 print("  " * indent + str(key))
                 pretty_print(value, indent=indent + 1, print=print)
