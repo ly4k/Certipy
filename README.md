@@ -18,3 +18,4 @@
 - 198: add ldap-port option
 - 196: add ESC13
 - 193: add whencreated and whenmodified for templates
+- 183: hidden import (pycryptodomex)
