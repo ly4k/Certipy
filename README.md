@@ -17,3 +17,4 @@
 - 200: add possibility to add more than 1 keycredential and correctly list them
 - 198: add ldap-port option
 - 196: add ESC13
+- 193: add whencreated and whenmodified for templates
