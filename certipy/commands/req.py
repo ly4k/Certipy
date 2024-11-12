@@ -734,7 +734,7 @@ class Request:
         dynamic_endpoint: bool = False,
         debug=False,
         application_policies: List[str] = None,
-	smime: str = None,
+        smime: str = None,
         **kwargs
     ):
         self.target = target
@@ -752,7 +752,7 @@ class Request:
         self.renew = renew
         self.out = out
         self.key = key
-	self.smime = smime
+        self.smime = smime
         self.application_policies = [
             OID_TO_STR_MAP.get(policy, policy) for policy in (application_policies or [])
         ]
@@ -888,8 +888,8 @@ class Request:
             key_size=self.key_size,
             subject=self.subject,
             renewal_cert=renewal_cert,
-            application_policies=self.application_policies
-            smime=self.smime,
+            application_policies=self.application_policies,
+            smime=self.smime
         )
         self.key = key
 
