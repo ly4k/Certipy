@@ -346,6 +346,7 @@ def create_csr(
     key_size: int = 2048,
     subject: str = None,
     renewal_cert: x509.Certificate = None,
+    smime: str = None,
     application_policies: List[str] = None,  # Application policies parameter
 ) -> Tuple[x509.CertificateSigningRequest, rsa.RSAPrivateKey]:
     if key is None:

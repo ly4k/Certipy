@@ -756,7 +756,7 @@ class Request:
         self.application_policies = [
             OID_TO_STR_MAP.get(policy, policy) for policy in (application_policies or [])
         ]
-	
+
         self.web = web
         self.dcom = dcom
         self.port = port
@@ -888,8 +888,8 @@ class Request:
             key_size=self.key_size,
             subject=self.subject,
             renewal_cert=renewal_cert,
-            application_policies=self.application_policies,
-            smime=self.smime
+            smime=self.smime,
+            application_policies=self.application_policies
         )
         self.key = key
 
