@@ -1,11 +1,11 @@
 # Missing PR:
 
-- 211
+- 211: fix ESC1 false positive
+- 229: add smime extensions support (somehow does not work completely with certipy auth)
 
 # Merged:
 
 - 231: add ldap simple auth
-- 229: add smime extensions support
 - 228: add ESC15
 - 226: fix ESC1 false positive
 - 225: fix to solve SID overwrite errors
