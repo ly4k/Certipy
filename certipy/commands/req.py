@@ -2,7 +2,6 @@ import argparse
 import re
 from typing import List
 
-import requests
 from impacket.dcerpc.v5 import rpcrt
 from impacket.dcerpc.v5.dtypes import DWORD, LPWSTR, NULL, PBYTE, ULONG
 from impacket.dcerpc.v5.ndr import NDRCALL, NDRSTRUCT
@@ -11,8 +10,8 @@ from impacket.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_PRIVACY
 from impacket.dcerpc.v5.dcom.oaut import string_to_bin
 from impacket.dcerpc.v5.dcomrt import DCOMCALL, DCOMANSWER
 from impacket.uuid import uuidtup_to_bin
-from requests_ntlm import HttpNtlmAuth
-from urllib3 import connection
+import httpx
+from httpx_ntlm import HttpNtlmAuth
 
 from certipy.lib.certificate import (
     cert_id_to_parts,
@@ -44,20 +43,6 @@ from certipy.commands.ca import ICertCustom
 from certipy.lib.constants import OID_TO_STR_MAP
 
 from .ca import CA
-
-
-def _http_request(self, method, url, body=None, headers=None):
-    if headers is None:
-        headers = {}
-    else:
-        # Avoid modifying the headers passed into .request()
-        headers = headers.copy()
-    super(connection.HTTPConnection, self).request(
-        method, url, body=body, headers=headers
-    )
-
-
-connection.HTTPConnection.request = _http_request
 
 MSRPC_UUID_ICPR = uuidtup_to_bin(("91ae6020-9e3c-11cf-8d7c-00aa00c091be", "0.0"))
 
@@ -458,7 +443,7 @@ class WebRequestInterface(RequestInterface):
         self.base_url = ""
 
     @property
-    def session(self) -> requests.Session:
+    def session(self) -> httpx.Client:
         if self._session is not None:
             return self._session
 
@@ -476,15 +461,15 @@ class WebRequestInterface(RequestInterface):
 
         principal = "%s\\%s" % (self.target.domain, self.target.username)
 
-        session = requests.Session()
+        # Create a session with httpx
+        session = httpx.Client(auth=HttpNtlmAuth(principal, password))
         session.timeout = self.target.timeout
-        session.auth = HttpNtlmAuth(principal, password)
         session.verify = False
 
         base_url = "%s://%s:%i" % (scheme, self.target.target_ip, port)
         logging.info("Checking for Web Enrollment on %s" % repr(base_url))
 
-        session.headers["User-Agent"] = None
+        #session.headers["User-Agent"] = None
 
         success = False
         try:
@@ -492,7 +477,7 @@ class WebRequestInterface(RequestInterface):
                 "%s/certsrv/" % base_url,
                 headers={"Host": self.target.remote_name},
                 timeout=self.target.timeout,
-                allow_redirects=False,
+                follow_redirects=False,
             )
         except Exception as e:
             logging.warning("Failed to connect to Web Enrollment interface: %s" % e)
@@ -520,7 +505,7 @@ class WebRequestInterface(RequestInterface):
                     "%s/certsrv/" % base_url,
                     headers={"Host": self.target.remote_name},
                     timeout=self.target.timeout,
-                    allow_redirects=False,
+                    follow_redirects=False,
                 )
             except Exception as e:
                 logging.warning("Failed to connect to Web Enrollment interface: %s" % e)
@@ -707,7 +692,6 @@ class WebRequestInterface(RequestInterface):
         logging.info("Request ID is %d" % request_id)
 
         return self.retrieve(request_id)
-
 
 class Request:
     def __init__(
