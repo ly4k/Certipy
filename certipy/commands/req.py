@@ -462,14 +462,10 @@ class WebRequestInterface(RequestInterface):
         principal = "%s\\%s" % (self.target.domain, self.target.username)
 
         # Create a session with httpx
-        session = httpx.Client(auth=HttpNtlmAuth(principal, password))
-        session.timeout = self.target.timeout
-        session.verify = False
+        session = httpx.Client(auth=HttpNtlmAuth(principal, password), timeout=self.target.timeout, verify=False)
 
         base_url = "%s://%s:%i" % (scheme, self.target.target_ip, port)
         logging.info("Checking for Web Enrollment on %s" % repr(base_url))
-
-        #session.headers["User-Agent"] = None
 
         success = False
         try:
@@ -490,6 +486,12 @@ class WebRequestInterface(RequestInterface):
             else:
                 logging.warning(
                     "Failed to authenticate to Web Enrollment at %s" % repr(base_url)
+                )
+                logging.debug(
+                    "Got status code: %s" % repr(res.status_code)
+                )
+                logging.debug(
+                    "HTML Response:\n%s" % repr(res.content)
                 )
 
         if not success:
@@ -521,6 +523,12 @@ class WebRequestInterface(RequestInterface):
                     logging.warning(
                         "Failed to authenticate to Web Enrollment at %s"
                         % repr(base_url)
+                    )
+                    logging.debug(
+                        "Got status code: %s" % repr(res.status_code)
+                    )
+                    logging.debug(
+                        "HTML Response:\n%s" % repr(res.content)
                     )
 
         if not success:
