@@ -6,6 +6,17 @@ As this is a _work in progress_, some features may or may not work as expected a
 
 ## Installation
 
+Using `pip` with `venv` to install in /opt:
+
+```bash
+cd /opt
+git clone https://github.com/zimedev/certipy-merged
+cd certipy-merged
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install .
+```
+
 Using `pipx`:
 
 ```bash
@@ -27,6 +38,7 @@ pipx inject --force certipy-ad git+https://github.com/ly4k/ldap3
 
 ### Merged PRs:
 
+- 238: fix: check pKIExpirationPeriod & pKIOverlapPeriod
 - 231: add ldap simple auth
 - 228: add ESC15
 - 226: fix ESC1 false positive
