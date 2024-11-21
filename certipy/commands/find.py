@@ -330,10 +330,18 @@ class Find:
             object_id = template.get("objectGUID").lstrip("{").rstrip("}")
             template.set("object_id", object_id)
 
-            validity_period = filetime_to_str(template.get("pKIExpirationPeriod"))
+            expiration_period = template.get("pKIExpirationPeriod")
+            if expiration_period is not None:
+                validity_period = filetime_to_str(expiration_period)
+            else:
+                validity_period = 0
             template.set("validity_period", validity_period)
 
-            renewal_period = filetime_to_str(template.get("pKIOverlapPeriod"))
+            overlap_period = template.get("pKIOverlapPeriod")
+            if overlap_period is not None:
+                renewal_period = filetime_to_str(overlap_period)
+            else:
+                renewal_period = 0
             template.set("renewal_period", renewal_period)
 
             certificate_name_flag = template.get("msPKI-Certificate-Name-Flag")
