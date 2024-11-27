@@ -268,11 +268,12 @@ class Find:
                     else:
                         oid.set("templates", [template.get("name")])
                         oid.set("templates_ids", [object_id])
-                    oid.set("linked_group", linked_group)
-                    if "issuance_policies_linked_groups" in template["attributes"].keys():
-                        template.get("issuance_policies_linked_groups").append(linked_group)
-                    else:
-                        template.set("issuance_policies_linked_groups", [linked_group])
+                    if linked_group:
+                        oid.set("linked_group", linked_group)
+                        if "issuance_policies_linked_groups" in template["attributes"].keys():
+                            template.get("issuance_policies_linked_groups").append(linked_group)
+                        else:
+                            template.set("issuance_policies_linked_groups", [linked_group])
 
         logging.info(
             "Found %d OID%s linked to %s"
