@@ -53,14 +53,12 @@ DN_MAP = {
 asn1x509.ExtensionId._map.update(
     {
         "1.3.6.1.4.1.311.25.2": "security_ext",
-        "1.2.840.113549.1.9.15": "smime_capability",
     }
 )
 
 asn1x509.Extension._oid_specs.update(
     {
         "security_ext": asn1x509.GeneralNames,
-        "smime_capability": asn1core.ObjectIdentifier,
     }
 )
 
@@ -418,6 +416,17 @@ def create_csr(
         cri_attributes.append(cri_attribute)
 
     if smime:
+        asn1x509.ExtensionId._map.update(
+            {
+                "1.2.840.113549.1.9.15": "smime_capability",
+            }
+        )
+        
+        asn1x509.Extension._oid_specs.update(
+            {
+                "smime_capability": asn1core.ObjectIdentifier,
+            }
+        ) 
         # https://learn.microsoft.com/en-us/windows/win32/api/certenroll/nn-certenroll-ix509extensionsmimecapabilities
         smime_extension = asn1x509.Extension(
                 {"extn_id": "1.2.840.113549.1.9.15", "extn_value": smimedict[smime]}
