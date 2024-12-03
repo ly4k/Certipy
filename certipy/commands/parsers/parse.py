@@ -49,6 +49,12 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
 
     group = subparser.add_argument_group("parse options")
     group.add_argument(
+        "-format",
+        help="Input format either req_query BOF output or Windows .reg file (default: bof)",
+        choices=["bof", "reg"],
+        default="bof"
+    )
+    group.add_argument(
         "-domain",
         help="Domain name, solely used for output (default: UNKNOWN)",
         type=lambda arg: arg.upper(),

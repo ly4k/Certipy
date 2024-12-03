@@ -139,6 +139,93 @@ class ParseBof(Parse):
 
         return templates
 
+class ParseReg(Parse):
+
+    def get_certificate_templates(self) -> List[RegEntry]:
+
+        templates = []
+
+        with open(self.file, "r", encoding="utf-16-le", newline="\r\n") as f:
+            firstline = f.readline()
+
+            if "Windows Registry Editor Version" not in firstline:
+                raise Exception("Unexpected file format, Windows registry file expected")
+
+            data = f.read()
+            lines = iter(data.splitlines())
+            line = next(lines)
+
+            template = None
+
+            while True:
+                try:
+                    if line.startswith('[HKEY_USERS\.DEFAULT\\Software\\Microsoft\\Cryptography\\CertificateTemplateCache\\'):
+                        line = line[1:-1]
+                        if template is not None:
+                            templates.append(template)
+                            # print(template)
+                        template = RegEntry()
+                        parts = line.split('\\')
+                        template.set("cn", parts[-1])
+                        template.set("name", parts[-1])
+                        template.set("objectGUID", parts[-1])
+                    elif line.startswith('"'):
+                        line = line.strip()
+                        parts = line.split('=')
+                        if len(parts) < 2:
+                            line = next(lines)
+                            continue
+                        name = parts[0]
+                        name = name[1:-1]
+                        data = parts[1]
+                        if data.startswith('"'):
+                            data = data[1:-1]
+                        elif data.startswith('dword:'):
+                            data = int('0x' + data[6:],16)
+                            data = data if data<2**31 else data-2**32
+                        elif data.startswith('hex:'):
+                            data = data[4:]
+                            values = []
+                            while True:
+                                values = values + data.replace(',\\', '').split(',')
+                                if not line.endswith('\\'):
+                                    break
+                                line = next(lines)
+                                data = line.strip()
+                            data = bytes.fromhex("".join(values))
+                        elif data.startswith('hex(7):'):
+                            data = data[7:]
+                            values = []
+                            while True:
+                                values = values + data.replace(',\\', '').split(',')
+                                if not line.endswith('\\'):
+                                    break
+                                line = next(lines)
+                                data = line.strip()
+
+                            data = bytes.fromhex("".join(values))
+                            data = data.decode('utf-16le')
+                            data = data.rstrip('\x00')
+
+                            if data == '':
+                                data = []
+                            else:
+                                data = data.split('\x00')
+
+                        if name in self.mappings:
+                            name = self.mappings[name]
+                        if not template is None:
+                            template.set(name, data)
+
+                    line = next(lines)
+                except StopIteration:
+                    break
+
+            if template is not None:
+                templates.append(template)
+
+        return templates
+
 def entry(options: argparse.Namespace) -> None:
 
     domain = options.domain
@@ -153,5 +240,12 @@ def entry(options: argparse.Namespace) -> None:
     file = options.file
     del options.file
 
-    parse = ParseBof(domain, sids, published, **vars(options))
+    format = options.format
+    del options.format
+
+    if format == 'bof':
+        parse = ParseBof(domain, sids, published, **vars(options))
+    if format == 'reg':
+        parse = ParseReg(domain, sids, published, **vars(options))
+
     parse.parse(file)
