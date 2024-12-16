@@ -24,6 +24,10 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     )
 
     subparser.add_argument(
+        "-password", action="store", metavar="password", help="Set import password"
+    )
+
+    subparser.add_argument(
         "-no-save", action="store_true", help="Don't save TGT to file"
     )
     subparser.add_argument(
