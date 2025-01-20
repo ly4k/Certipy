@@ -1,5 +1,5 @@
 from typing import List
-from certipy.lib.constants import WELLKNOWN_SIDS
+from certipy.lib.constants import WELLKNOWN_SIDS, WELLKNOWN_RIDS
 from certipy.lib.ldap import LDAPEntry
 
 class RegEntry(LDAPEntry):
@@ -38,6 +38,18 @@ class RegConnection():
 	                    "objectSid": "%s-%s" % (self.domain.upper(), sid),
 	                    "objectType": WELLKNOWN_SIDS[sid][1].capitalize(),
 	                    "name": "%s\\%s" % (self.domain, WELLKNOWN_SIDS[sid][0]),
+                    }
+                }
+            )
+
+        rid = sid.split("-")[-1]
+        if rid in WELLKNOWN_RIDS:
+            return RegEntry(
+                **{
+                    "attributes": {
+	                    "objectSid": "%s-%s" % (self.domain.upper(), sid),
+	                    "objectType": WELLKNOWN_RIDS[rid][1].capitalize(),
+	                    "name": "%s\\%s" % (self.domain, WELLKNOWN_RIDS[rid][0]),
                     }
                 }
             )
