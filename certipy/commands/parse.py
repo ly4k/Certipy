@@ -9,6 +9,7 @@ class Parse(find.Find):
     def __init__(
         self,
         domain: str = "UNKNOWN",
+        ca: str = "UNKNOWN",
         sids: List[str] = [],
         published: List[str] = [],
         **kwargs
@@ -18,6 +19,7 @@ class Parse(find.Find):
         self.target.username = 'unknown'
         self.target.target_ip = 'unknown'
         self.domain = domain
+        self.ca = ca
         self.sids = sids
         self.published = published
         self.mappings = {
@@ -48,7 +50,7 @@ class Parse(find.Find):
             **{
                 "attributes": {
                     "cn" : "Unknown",
-                    "name" : "Unknown",
+                    "name" : self.ca,
                     "dNSHostName" : "localhost",
                     "cACertificateDN" : "Unknown",
                     "cACertificate" : [ b"" ],
@@ -231,6 +233,9 @@ def entry(options: argparse.Namespace) -> None:
     domain = options.domain
     del options.domain
 
+    ca = options.ca
+    del options.ca
+
     sids = options.sids
     del options.sids
 
@@ -244,8 +249,8 @@ def entry(options: argparse.Namespace) -> None:
     del options.format
 
     if format == 'bof':
-        parse = ParseBof(domain, sids, published, **vars(options))
+        parse = ParseBof(domain, ca, sids, published, **vars(options))
     if format == 'reg':
-        parse = ParseReg(domain, sids, published, **vars(options))
+        parse = ParseReg(domain, ca, sids, published, **vars(options))
 
     parse.parse(file)

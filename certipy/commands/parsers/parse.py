@@ -61,6 +61,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         default="UNKNOWN"
     )
     group.add_argument(
+        "-ca",
+        help="CA name, solely used for output (default: UNKNOWN)",
+        default="UNKNOWN"
+    )
+    group.add_argument(
         "-sids",
         help="Consider the comma separated list of SIDs as owned",
         type=lambda arg: list(map(str.strip, arg.split(','))),
