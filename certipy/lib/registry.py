@@ -24,7 +24,7 @@ class RegConnection():
         self.sids = sids
         self.sid_map = {}
 
-    def get_user_sids(self, username: str):
+    def get_user_sids(self, username: str, user_sid: str = None, user_dn: str = None):
         return self.sids
 
     def lookup_sid(self, sid: str) -> RegEntry:
