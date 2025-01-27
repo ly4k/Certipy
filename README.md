@@ -80,6 +80,7 @@ options:
 
 ### Merged PRs:
 
+- [X] [#248](https://github.com/ly4k/Certipy/pull/248): fix subject in generated certificate of shadow credentials
 - [X] [#247](https://github.com/ly4k/Certipy/pull/247): add parse sub command to perform stealthy offline ADCS enumeration
 - [X] [#238](https://github.com/ly4k/Certipy/pull/238): fix: check pKIExpirationPeriod & pKIOverlapPeriod
 - [X] [#231](https://github.com/ly4k/Certipy/pull/231): add ldap simple auth
