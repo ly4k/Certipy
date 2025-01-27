@@ -66,6 +66,27 @@ WELLKNOWN_SIDS = {
     "S-1-5-32-580": ("Access Control Assistance Operators", "GROUP"),
 }
 
+# https://github.com/garrettfoster13/aced/blob/b5d1ad1b8cfb84a6420be22658beec340ef9e396/lib/sid.py#L48
+WELLKNOWN_RIDS = {
+    "498": ("Enterprise Read-only Domain Controllers", "GROUP"),
+    "500": ("Administrator", "USER"),
+    "501": ("Guest", "USER"),
+    "502": ("KRBTGT", "USER"),
+    "512": ("Domain Admins", "GROUP"),
+    "513": ("Domain Users", "GROUP"),
+    "514": ("Domain Guests", "GROUP"),
+    "515": ("Domain Computers", "GROUP"),
+    "516": ("Domain Controllers", "GROUP"),
+    "517": ("Cert Publishers", "GROUP"),
+    "518": ("Schema Admins", "GROUP"),
+    "519": ("Enterprise Admins", "GROUP"),
+    "520": ("Group Policy Creator Owners", "GROUP"),
+    "521": ("Read-only Domain Controllers", "GROUP"),
+    "522": ("Cloneable Domain Controllers", "GROUP"),
+    "526": ("Key Admins", "GROUP"),
+    "527": ("Enterprise Key Admins", "GROUP"),
+    "553": ("RAS and IAS Servers", "GROUP"),
+}
 
 # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-crtd/1192823c-d839-4bc3-9b6b-fa8c53507ae1
 class MS_PKI_CERTIFICATE_NAME_FLAG(IntFlag):
