@@ -86,6 +86,7 @@ class Find:
         json: bool = False,
         bloodhound: bool = False,
         old_bloodhound: bool = False,
+        esc14: bool = False,
         text: bool = False,
         stdout: bool = False,
         output: str = None,
@@ -104,6 +105,7 @@ class Find:
         self.old_bloodhound = old_bloodhound
         self.text = text or stdout
         self.stdout = stdout
+        self.esc14 = esc14
         self.output = output
         self.enabled = enabled
         self.vuln = vulnerable
@@ -530,6 +532,14 @@ class Find:
         else:
             output["Certificate Templates"] = template_entries
 
+        if (self.esc14) :
+            logging.info("Finding users with weak explicit mappings")
+            users = self.get_users()
+            mapping_vulnerabilities = self.get_mapping_vulnerabilities(users)
+            logging.info("Found %d users with weak explicit mapping" %(len(mapping_vulnerabilities)))
+            if (len(mapping_vulnerabilities) >0):
+                output["ESC14"] = "\n" + "\n".join(mapping_vulnerabilities)
+
         return output
 
     def output_bloodhound_data(
@@ -759,6 +769,41 @@ class Find:
         )
 
         return cas
+
+    def get_users(self) -> List[LDAPEntry]:
+        users = self.connection.search(
+            "(objectclass=user)",
+            search_base="%s"
+            % self.connection.default_path,
+            attributes=[
+                "cn",
+                "name",
+                "displayName",
+                "samAccountName",
+                "nTSecurityDescriptor",
+                "objectGUID",
+                "altSecurityIdentities"
+            ],
+            query_sd=True,
+        )
+
+        return users
+    
+    def get_mapping_vulnerabilities(self, users: LDAPEntry):
+
+        weak_mapping_users =  []
+
+        for user in users :  
+            # Search for ESC14_B_C_D
+            mappings = user["attributes"]["altSecurityIdentities"]
+            weak_mapping_criteria = ["X509:<RFC822>", "X509:<S>"]
+            for mapping in mappings:
+                # Identify weak mappings
+                if any(criteria in mapping for criteria in weak_mapping_criteria) or ("X509:<I>" in mapping and "<S>" in mapping):
+                    # Weak Mapping found
+                    weak_mapping_users.append("User \"%s\" is configured with weak mapping : %s" % (user["attributes"]["samAccountName"],mapping))
+        return weak_mapping_users
+
 
     def security_to_bloodhound_aces(self, security: ActiveDirectorySecurity) -> List:
         aces = []

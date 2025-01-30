@@ -70,7 +70,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         action="store_true",
         help="Don't show administrator permissions for -text, -stdout, and -json. Does not affect BloodHound output",
     )
-
+    group.add_argument(
+        "-esc14",
+        action="store_true",
+        help="Search for ESC14 vulnerability (warning, may take some time). Not compatible with BloodHound output",
+    )
     group = subparser.add_argument_group("connection options")
     group.add_argument(
         "-scheme",
