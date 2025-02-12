@@ -1,11 +1,17 @@
 import argparse
+import base64
 import copy
 import json
 import os
+import re
+import requests
+import ssl
 import socket
 import struct
 import time
+import urllib3
 import zipfile
+from http.client import HTTPSConnection
 from collections import OrderedDict
 from datetime import datetime
 from typing import List
@@ -33,6 +39,8 @@ from certipy.lib.security import (
 )
 from certipy.lib.target import Target
 from impacket.dcerpc.v5 import rrp
+from impacket.ntlm import getNTLMSSPType1, getNTLMSSPType3
+from impacket.spnego import SPNEGO_NegTokenResp
 
 from .ca import CA
 
@@ -239,7 +247,7 @@ class Find:
                     "Unknown",
                     "Unknown",
                     None,
-                    "Unknown",
+                    {"http": {"enabled": None}, "https": {"enabled": None, "channel_binding": None}},
                 )
             else:
                 user_specified_san, request_disposition, enforce_encrypt_icertrequest, security = (
@@ -289,15 +297,17 @@ class Find:
                         % (repr(ca.get("name")), e)
                     )
 
+                web_enrollment = {"http": {"enabled": None}, "https": {"enabled": None, "channel_binding": None}}
                 try:
-                    web_enrollment = self.check_web_enrollment(ca)
-                    web_enrollment = "Enabled" if web_enrollment else "Disabled"
+                    web_enrollment['http']['enabled'] = self.check_web_enrollment(ca, 'http')
+                    web_enrollment['https']['enabled'] = self.check_web_enrollment(ca, 'https')
+                    if web_enrollment['https']['enabled']:
+                        web_enrollment['https']['channel_binding'] = self.test_channel_binding(ca)
                 except Exception as e:
                     logging.warning(
                         "Failed to check Web Enrollment for CA %s: %s"
                         % (repr(ca.get("name")), e)
                     )
-                    web_enrollment = "Unknown"
 
             ca.set("user_specified_san", user_specified_san)
             ca.set("request_disposition", request_disposition)
@@ -685,37 +695,141 @@ class Find:
             )
         )
 
-    def check_web_enrollment(self, ca: LDAPEntry) -> bool:
+    def check_web_enrollment(self, ca: LDAPEntry, channel: str) -> bool:
         target_name = ca.get("dNSHostName")
 
         target_ip = self.target.resolver.resolve(target_name)
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(self.target.timeout)
+            url = "%s://%s/certsrv" % (channel, target_ip)
 
-            logging.debug("Connecting to %s:80" % target_ip)
-            sock.connect((target_ip, 80))
-            sock.sendall(
-                "\r\n".join(
-                    ["HEAD /certsrv/ HTTP/1.1", "Host: %s" % target_name, "\r\n"]
-                ).encode()
+            logging.debug("Connecting to %s" % url)
+            response = requests.head(
+                url, headers={ "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.2365.80" },
+                timeout=30, verify=False
             )
-            resp = sock.recv(256)
-            sock.close()
-            head = resp.split(b"\r\n")[0].decode()
 
-            return " 404 " not in head
-        except ConnectionRefusedError:
-            return False
-        except socket.timeout:
+            if response.status_code == 401:
+                logging.debug("Web enrollment seems enabled over %s" % channel)
+                return True
+        except requests.exceptions.Timeout:
+            logging.debug("Web enrollment seems disabled over %s" % channel)
             return False
         except Exception as e:
             logging.warning(
                 "Got error while trying to check for web enrollment: %s" % e
             )
 
-        return False
+        return None
+
+    def test_channel_binding(self, ca: LDAPEntry):
+        target_name = ca.get("dNSHostName")
+        target_ip = self.target.resolver.resolve(target_name)
+
+        try:
+            logging.debug("Testing Channel Binding. Performing connection to %s without CB" % target_name)
+            connection_without_cb = self.test_https_ntlm(target_ip, channel_binding=False)
+
+            if connection_without_cb:
+                logging.info("Channel Binding not enforced for %s" % target_name)
+                return False
+            
+            logging.debug("Performing connection to %s with CB" % target_name)
+            connection_with_cb = self.test_https_ntlm(target_ip, channel_binding=True)
+            if connection_with_cb:
+                logging.info("Channel Binding enforced for %s" % target_name)
+                return True
+        except Exception as e:
+            logging.warning("Got error while trying to check for channel binding: %s" % e)
+            return None    
+        return None
+
+    def test_https_ntlm(self, target_ip: str, channel_binding: bool):
+        path = '/certsrv'
+        session = HTTPSConnection(target_ip, timeout=30, context=ssl._create_unverified_context())
+        session.request('GET', path)
+        res = session.getresponse()
+        res.read()
+        
+        if res.status != 401:
+            logging.debug('Status code returned: %d. Authentication does not seem required for URL' % res.status)
+            return False
+        try:
+            if 'NTLM' not in res.getheader('WWW-Authenticate') and 'Negotiate' not in res.getheader('WWW-Authenticate'):
+                logging.error('NTLM Auth not offered by URL, offered protocols: %s' % res.getheader('WWW-Authenticate'))
+                return False
+            if 'NTLM' in res.getheader('WWW-Authenticate'):
+                authenticationMethod = "NTLM"
+            elif 'Negotiate' in res.getheader('WWW-Authenticate'):
+                authenticationMethod = "Negotiate"
+        except (KeyError, TypeError):
+            logging.error('No authentication requested by the server %s' % target_ip)
+            return False
+
+        #NTLM Negotiate
+        type1 = getNTLMSSPType1('', self.target.domain)
+        negotiate = base64.b64encode(type1.getData()).decode("ascii")
+        headers = {'Authorization':'%s %s' % (authenticationMethod, negotiate)}
+        session.request('GET', path ,headers=headers)
+
+        # NTLM Challenge from Server
+        res = session.getresponse()
+        res.read()
+        try:
+            serverChallengeBase64 = re.search(('%s ([a-zA-Z0-9+/]+={0,2})' % authenticationMethod), res.getheader('WWW-Authenticate')).group(1)
+            serverChallenge = base64.b64decode(serverChallengeBase64)
+        except (IndexError, KeyError, AttributeError):
+            logging.error('No NTLM challenge returned from server')
+            return False
+
+        if struct.unpack('B', serverChallenge[:1])[0] == SPNEGO_NegTokenResp.SPNEGO_NEG_TOKEN_RESP:
+            respToken2 = SPNEGO_NegTokenResp(serverChallenge)
+            type2 = respToken2['ResponseToken']
+        else:
+            type2 = serverChallenge
+
+        cb = b''
+        if channel_binding:
+            # Compute Channel Binding
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            sslsock = ssl._create_unverified_context().wrap_socket(sock, server_hostname=target_ip)
+            sslsock.connect((target_ip, 443))
+            peer_cert = sslsock.getpeercert(True)
+            # From: https://github.com/ly4k/ldap3/commit/87f5760e5a68c2f91eac8ba375f4ea3928e2b9e0#diff-c782b790cfa0a948362bf47d72df8ddd6daac12e5757afd9d371d89385b27ef6R1383
+            from hashlib import sha256,md5
+            # Ugly but effective, to get the digest of the X509 DER in bytes
+            peer_certificate_sha256  = sha256(peer_cert).digest()
+        
+            channel_binding_struct = b''
+            initiator_address = b'\x00'*8
+            acceptor_address = b'\x00'*8
+
+            # https://datatracker.ietf.org/doc/html/rfc5929#section-4
+            application_data_raw = b'tls-server-end-point:' + peer_certificate_sha256
+            len_application_data = len(application_data_raw).to_bytes(4, byteorder='little', signed = False)
+            application_data = len_application_data
+            application_data += application_data_raw
+            channel_binding_struct += initiator_address
+            channel_binding_struct += acceptor_address
+            channel_binding_struct += application_data
+            cb = md5(channel_binding_struct).digest()
+
+        # NTLM Auth
+        type3, exportedSessionKey = getNTLMSSPType3(type1, bytes(type2), self.target.username, self.target.password, self.target.domain, channel_binding_value=cb)
+
+        auth = base64.b64encode(type3.getData()).decode("ascii")
+        headers = {'Authorization':'%s %s' % (authenticationMethod, auth)}
+        session.request('GET', path, headers=headers)
+        res = session.getresponse()
+        logging.debug(res.status)
+        if res.status in (200, 301):
+            return  True
+        if res.status == 401:
+            return False
+        return None
+        
 
     def get_certificate_templates(self) -> List[LDAPEntry]:
         templates = self.connection.search(
@@ -1124,14 +1238,23 @@ class Find:
             )
 
         # ESC8
-        if ca.get("web_enrollment") == "Enabled" and ca.get("request_disposition") in [
-            "Issue",
-            "Unknown",
-        ]:
-            vulnerabilities["ESC8"] = (
-                "Web Enrollment is enabled and Request Disposition is set to %s"
-                % ca.get("request_disposition")
-            )
+        web_enrollment = ca.get("web_enrollment")
+        if web_enrollment and ca.get("request_disposition") in ["Issue", "Unknown"]:
+            if web_enrollment['http'] is not None and web_enrollment['http']['enabled']:# HTTP only 
+                vulnerabilities["ESC8"] = (
+                    "Web Enrollment is enabled over HTTP and Request Disposition is set to %s"
+                    % ca.get("request_disposition")
+                )
+            if web_enrollment['https'] is not None and web_enrollment['https']['enabled'] and not web_enrollment['https']['channel_binding']:# HTTPS only 
+                vulnerabilities["ESC8"] = (
+                    "Web Enrollment is enabled over HTTPS, Channel Binding is disabled and Request Disposition is set to %s"
+                    % ca.get("request_disposition")
+                )
+            if web_enrollment['http'] is not None and web_enrollment['https'] is not None and web_enrollment['http']['enabled'] and web_enrollment['https']['enabled'] and not web_enrollment['https']['channel_binding']:# HTTP and HTTPS 
+                vulnerabilities["ESC8"] = (
+                    "Web Enrollment is enabled over HTTP and HTTPS, Channel Binding is disabled and Request Disposition is set to %s"
+                    % ca.get("request_disposition")
+                )
 
         # ESC11
         if (
