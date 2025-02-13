@@ -90,6 +90,7 @@ class Find:
         text: bool = False,
         stdout: bool = False,
         output: str = None,
+        trailing_output : str = "",
         enabled: bool = False,
         vulnerable: bool = False,
         hide_admins: bool = False,
@@ -107,6 +108,7 @@ class Find:
         self.stdout = stdout
         self.esc14 = esc14
         self.output = output
+        self.trailing_output = trailing_output
         self.enabled = enabled
         self.vuln = vulnerable
         self.hide_admins = hide_admins
@@ -458,14 +460,15 @@ class Find:
 
         if self.text or self.json or not_specified:
             output = self.get_output_for_text_and_json(templates, cas)
-
             if self.text or not_specified:
+                output_text_stdout = copy.copy(output)
+                if self.trailing_output : output_text_stdout ["ESC14"] = self.trailing_output
                 if self.stdout:
                     logging.info("Enumeration output:")
-                    pretty_print(output)
+                    pretty_print(output_text_stdout)
                 else:
                     with open("%s_Certipy.txt" % prefix, "w") as f:
-                        pretty_print(output, print=lambda x: f.write(x) + f.write("\n"))
+                        pretty_print(output_text_stdout, print=lambda x: f.write(x) + f.write("\n"))
                     logging.info(
                         "Saved text output to %s" % repr("%s_Certipy.txt" % prefix)
                     )
@@ -531,14 +534,6 @@ class Find:
             ] = "[!] Could not find any certificate templates"
         else:
             output["Certificate Templates"] = template_entries
-
-        if (self.esc14) :
-            logging.info("Finding users with weak explicit mappings")
-            users = self.get_users()
-            mapping_vulnerabilities = self.get_mapping_vulnerabilities(users)
-            logging.info("Found %d users with weak explicit mapping" %(len(mapping_vulnerabilities)))
-            if (len(mapping_vulnerabilities) >0):
-                output["ESC14"] = "\n" + "\n".join(mapping_vulnerabilities)
 
         return output
 
@@ -776,12 +771,7 @@ class Find:
             search_base="%s"
             % self.connection.default_path,
             attributes=[
-                "cn",
-                "name",
-                "displayName",
                 "samAccountName",
-                "nTSecurityDescriptor",
-                "objectGUID",
                 "altSecurityIdentities"
             ],
             query_sd=True,
@@ -801,7 +791,7 @@ class Find:
                 # Identify weak mappings
                 if any(criteria in mapping for criteria in weak_mapping_criteria) or ("X509:<I>" in mapping and "<S>" in mapping):
                     # Weak Mapping found
-                    weak_mapping_users.append("User \"%s\" is configured with weak mapping : %s" % (user["attributes"]["samAccountName"],mapping))
+                    weak_mapping_users.append("\"%s\" is configured with weak mapping : %s" % (user["attributes"]["samAccountName"],mapping))
         return weak_mapping_users
 
 
@@ -1186,6 +1176,15 @@ class Find:
             vulnerabilities[
                 "ESC11"
             ] = "Encryption is not enforced for ICPR requests and Request Disposition is set to Issue"
+
+        # ESC14
+        if (self.esc14) :
+            logging.info("Finding users with weak explicit mappings")
+            users = self.get_users()
+            mapping_vulnerabilities = self.get_mapping_vulnerabilities(users)
+            logging.info("Found %d users with weak explicit mapping" %(len(mapping_vulnerabilities)))
+            if (len(mapping_vulnerabilities) >0):
+                self.trailing_output = "\n" + "\n".join(mapping_vulnerabilities)
 
         return vulnerabilities
 

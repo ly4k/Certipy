@@ -73,7 +73,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     group.add_argument(
         "-esc14",
         action="store_true",
-        help="Search for ESC14 vulnerability (warning, may take some time). Not compatible with BloodHound output",
+        help="Search for ESC14 vulnerability (warning, may take some time). Not compatible with BloodHound or JSON output",
     )
     group = subparser.add_argument_group("connection options")
     group.add_argument(

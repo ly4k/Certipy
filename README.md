@@ -825,7 +825,7 @@ In the case of an ESC14 B-C-D, the target is configured with a weak explicit map
 
 There are a number of conditions on certificate templates or other configuration elements that affect the use of ESC14. See the original [blog post](https://posts.specterops.io/adcs-esc14-abuse-technique-333a004dc2b9) for more information. 
 
-The `find`command below identifies users configured with weak explicit mapping.
+The `find`command below identifies users and computers   configured with weak explicit mapping.
 
 ```bash
 $ certipy find -u john@corp.local -p Passw0rd -dc-ip 172.16.126.128 -esc14
