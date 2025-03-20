@@ -677,6 +677,7 @@ class Relay:
 
         config = NTLMRelayxConfig()
         config.setTargets(target)
+        config.setDisableMulti(True)
         config.setIsADCSAttack(True)
         config.setADCSOptions(self.template)
         config.setAttacks(
