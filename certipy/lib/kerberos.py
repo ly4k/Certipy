@@ -1,3 +1,4 @@
+import base64
 import datetime
 import os
 from typing import Tuple
@@ -11,6 +12,7 @@ from impacket.krb5.types import KerberosTime, Principal, Ticket
 from impacket.spnego import SPNEGO_NegTokenInit, TypesMech
 from pyasn1.codec.ber import decoder, encoder
 from pyasn1.type.univ import noValue
+import httpx
 
 from certipy.lib.logger import logging
 from certipy.lib.target import Target
@@ -251,7 +253,7 @@ def get_kerberos_type1(
     authenticator["crealm"] = domain
     seq_set(authenticator, "cname", principal.components_to_asn1)
     now = datetime.datetime.utcnow()
-
+    
     authenticator["cusec"] = now.microsecond
     authenticator["ctime"] = KerberosTime.to_asn1(now)
 
@@ -268,3 +270,21 @@ def get_kerberos_type1(
     blob["MechToken"] = encoder.encode(ap_req)
 
     return cipher, session_key, blob.getData(), username
+
+class HttpxImpacketKerberosAuth(httpx.Auth):
+    def __init__(self, target, service="HTTP"):
+        """
+        :param target: the Target object
+        :param service: the service to use for authentication
+        """
+        self.target = target
+        self.service = service
+
+    def auth_flow(self, request: httpx.Request):
+        _, _, spnego_blob, _ = get_kerberos_type1(self.target, self.target.remote_name, self.service)
+        
+        auth_header = "Negotiate " + base64.b64encode(spnego_blob).decode()
+        request.headers["Authorization"] = auth_header
+
+        # Yield the modified request to be sent.
+        yield request

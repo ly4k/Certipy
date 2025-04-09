@@ -34,6 +34,7 @@ from certipy.lib.certificate import (
     rsa,
     x509,
 )
+from certipy.lib.kerberos import HttpxImpacketKerberosAuth
 from certipy.lib.errors import translate_error_code
 from certipy.lib.formatting import print_certificate_identifications
 from certipy.lib.logger import logging
@@ -447,23 +448,19 @@ class WebRequestInterface(RequestInterface):
         if self._session is not None:
             return self._session
 
+        # Create a session with httpx
         if self.target.do_kerberos:
-            raise Exception(
-                "Kerberos authentication is currently not supported with Web Enrollment"
-            )
+            session = httpx.Client(auth=HttpxImpacketKerberosAuth(self.target), timeout=self.target.timeout, verify=False)
+        else:
+            password = self.target.password
+            if self.target.nthash:
+                password = "%s:%s" % (self.target.nthash, self.target.nthash)
 
+            principal = "%s\\%s" % (self.target.domain, self.target.username)
+            session = httpx.Client(auth=HttpNtlmAuth(principal, password), timeout=self.target.timeout, verify=False)
+            
         scheme = self.parent.scheme
         port = self.parent.port
-
-        password = self.target.password
-        if self.target.nthash:
-            password = "%s:%s" % (self.target.nthash, self.target.nthash)
-
-        principal = "%s\\%s" % (self.target.domain, self.target.username)
-
-        # Create a session with httpx
-        session = httpx.Client(auth=HttpNtlmAuth(principal, password), timeout=self.target.timeout, verify=False)
-
         base_url = "%s://%s:%i" % (scheme, self.target.target_ip, port)
         logging.info("Checking for Web Enrollment on %s" % repr(base_url))
 
