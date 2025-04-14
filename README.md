@@ -73,6 +73,13 @@ options:
 
 ## Merge Status
 
+### New Features
+
+These features are new and have been merged directly into `certipy-merged`.
+There's no PR in the original repo, because the codebase has diverged too much.
+
+- [X] [#10](https://github.com/zimedev/certipy-merged/pull/10): add kerberos support for -web
+
 ### Missing PRs:
 
 - [ ] [#211](https://github.com/ly4k/Certipy/pull/211): fix ESC1 false positive
