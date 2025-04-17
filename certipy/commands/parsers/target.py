@@ -81,6 +81,12 @@ def add_argument_group(
         "ones specified in the command line",
     )
     group.add_argument(
+        "-simple-auth",
+        action="store_true",
+        dest="do_simple",
+        help="Use SIMPLE authentication instead of NTLM",
+    )
+    group.add_argument(
         "-sspi",
         dest="use_sspi",
         action="store_true",

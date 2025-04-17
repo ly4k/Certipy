@@ -71,6 +71,7 @@ class LDAPConnection:
 
     def connect(self, version: ssl._SSLMethod = None) -> None:
         user = "%s\\%s" % (self.target.domain, self.target.username)
+        user_upn = "%s@%s" % (self.target.username, self.target.domain)
 
         if version is None:
             try:
@@ -105,7 +106,7 @@ class LDAPConnection:
                     connect_timeout=self.target.timeout,
                 )
 
-            logging.debug("Authenticating to LDAP server")
+            logging.debug(f"Authenticating to LDAP server{' using SIMPLE authentication' if self.target.do_simple else ''}")
 
             if self.target.do_kerberos or self.target.use_sspi:
                 ldap_conn = ldap3.Connection(
@@ -122,11 +123,12 @@ class LDAPConnection:
                     if not hasattr(ldap3, 'TLS_CHANNEL_BINDING'):
                         raise Exception("To use LDAP channel binding, install the patched ldap3 module: pip3 install git+https://github.com/ly4k/ldap3")
                     channel_binding["channel_binding"] = ldap3.TLS_CHANNEL_BINDING if self.target.ldap_channel_binding else None
+                
                 ldap_conn = ldap3.Connection(
                     ldap_server,
-                    user=user,
+                    user=user_upn if self.target.do_simple else user,
                     password=ldap_pass,
-                    authentication=ldap3.NTLM,
+                    authentication=ldap3.SIMPLE if self.target.do_simple else ldap3.NTLM,
                     auto_referrals=False,
                     receive_timeout=self.target.timeout * 10,
                     **channel_binding
