@@ -6,6 +6,7 @@ from typing import Dict
 
 import ldap3
 from ldap3.protocol.microsoft import security_descriptor_control
+from ldap3.utils.conv import escape_filter_chars
 
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import logging
@@ -97,21 +98,17 @@ class Template:
         return json.dumps(output)
 
     def get_configuration(self, template) -> LDAPEntry:
-        ldap_formatted_template = (template.replace("\\", "\\5c")
-                                   .replace("(", "\\28")
-                                   .replace(")", "\\29")
-                                   .replace("*", "\\2a")
-                                   )
-        print(ldap_formatted_template)
+        escaped_template = escape_filter_chars(template)
+
         results = self.connection.search(
-            search_filter=f"(&(cn={ldap_formatted_template})(objectClass=pKICertificateTemplate))",
+            search_filter=f"(&(cn={escaped_template})(objectClass=pKICertificateTemplate))",
             search_base=self.connection.configuration_path,
             query_sd=True,
         )
 
         if len(results) == 0:
             results = self.connection.search(
-                f"(&(displayName={ldap_formatted_template})(objectClass=pKICertificateTemplate))",
+                f"(&(displayName={escaped_template})(objectClass=pKICertificateTemplate))",
                 search_base=self.connection.configuration_path,
                 query_sd=True,
             )
@@ -172,8 +169,9 @@ class Template:
             )
 
             out_file = "%s.json" % old_configuration.get("cn")
-            # Get rid of slashes to ensure template names with slashes don't break the filenames:
-            out_file = out_file.replace("\\", "").replace("/", "")
+
+            # Replace slahes with underscores:
+            out_file = out_file.replace("\\", "_").replace("/", "_")
             with open(out_file, "w") as f:
                 f.write(old_configuration_json)
 
