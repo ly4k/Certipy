@@ -155,6 +155,7 @@ class Target:
         self.lmhash: str = None
         self.nthash: str = None
         self.do_kerberos: bool = False
+        self.do_simple: bool = False
         self.use_sspi: bool = False
         self.aes: str = None
         self.dc_ip: str = None
@@ -163,15 +164,12 @@ class Target:
         self.resolver: Resolver = None
         self.ldap_channel_binding = None
         self.ldap_port: int = 0
-        self.auth_type: Literal['ntlm', 'simple'] = None
 
     @staticmethod
     def from_options(
         options, dc_as_target: bool = False, ptt: bool = False
     ) -> "Target":
         self = Target()
-
-        self.auth_type = 'simple' if options.ldap_auth_simple else 'ntlm'
 
         principal = options.username
         domain = ""
@@ -274,6 +272,7 @@ class Target:
         self.nthash = nthash
         self.aes = options.aes
         self.do_kerberos = options.do_kerberos
+        self.do_simple = options.do_simple
         self.use_sspi = options.use_sspi
         self.dc_ip = dc_ip
         self.dc_host = dc_host
@@ -311,6 +310,7 @@ class Target:
         remote_name: str = None,
         no_pass: bool = False,
         do_kerberos: bool = False,
+        do_simple: bool = False,
         use_sspi: bool = False,
         aes: str = None,
         dc_ip: str = None,
@@ -374,6 +374,7 @@ class Target:
         self.nthash = nthash
         self.aes = aes
         self.do_kerberos = do_kerberos
+        self.do_simple = do_simple
         self.use_sspi = use_sspi
         self.dc_ip = dc_ip
         self.timeout = timeout

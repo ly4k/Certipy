@@ -76,7 +76,7 @@ The `find` command is useful for enumerating AD CS certificate templates, certif
 Certipy v4.0.0 - by Oliver Lyak (ly4k)
 
 usage: certipy find [-h] [-debug] [-bloodhound] [-old-bloodhound] [-text] [-stdout] [-json] [-csv] [-output prefix] [-enabled] [-dc-only] [-vulnerable] [-hide-admins] [-scheme ldap scheme] [-dc-ip ip address] [-target-ip ip address] [-target dns/ip address] [-ns nameserver] [-dns-tcp]
-                    [-timeout seconds] [-u username@domain] [-p password] [-hashes [LMHASH:]NTHASH] [-k] [-sspi] [-aes hex key] [-no-pass]
+                    [-timeout seconds] [-u username@domain] [-p password] [-hashes [LMHASH:]NTHASH] [-k] [-simple-auth] [-sspi] [-aes hex key] [-no-pass]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -116,6 +116,7 @@ authentication options:
   -hashes [LMHASH:]NTHASH
                         NTLM hash, format is [LMHASH:]NTHASH
   -k                    Use Kerberos authentication. Grabs credentials from ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line
+  -simple-auth          Use SIMPLE authentication instead of NTLM
   -sspi                 Use Windows Integrated Authentication (SSPI)
   -aes hex key          AES key to use for Kerberos Authentication (128 or 256 bits)
   -no-pass              Don't ask for password (useful for -k and -sspi)
@@ -177,7 +178,7 @@ Certipy v4.0.0 - by Oliver Lyak (ly4k)
 
 usage: certipy req [-h] [-debug] -ca certificate authority name [-template template name] [-upn alternative UPN] [-dns alternative DNS] [-subject subject] [-retrieve request ID] [-on-behalf-of domain\account] [-pfx pfx/p12 file name] [-key-size RSA key length] [-archive-key]
                    [-renew] [-out output file name] [-web] [-dynamic-endpoint] [-scheme http scheme] [-port PORT] [-dc-ip ip address] [-target-ip ip address] [-target dns/ip address] [-ns nameserver] [-dns-tcp] [-timeout seconds] [-u username@domain] [-p password]
-                   [-hashes [LMHASH:]NTHASH] [-k] [-sspi] [-aes hex key] [-no-pass]
+                   [-hashes [LMHASH:]NTHASH] [-k] [-simple-auth] [-sspi] [-aes hex key] [-no-pass]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -229,6 +230,7 @@ authentication options:
   -hashes [LMHASH:]NTHASH
                         NTLM hash, format is [LMHASH:]NTHASH
   -k                    Use Kerberos authentication. Grabs credentials from ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line
+  -simple-auth          Use SIMPLE authentication instead of NTLM
   -sspi                 Use Windows Integrated Authentication (SSPI)
   -aes hex key          AES key to use for Kerberos Authentication (128 or 256 bits)
   -no-pass              Don't ask for password (useful for -k and -sspi)
@@ -328,7 +330,7 @@ The `shadow` command is useful for taking over an account when you can write to 
 Certipy v4.0.0 - by Oliver Lyak (ly4k)
 
 usage: certipy shadow [-h] [-account target account] [-device-id DEVICE_ID] [-debug] [-out output file name] [-scheme ldap scheme] [-dc-ip ip address] [-target-ip ip address] [-target dns/ip address] [-ns nameserver] [-dns-tcp] [-timeout seconds] [-u username@domain]
-                      [-p password] [-hashes [LMHASH:]NTHASH] [-k] [-sspi] [-aes hex key] [-no-pass]
+                      [-p password] [-hashes [LMHASH:]NTHASH] [-k] [-simple-auth] [-sspi] [-aes hex key] [-no-pass]
                       {list,add,remove,clear,info,auto}
 
 positional arguments:
@@ -364,6 +366,7 @@ authentication options:
   -hashes [LMHASH:]NTHASH
                         NTLM hash, format is [LMHASH:]NTHASH
   -k                    Use Kerberos authentication. Grabs credentials from ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line
+  -simple-auth          Use SIMPLE authentication instead of NTLM
   -sspi                 Use Windows Integrated Authentication (SSPI)
   -aes hex key          AES key to use for Kerberos Authentication (128 or 256 bits)
   -no-pass              Don't ask for password (useful for -k and -sspi)
