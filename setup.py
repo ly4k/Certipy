@@ -22,12 +22,12 @@ setup(
         "pyopenssl~=24.0.0",
         "requests~=2.32.3",
         "pycryptodome~=3.22.0",
-        'bs4~=0.0.2',
-        'httpx~=0.28.1',
-        'httpx-ntlm~=1.4.0',
+        "bs4~=0.0.2",
+        "httpx~=0.28.1",
+        "httpx-ntlm~=1.4.0",
         'winacl~=0.1.9; platform_system=="Windows"',
         'wmi~=1.4.9; platform_system=="Windows"',
-        'unicrypto~=0.0.10; platform_system=="Windows"'
+        'unicrypto~=0.0.10; platform_system=="Windows"',
     ],
     packages=[
         "certipy",

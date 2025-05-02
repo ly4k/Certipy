@@ -350,6 +350,7 @@ PFILETIME = POINTER(FILETIME)
 TimeStamp = FILETIME
 PTimeStamp = PFILETIME
 
+
 # https://docs.microsoft.com/en-us/windows/desktop/api/sspi/ns-sspi-secpkgcontext_sessionkey
 class SecPkgContext_SessionKey(Structure):
     _fields_ = [("SessionKeyLength", ULONG), ("SessionKey", LPBYTE)]

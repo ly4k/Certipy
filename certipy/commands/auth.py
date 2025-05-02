@@ -153,7 +153,6 @@ class Authenticate:
                 pfx = f.read()
             self.key, self.cert = load_pfx(pfx, password)
 
-
     def authenticate(
         self, username: str = None, domain: str = None, is_key_credential=False
     ):
@@ -297,7 +296,10 @@ class Authenticate:
         if host is None:
             host = domain
 
-        logging.info("Connecting to %s" % repr("%s://%s:%d" % (self.ldap_scheme, host, self.ldap_port)))
+        logging.info(
+            "Connecting to %s"
+            % repr("%s://%s:%d" % (self.ldap_scheme, host, self.ldap_port))
+        )
         ldap_server = ldap3.Server(
             host=host,
             get_info=ldap3.ALL,

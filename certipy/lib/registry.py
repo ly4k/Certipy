@@ -2,12 +2,13 @@ from typing import List
 from certipy.lib.constants import WELLKNOWN_SIDS, WELLKNOWN_RIDS
 from certipy.lib.ldap import LDAPEntry
 
+
 class RegEntry(LDAPEntry):
 
     def __init__(self, **kwargs):
         super().__init__(self, **kwargs)
-        if not 'attributes' in self:
-            self['attributes'] = {}
+        if not "attributes" in self:
+            self["attributes"] = {}
 
     def get_raw(self, key):
         data = self.get(key)
@@ -17,7 +18,8 @@ class RegEntry(LDAPEntry):
             return list(map(lambda x: x.encode(), data))
         return data
 
-class RegConnection():
+
+class RegConnection:
 
     def __init__(self, domain: str, sids: List[str], scheme: str = "file"):
         self.domain = domain
@@ -35,9 +37,9 @@ class RegConnection():
             return RegEntry(
                 **{
                     "attributes": {
-	                    "objectSid": "%s-%s" % (self.domain.upper(), sid),
-	                    "objectType": WELLKNOWN_SIDS[sid][1].capitalize(),
-	                    "name": "%s\\%s" % (self.domain, WELLKNOWN_SIDS[sid][0]),
+                        "objectSid": "%s-%s" % (self.domain.upper(), sid),
+                        "objectType": WELLKNOWN_SIDS[sid][1].capitalize(),
+                        "name": "%s\\%s" % (self.domain, WELLKNOWN_SIDS[sid][0]),
                     }
                 }
             )
@@ -47,9 +49,9 @@ class RegConnection():
             return RegEntry(
                 **{
                     "attributes": {
-	                    "objectSid": "%s-%s" % (self.domain.upper(), sid),
-	                    "objectType": WELLKNOWN_RIDS[rid][1].capitalize(),
-	                    "name": "%s\\%s" % (self.domain, WELLKNOWN_RIDS[rid][0]),
+                        "objectSid": "%s-%s" % (self.domain.upper(), sid),
+                        "objectType": WELLKNOWN_RIDS[rid][1].capitalize(),
+                        "name": "%s\\%s" % (self.domain, WELLKNOWN_RIDS[rid][0]),
                     }
                 }
             )

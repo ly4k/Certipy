@@ -27,7 +27,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         "-ca",
         action="store",
         metavar="certificate authority name",
-        help="CA name to request certificate from. Example: 'CORP-CA'. Only required for RPC relay (ESC11)"
+        help="CA name to request certificate from. Example: 'CORP-CA'. Only required for RPC relay (ESC11)",
     )
     group.add_argument(
         "-template",
@@ -94,7 +94,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     group.add_argument(
         "-enum-templates",
         action="store_true",
-        help="Relay to /certsrv/certrqxt.asp and parse available certificate templates"
+        help="Relay to /certsrv/certrqxt.asp and parse available certificate templates",
     )
 
     group = subparser.add_argument_group("connection options")

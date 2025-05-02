@@ -186,13 +186,16 @@ class Account:
             "dNSHostName": self.dns,
             "userPrincipalName": self.upn,
             "sAMAccountName": self.sam,
-            "servicePrincipalName": list(
-                filter(
-                    lambda x: len(x) > 0, map(lambda x: x.strip(), self.spns.split(","))
+            "servicePrincipalName": (
+                list(
+                    filter(
+                        lambda x: len(x) > 0,
+                        map(lambda x: x.strip(), self.spns.split(",")),
+                    )
                 )
-            )
-            if self.spns is not None
-            else None,
+                if self.spns is not None
+                else None
+            ),
         }
 
         for attribute, value in attribute_mapping.items():

@@ -49,14 +49,14 @@ from .ca import CA
 MSRPC_UUID_ICPR = uuidtup_to_bin(("91ae6020-9e3c-11cf-8d7c-00aa00c091be", "0.0"))
 
 # https://winprotocoldoc.blob.core.windows.net/productionwindowsarchives/MS-WCCE/[MS-WCCE].pdf
-CLSID_ICertRequest = string_to_bin('D99E6E74-FC88-11D0-B498-00A0C90312F3')
-IID_ICertRequestD = uuidtup_to_bin(('D99E6E70-FC88-11D0-B498-00A0C90312F3', '0.0'))
+CLSID_ICertRequest = string_to_bin("D99E6E74-FC88-11D0-B498-00A0C90312F3")
+IID_ICertRequestD = uuidtup_to_bin(("D99E6E70-FC88-11D0-B498-00A0C90312F3", "0.0"))
 
 
 class ICertRequestD(ICertCustom):
-    '''
+    """
     ICertRequestD DCOM interface.
-    '''
+    """
 
     def __init__(self, interface):
         super().__init__(interface)
@@ -80,6 +80,7 @@ class CERTTRANSBLOB(NDRSTRUCT):
         ("pb", PBYTE),
     )
 
+
 # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-icpr/0c6f150e-3ead-4006-b37f-ebbf9e2cf2e7
 class CertServerRequest(NDRCALL):
     opnum = 0
@@ -96,11 +97,11 @@ class CertServerRequest(NDRCALL):
 class CertServerRequestD(DCOMCALL):
     opnum = 3
     structure = (
-       ('dwFlags', DWORD),
-       ('pwszAuthority', LPWSTR),
-       ('pdwRequestId', DWORD),
-       ('pwszAttributes', LPWSTR),
-       ("pctbRequest", CERTTRANSBLOB),
+        ("dwFlags", DWORD),
+        ("pwszAuthority", LPWSTR),
+        ("pdwRequestId", DWORD),
+        ("pwszAttributes", LPWSTR),
+        ("pctbRequest", CERTTRANSBLOB),
     )
 
 
@@ -118,11 +119,11 @@ class CertServerRequestResponse(NDRCALL):
 # https://winprotocoldoc.blob.core.windows.net/productionwindowsarchives/MS-WCCE/[MS-WCCE].pdf
 class CertServerRequestDResponse(DCOMANSWER):
     structure = (
-        ('pdwRequestId', DWORD),
-        ('pdwDisposition', ULONG),
-        ('pctbCertChain', CERTTRANSBLOB),
-        ('pctbEncodedCert', CERTTRANSBLOB),
-        ('pctbDispositionMessage', CERTTRANSBLOB),
+        ("pdwRequestId", DWORD),
+        ("pdwDisposition", ULONG),
+        ("pctbCertChain", CERTTRANSBLOB),
+        ("pctbEncodedCert", CERTTRANSBLOB),
+        ("pctbDispositionMessage", CERTTRANSBLOB),
     )
 
 
@@ -142,9 +143,9 @@ class RequestInterface:
 
 
 class DCOMRequestInterface(RequestInterface):
-    '''
+    """
     Request interface for DCOM.
-    '''
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -152,10 +153,10 @@ class DCOMRequestInterface(RequestInterface):
 
     @property
     def dcom(self) -> rpcrt.DCERPC_v5:
-        '''
+        """
         Establish a DCOM connection to the target using certipy's get_dcom_connection
         function.
-        '''
+        """
         if self._dcom is not None:
             return self._dcom
 
@@ -163,23 +164,23 @@ class DCOMRequestInterface(RequestInterface):
         return self._dcom
 
     def retrieve(self, request_id: int) -> x509.Certificate:
-        '''
+        """
         Retrieve an already requested certificate via request_id. Only the first
         few lines until the cert_req_d.request were modified. The rest is the
         same code as for the RPC interface.
-        '''
+        """
         empty = CERTTRANSBLOB()
-        empty['cb'] = 0
-        empty['pb'] = NULL
+        empty["cb"] = 0
+        empty["pb"] = NULL
 
         request = CertServerRequestD()
-        request['dwFlags'] = 0
-        request['pwszAuthority'] = checkNullString(self.parent.ca)
-        request['pdwRequestId'] = request_id
-        request['pwszAttributes'] = empty
-        request['pctbRequest'] = empty
+        request["dwFlags"] = 0
+        request["pwszAuthority"] = checkNullString(self.parent.ca)
+        request["pdwRequestId"] = request_id
+        request["pwszAttributes"] = empty
+        request["pctbRequest"] = empty
 
-        logging.info(f'Rerieving certificate with ID {request_id}')
+        logging.info(f"Rerieving certificate with ID {request_id}")
 
         i_cert_req = self.dcom.CoCreateInstanceEx(CLSID_ICertRequest, IID_ICertRequestD)
         i_cert_req.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
@@ -218,11 +219,11 @@ class DCOMRequestInterface(RequestInterface):
         return cert
 
     def request(self, csr: bytes, attributes: List[str]) -> x509.Certificate:
-        '''
+        """
         Request a new certificate via CSR. Only the first few lines until the
         cert_req_d.request were modified. The rest is the same code as for the
         RPC interface.
-        '''
+        """
         attributes = checkNullString("\n".join(attributes))
 
         pctb_request = CERTTRANSBLOB()
@@ -451,15 +452,23 @@ class WebRequestInterface(RequestInterface):
 
         # Create a session with httpx
         if self.target.do_kerberos:
-            session = httpx.Client(auth=HttpxImpacketKerberosAuth(self.target), timeout=self.target.timeout, verify=False)
+            session = httpx.Client(
+                auth=HttpxImpacketKerberosAuth(self.target),
+                timeout=self.target.timeout,
+                verify=False,
+            )
         else:
             password = self.target.password
             if self.target.nthash:
                 password = "%s:%s" % (self.target.nthash, self.target.nthash)
 
             principal = "%s\\%s" % (self.target.domain, self.target.username)
-            session = httpx.Client(auth=HttpNtlmAuth(principal, password), timeout=self.target.timeout, verify=False)
-            
+            session = httpx.Client(
+                auth=HttpNtlmAuth(principal, password),
+                timeout=self.target.timeout,
+                verify=False,
+            )
+
         scheme = self.parent.scheme
         port = self.parent.port
         base_url = "%s://%s:%i" % (scheme, self.target.target_ip, port)
@@ -485,12 +494,8 @@ class WebRequestInterface(RequestInterface):
                 logging.warning(
                     "Failed to authenticate to Web Enrollment at %s" % repr(base_url)
                 )
-                logging.debug(
-                    "Got status code: %s" % repr(res.status_code)
-                )
-                logging.debug(
-                    "HTML Response:\n%s" % repr(res.content)
-                )
+                logging.debug("Got status code: %s" % repr(res.status_code))
+                logging.debug("HTML Response:\n%s" % repr(res.content))
 
         if not success:
             scheme = "https" if scheme == "http" else "http"
@@ -522,12 +527,8 @@ class WebRequestInterface(RequestInterface):
                         "Failed to authenticate to Web Enrollment at %s"
                         % repr(base_url)
                     )
-                    logging.debug(
-                        "Got status code: %s" % repr(res.status_code)
-                    )
-                    logging.debug(
-                        "HTML Response:\n%s" % repr(res.content)
-                    )
+                    logging.debug("Got status code: %s" % repr(res.status_code))
+                    logging.debug("HTML Response:\n%s" % repr(res.content))
 
         if not success:
             return None
@@ -699,6 +700,7 @@ class WebRequestInterface(RequestInterface):
 
         return self.retrieve(request_id)
 
+
 class Request:
     def __init__(
         self,
@@ -727,7 +729,7 @@ class Request:
         debug=False,
         application_policies: List[str] = None,
         smime: str = None,
-        **kwargs
+        **kwargs,
     ):
         self.target = target
         self.ca = ca
@@ -747,7 +749,8 @@ class Request:
         self.out = out
         self.key = key
         self.application_policies = [
-            OID_TO_STR_MAP.get(policy, policy) for policy in (application_policies or [])
+            OID_TO_STR_MAP.get(policy, policy)
+            for policy in (application_policies or [])
         ]
         self.smime = smime
 
@@ -868,9 +871,12 @@ class Request:
 
         converted_policies = []
         for policy in self.application_policies:
-            oid = next((k for k, v in OID_TO_STR_MAP.items() if v.lower() == policy.lower()), policy)
+            oid = next(
+                (k for k, v in OID_TO_STR_MAP.items() if v.lower() == policy.lower()),
+                policy,
+            )
             converted_policies.append(oid)
-        
+
         self.application_policies = converted_policies
 
         csr, key = create_csr(
@@ -973,7 +979,7 @@ class Request:
         ca = CA(self.target, self.ca)
         logging.info("Trying to retrieve CAX certificate")
         cax_cert = ca.get_exchange_certificate()
-        logging.info("Retrieved CAX certificate")     
+        logging.info("Retrieved CAX certificate")
         cax_cert = cert_to_der(cax_cert)
 
         return cax_cert
@@ -989,7 +995,7 @@ def entry(options: argparse.Namespace) -> None:
         if not options.out:
             logging.error("Please specify an output file for the cax certificate!")
             return
-        
+
         cax = request.getCAX()
         with open(options.out, "wb") as f:
             f.write(cax)

@@ -46,10 +46,16 @@ class ActiveDirectorySecurity:
             if ace["AceType"] == ldaptypes.ACCESS_ALLOWED_ACE.ACE_TYPE:
                 self.aces[sid]["rights"] |= self.RIGHTS_TYPE(ace["Ace"]["Mask"]["Mask"])
 
-            if ace["AceType"] == ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ACE_TYPE and ace['Ace']['Mask'].hasPriv(ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ADS_RIGHT_DS_CONTROL_ACCESS):
+            if ace["AceType"] == ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ACE_TYPE and ace[
+                "Ace"
+            ]["Mask"].hasPriv(
+                ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ADS_RIGHT_DS_CONTROL_ACCESS
+            ):
                 self.aces[sid]["rights"] |= self.RIGHTS_TYPE(ace["Ace"]["Mask"]["Mask"])
 
-                if ace["Ace"].hasFlag(ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ACE_OBJECT_TYPE_PRESENT):
+                if ace["Ace"].hasFlag(
+                    ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ACE_OBJECT_TYPE_PRESENT
+                ):
                     uuid = bin_to_string(ace["Ace"]["ObjectType"]).lower()
                 else:
                     # If the ObjectType field does not contain a GUID, the ACE is deemed to control the right to perform all operations associated with the objects that are controlled by control access rights.
@@ -58,8 +64,10 @@ class ActiveDirectorySecurity:
 
                 self.aces[sid]["extended_rights"].append(uuid)
 
+
 class CertifcateSecurity(ActiveDirectorySecurity):
     RIGHTS_TYPE = CERTIFICATE_RIGHTS
+
 
 class IssuancePolicySecurity(ActiveDirectorySecurity):
     RIGHTS_TYPE = ISSUANCE_POLICY_RIGHTS

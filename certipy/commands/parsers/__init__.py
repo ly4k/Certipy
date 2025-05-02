@@ -1,4 +1,17 @@
-from . import account, auth, ca, cert, find, parse, forge, ptt, relay, req, shadow, template
+from . import (
+    account,
+    auth,
+    ca,
+    cert,
+    find,
+    parse,
+    forge,
+    ptt,
+    relay,
+    req,
+    shadow,
+    template,
+)
 
 ENTRY_PARSERS = [
     account,

@@ -3,6 +3,7 @@ NAME = "parse"
 import argparse
 from typing import Callable, Tuple
 
+
 def entry(options: argparse.Namespace):
     from certipy.commands import parse
 
@@ -10,7 +11,9 @@ def entry(options: argparse.Namespace):
 
 
 def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:
-    subparser = subparsers.add_parser(NAME, help="Offline enumerate AD CS based on registry data")
+    subparser = subparsers.add_parser(
+        NAME, help="Offline enumerate AD CS based on registry data"
+    )
     subparser.add_argument("file", help="file to parse")
     subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
 
@@ -52,30 +55,30 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         "-format",
         help="Input format either req_query BOF output or Windows .reg file (default: bof)",
         choices=["bof", "reg"],
-        default="bof"
+        default="bof",
     )
     group.add_argument(
         "-domain",
         help="Domain name, solely used for output (default: UNKNOWN)",
         type=lambda arg: arg.upper(),
-        default="UNKNOWN"
+        default="UNKNOWN",
     )
     group.add_argument(
         "-ca",
         help="CA name, solely used for output (default: UNKNOWN)",
-        default="UNKNOWN"
+        default="UNKNOWN",
     )
     group.add_argument(
         "-sids",
         help="Consider the comma separated list of SIDs as owned",
-        type=lambda arg: list(map(str.strip, arg.split(','))),
-        default=[]
+        type=lambda arg: list(map(str.strip, arg.split(","))),
+        default=[],
     )
     group.add_argument(
         "-published",
         help="Consider the comma separated list of template names as published",
-        type=lambda arg: list(map(str.strip, arg.split(','))),
-        default=[]
+        type=lambda arg: list(map(str.strip, arg.split(","))),
+        default=[],
     )
     group.add_argument(
         "-enabled",

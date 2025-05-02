@@ -308,12 +308,13 @@ def get_object_sid_from_certificate(
 
 def create_pfx(key: rsa.RSAPrivateKey, cert: x509.Certificate, password=None) -> bytes:
     encryption = NoEncryption()
-    if (password != None):
+    if password != None:
         encryption = (
-            PrivateFormat.PKCS12.encryption_builder().
-            kdf_rounds(50000).
-            key_cert_algorithm(pkcs12.PBES.PBESv1SHA1And3KeyTripleDESCBC).
-            hmac_hash(hashes.SHA1()).build(bytes(password, 'utf-8'))
+            PrivateFormat.PKCS12.encryption_builder()
+            .kdf_rounds(50000)
+            .key_cert_algorithm(pkcs12.PBES.PBESv1SHA1And3KeyTripleDESCBC)
+            .hmac_hash(hashes.SHA1())
+            .build(bytes(password, "utf-8"))
         )
 
     return pkcs12.serialize_key_and_certificates(
@@ -422,15 +423,15 @@ def create_csr(
                 "1.2.840.113549.1.9.15": "smime_capability",
             }
         )
-        
+
         asn1x509.Extension._oid_specs.update(
             {
                 "smime_capability": asn1core.ObjectIdentifier,
             }
-        ) 
+        )
         # https://learn.microsoft.com/en-us/windows/win32/api/certenroll/nn-certenroll-ix509extensionsmimecapabilities
         smime_extension = asn1x509.Extension(
-                {"extn_id": "1.2.840.113549.1.9.15", "extn_value": smimedict[smime]}
+            {"extn_id": "1.2.840.113549.1.9.15", "extn_value": smimedict[smime]}
         )
 
         set_of_extensions = asn1csr.SetOfExtensions([[smime_extension]])
@@ -446,18 +447,23 @@ def create_csr(
             alt_sid = alt_sid.encode()
 
         san_extension = asn1x509.Extension(
-            {"extn_id": "security_ext", "extn_value": [asn1x509.GeneralName(
-                {
-                    "other_name": asn1x509.AnotherName(
+            {
+                "extn_id": "security_ext",
+                "extn_value": [
+                    asn1x509.GeneralName(
                         {
-                            "type_id": szOID_NTDS_OBJECTSID,
-                            "value": asn1x509.OctetString(alt_sid).retag(
-                                {"explicit": 0}
-                            ),
+                            "other_name": asn1x509.AnotherName(
+                                {
+                                    "type_id": szOID_NTDS_OBJECTSID,
+                                    "value": asn1x509.OctetString(alt_sid).retag(
+                                        {"explicit": 0}
+                                    ),
+                                }
+                            )
                         }
                     )
-                }
-            )]}
+                ],
+            }
         )
 
         set_of_extensions = asn1csr.SetOfExtensions([[san_extension]])
@@ -485,20 +491,21 @@ def create_csr(
     if application_policies:
         # Convert each policy OID string to asn1x509.PolicyIdentifier
         application_policy_oids = [
-            asn1x509.PolicyInformation({
-                'policy_identifier': asn1x509.PolicyIdentifier(ap)
-            }) for ap in application_policies
+            asn1x509.PolicyInformation(
+                {"policy_identifier": asn1x509.PolicyIdentifier(ap)}
+            )
+            for ap in application_policies
         ]
 
         # Convert CertificatePolicies to a DER-encoded byte string
         cert_policies = asn1x509.CertificatePolicies(application_policy_oids)
         der_encoded_cert_policies = cert_policies.dump()
-        
+
         app_policy_extension = asn1x509.Extension(
             {
                 "extn_id": "1.3.6.1.4.1.311.21.10",  # OID for Microsoft Application Policies
                 "critical": False,
-                "extn_value": asn1x509.ParsableOctetString(der_encoded_cert_policies)
+                "extn_value": asn1x509.ParsableOctetString(der_encoded_cert_policies),
             }
         )
 
@@ -523,6 +530,7 @@ def create_csr(
     )
 
     return (der_to_csr(csr.dump()), key)
+
 
 def rsa_pkcs1v15_sign(
     data: bytes, key: rsa.RSAPrivateKey, hash: hashes.HashAlgorithm = hashes.SHA256

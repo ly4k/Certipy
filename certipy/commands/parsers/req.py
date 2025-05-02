@@ -5,10 +5,12 @@ from typing import Callable, Tuple
 
 from . import target
 
+
 def entry(options: argparse.Namespace):
     from certipy.commands import req
 
     req.entry(options)
+
 
 def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:
     subparser = subparsers.add_parser(NAME, help="Request certificates")
@@ -51,11 +53,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         metavar="pfx/p12 file name",
         help="Path to PFX for -on-behalf-of or -renew",
     )
-    group.add_argument(
-        "-pfx-password", 
-        action="store", 
-        metavar="PFX file password"
-    )
+    group.add_argument("-pfx-password", action="store", metavar="PFX file password")
     group.add_argument(
         "-key-size",
         action="store",
@@ -82,9 +80,9 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     group.add_argument(
         "--application-policies",
         action="store",
-        nargs='+',
+        nargs="+",
         metavar="Application Policy",
-        help="Specify application policies for the certificate request using OIDs (e.g., '1.3.6.1.4.1.311.10.3.4' or 'Client Authentication')"
+        help="Specify application policies for the certificate request using OIDs (e.g., '1.3.6.1.4.1.311.10.3.4' or 'Client Authentication')",
     )
     group.add_argument(
         "-smime",

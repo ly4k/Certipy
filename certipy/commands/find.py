@@ -104,7 +104,7 @@ class Find:
         text: bool = False,
         stdout: bool = False,
         output: str = None,
-        trailing_output : str = "",
+        trailing_output: str = "",
         enabled: bool = False,
         oids: bool = False,
         vulnerable: bool = False,
@@ -115,7 +115,7 @@ class Find:
         scheme: str = "ldaps",
         connection: LDAPConnection = None,
         debug=False,
-        **kwargs
+        **kwargs,
     ):
         self.target = target
         self.json = json
@@ -282,7 +282,7 @@ class Find:
             for oid in oids:
                 if oid.get("msPKI-Cert-Template-OID") in issuance_policies:
                     no_enabled_oids += 1
-                    linked_group = b''.join(oid.get_raw("msDS-OIDToGroupLink")).decode()
+                    linked_group = b"".join(oid.get_raw("msDS-OIDToGroupLink")).decode()
                     if "templates" in oid["attributes"].keys():
                         oid.get("templates").append(template.get("name"))
                         oid.get("templates_ids").append(object_id)
@@ -291,10 +291,17 @@ class Find:
                         oid.set("templates_ids", [object_id])
                     if linked_group:
                         oid.set("linked_group", linked_group)
-                        if "issuance_policies_linked_groups" in template["attributes"].keys():
-                            template.get("issuance_policies_linked_groups").append(linked_group)
+                        if (
+                            "issuance_policies_linked_groups"
+                            in template["attributes"].keys()
+                        ):
+                            template.get("issuance_policies_linked_groups").append(
+                                linked_group
+                            )
                         else:
-                            template.set("issuance_policies_linked_groups", [linked_group])
+                            template.set(
+                                "issuance_policies_linked_groups", [linked_group]
+                            )
 
         logging.info(
             "Found %d OID%s linked to %s"
@@ -308,15 +315,29 @@ class Find:
         for ca in cas:
 
             if self.dc_only:
-                user_specified_san, request_disposition, enforce_encrypt_icertrequest, security, web_enrollment = (
+                (
+                    user_specified_san,
+                    request_disposition,
+                    enforce_encrypt_icertrequest,
+                    security,
+                    web_enrollment,
+                ) = (
                     "Unknown",
                     "Unknown",
                     "Unknown",
                     None,
-                    {"http": {"enabled": None}, "https": {"enabled": None, "channel_binding": None}},
+                    {
+                        "http": {"enabled": None},
+                        "https": {"enabled": None, "channel_binding": None},
+                    },
                 )
             else:
-                user_specified_san, request_disposition, enforce_encrypt_icertrequest, security = (
+                (
+                    user_specified_san,
+                    request_disposition,
+                    enforce_encrypt_icertrequest,
+                    security,
+                ) = (
                     "Unknown",
                     "Unknown",
                     "Unknown",
@@ -332,7 +353,9 @@ class Find:
                     ca_target.target_ip = ca_target_ip
 
                     ca_service = CA(ca_target, ca=ca_name)
-                    edit_flags, request_disposition, interface_flags, security = ca_service.get_config()
+                    edit_flags, request_disposition, interface_flags, security = (
+                        ca_service.get_config()
+                    )
 
                     if request_disposition:
                         request_disposition = (
@@ -350,7 +373,9 @@ class Find:
                         user_specified_san = "Unknown"
 
                     if interface_flags:
-                        enforce_encrypt_icertrequest = (interface_flags & 0x00000200) == 0x00000200
+                        enforce_encrypt_icertrequest = (
+                            interface_flags & 0x00000200
+                        ) == 0x00000200
                         enforce_encrypt_icertrequest = (
                             "Enabled" if enforce_encrypt_icertrequest else "Disabled"
                         )
@@ -363,12 +388,21 @@ class Find:
                         % (repr(ca.get("name")), e)
                     )
 
-                web_enrollment = {"http": {"enabled": None}, "https": {"enabled": None, "channel_binding": None}}
+                web_enrollment = {
+                    "http": {"enabled": None},
+                    "https": {"enabled": None, "channel_binding": None},
+                }
                 try:
-                    web_enrollment['http']['enabled'] = self.check_web_enrollment(ca, 'http')
-                    web_enrollment['https']['enabled'] = self.check_web_enrollment(ca, 'https')
-                    if web_enrollment['https']['enabled']:
-                        web_enrollment['https']['channel_binding'] = self.test_channel_binding(ca)
+                    web_enrollment["http"]["enabled"] = self.check_web_enrollment(
+                        ca, "http"
+                    )
+                    web_enrollment["https"]["enabled"] = self.check_web_enrollment(
+                        ca, "https"
+                    )
+                    if web_enrollment["https"]["enabled"]:
+                        web_enrollment["https"]["channel_binding"] = (
+                            self.test_channel_binding(ca)
+                        )
                 except Exception as e:
                     logging.warning(
                         "Failed to check Web Enrollment for CA %s: %s"
@@ -461,9 +495,7 @@ class Find:
                 schema_version = int(schema_version)
             else:
                 schema_version = 1
-            template.set(
-                "schema_version", schema_version
-            )
+            template.set("schema_version", schema_version)
 
             application_policies = template.get_raw("msPKI-RA-Application-Policies")
             if not isinstance(application_policies, list):
@@ -556,13 +588,17 @@ class Find:
 
             if self.text or not_specified:
                 output_text_stdout = copy.copy(output)
-                if self.trailing_output : output_text_stdout ["ESC14"] = self.trailing_output
+                if self.trailing_output:
+                    output_text_stdout["ESC14"] = self.trailing_output
                 if self.stdout:
                     logging.info("Enumeration output:")
                     pretty_print(output_text_stdout)
                 else:
                     with open("%s_Certipy.txt" % prefix, "w") as f:
-                        pretty_print(output_text_stdout, print=lambda x: f.write(x) + f.write("\n"))
+                        pretty_print(
+                            output_text_stdout,
+                            print=lambda x: f.write(x) + f.write("\n"),
+                        )
                     logging.info(
                         "Saved text output to %s" % repr("%s_Certipy.txt" % prefix)
                     )
@@ -577,15 +613,17 @@ class Find:
 
             if self.csv:
                 self.save_templates_to_csv(prefix, output)
-                logging.info(
-                    "Saved CSV output to %s" % repr("%s_Certipy.csv" % prefix)
-                )
+                logging.info("Saved CSV output to %s" % repr("%s_Certipy.csv" % prefix))
 
     def save_templates_to_csv(
-        self, prefix: str, output: dict[LDAPEntry],
+        self,
+        prefix: str,
+        output: dict[LDAPEntry],
     ):
         def flatten_dict(
-            template_entries: dict, parent_key:str='', sep:str='.',
+            template_entries: dict,
+            parent_key: str = "",
+            sep: str = ".",
         ):
             items = []
             for key, value in template_entries.items():
@@ -593,62 +631,82 @@ class Find:
                 if isinstance(value, dict):
                     if "Permissions" in key:
                         for sub_key, sub_value in value.items():
-                            if 'Enrollment Permissions' in sub_key:
-                                items.append((sub_key, '\n'.join(sub_value['Enrollment Rights'])))
-                            elif 'Object Control Permissions' in sub_key:
+                            if "Enrollment Permissions" in sub_key:
+                                items.append(
+                                    (sub_key, "\n".join(sub_value["Enrollment Rights"]))
+                                )
+                            elif "Object Control Permissions" in sub_key:
                                 for subsub_key, subsub_value in sub_value.items():
                                     if isinstance(subsub_value, list):
-                                        items.append((subsub_key, '\n'.join(subsub_value)))
+                                        items.append(
+                                            (subsub_key, "\n".join(subsub_value))
+                                        )
                                     else:
                                         items.append((subsub_key, subsub_value))
                     else:
-                        items.append((new_key, ", ".join([f"{key}: {value}" for key, value in value.items()])))
+                        items.append(
+                            (
+                                new_key,
+                                ", ".join(
+                                    [f"{key}: {value}" for key, value in value.items()]
+                                ),
+                            )
+                        )
                 elif isinstance(value, list):
-                    items.append((new_key, '\n'.join(value)))
+                    items.append((new_key, "\n".join(value)))
                 else:
                     items.append((new_key, value))
             return dict(items)
-        
-        column_order = ['Template Name',
-                        'Display Name',
-                        'Certificate Authorities',
-                        'Enabled',
-                        'Client Authentication',
-                        'Enrollment Agent',
-                        'Any Purpose',
-                        'Enrollee Supplies Subject',
-                        'Certificate Name Flag',
-                        'Enrollment Flag',
-                        'Private Key Flag',
-                        'Extended Key Usage',
-                        'Requires Manager Approval',
-                        'Requires Key Archival',
-                        'Authorized Signatures Required',
-                        'Validity Period',
-                        'Renewal Period',
-                        'Minimum RSA Key Length',
-                        'Enrollment Permissions',
-                        'Owner',
-                        'Write Owner Principals',
-                        'Write Dacl Principals',
-                        'Write Property Principals',
-                        '[!] Vulnerabilities']
 
-        with open("%s_Certipy.csv" % prefix, 'w', newline='') as csvfile:
-            writer = csv.DictWriter(csvfile,
-                                    fieldnames=column_order,
-                                    extrasaction='ignore',
-                                    delimiter=';',
-                                    quoting=csv.QUOTE_ALL)
+        column_order = [
+            "Template Name",
+            "Display Name",
+            "Certificate Authorities",
+            "Enabled",
+            "Client Authentication",
+            "Enrollment Agent",
+            "Any Purpose",
+            "Enrollee Supplies Subject",
+            "Certificate Name Flag",
+            "Enrollment Flag",
+            "Private Key Flag",
+            "Extended Key Usage",
+            "Requires Manager Approval",
+            "Requires Key Archival",
+            "Authorized Signatures Required",
+            "Validity Period",
+            "Renewal Period",
+            "Minimum RSA Key Length",
+            "Enrollment Permissions",
+            "Owner",
+            "Write Owner Principals",
+            "Write Dacl Principals",
+            "Write Property Principals",
+            "[!] Vulnerabilities",
+        ]
+
+        with open("%s_Certipy.csv" % prefix, "w", newline="") as csvfile:
+            writer = csv.DictWriter(
+                csvfile,
+                fieldnames=column_order,
+                extrasaction="ignore",
+                delimiter=";",
+                quoting=csv.QUOTE_ALL,
+            )
             writer.writeheader()
-            writer.writerows([flatten_dict(output['Certificate Templates'][id_]) for id_ in output['Certificate Templates']])
+            writer.writerows(
+                [
+                    flatten_dict(output["Certificate Templates"][id_])
+                    for id_ in output["Certificate Templates"]
+                ]
+            )
 
     def get_output_for_text_and_json(
         self, templates: List[LDAPEntry], cas: List[LDAPEntry], oids: List[LDAPEntry]
     ):
         ca_entries = {}
         template_entries = {}
-        oids_entries ={} 
+        oids_entries = {}
 
         for template in templates:
             if self.enabled and template.get("enabled") is not True:
@@ -710,17 +768,15 @@ class Find:
             output["Certificate Authorities"] = ca_entries
 
         if len(template_entries) == 0:
-            output[
-                "Certificate Templates"
-            ] = "[!] Could not find any certificate templates"
+            output["Certificate Templates"] = (
+                "[!] Could not find any certificate templates"
+            )
         else:
             output["Certificate Templates"] = template_entries
 
         if self.oids is True:
             if len(oids_entries) == 0:
-                output[
-                    "Issuance Policies"
-                ] = "[!] Could not find any issuance policy"
+                output["Issuance Policies"] = "[!] Could not find any issuance policy"
             else:
                 output["Issuance Policies"] = oids_entries
 
@@ -788,9 +844,9 @@ class Find:
                 ca.get("name").upper(),
                 self.connection.domain.upper(),
             )
-            ca_properties[
-                "highvalue"
-            ] = False  # It is a high value, but the 'Enroll' will give many false positives
+            ca_properties["highvalue"] = (
+                False  # It is a high value, but the 'Enroll' will give many false positives
+            )
 
             ca_properties = self.get_ca_properties(ca, ca_properties)
 
@@ -892,8 +948,12 @@ class Find:
 
             logging.debug("Connecting to %s" % url)
             response = requests.head(
-                url, headers={ "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.2365.80" },
-                timeout=30, verify=False
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.2365.80"
+                },
+                timeout=30,
+                verify=False,
             )
 
             if response.status_code == 401:
@@ -914,87 +974,115 @@ class Find:
         target_ip = self.target.resolver.resolve(target_name)
 
         try:
-            logging.debug("Testing Channel Binding. Performing connection to %s without CB" % target_name)
-            connection_without_cb = self.test_https_ntlm(target_ip, channel_binding=False)
+            logging.debug(
+                "Testing Channel Binding. Performing connection to %s without CB"
+                % target_name
+            )
+            connection_without_cb = self.test_https_ntlm(
+                target_ip, channel_binding=False
+            )
 
             if connection_without_cb:
                 logging.info("Channel Binding not enforced for %s" % target_name)
                 return False
-            
+
             logging.debug("Performing connection to %s with CB" % target_name)
             connection_with_cb = self.test_https_ntlm(target_ip, channel_binding=True)
             if connection_with_cb:
                 logging.info("Channel Binding enforced for %s" % target_name)
                 return True
         except Exception as e:
-            logging.warning("Got error while trying to check for channel binding: %s" % e)
-            return None    
+            logging.warning(
+                "Got error while trying to check for channel binding: %s" % e
+            )
+            return None
         return None
 
     def test_https_ntlm(self, target_ip: str, channel_binding: bool):
-        path = '/certsrv'
-        session = HTTPSConnection(target_ip, timeout=30, context=ssl._create_unverified_context())
-        session.request('GET', path)
+        path = "/certsrv"
+        session = HTTPSConnection(
+            target_ip, timeout=30, context=ssl._create_unverified_context()
+        )
+        session.request("GET", path)
         res = session.getresponse()
         res.read()
-        
+
         if res.status != 401:
-            logging.debug('Status code returned: %d. Authentication does not seem required for URL' % res.status)
+            logging.debug(
+                "Status code returned: %d. Authentication does not seem required for URL"
+                % res.status
+            )
             return False
         try:
-            if 'NTLM' not in res.getheader('WWW-Authenticate') and 'Negotiate' not in res.getheader('WWW-Authenticate'):
-                logging.error('NTLM Auth not offered by URL, offered protocols: %s' % res.getheader('WWW-Authenticate'))
+            if "NTLM" not in res.getheader(
+                "WWW-Authenticate"
+            ) and "Negotiate" not in res.getheader("WWW-Authenticate"):
+                logging.error(
+                    "NTLM Auth not offered by URL, offered protocols: %s"
+                    % res.getheader("WWW-Authenticate")
+                )
                 return False
-            if 'NTLM' in res.getheader('WWW-Authenticate'):
+            if "NTLM" in res.getheader("WWW-Authenticate"):
                 authenticationMethod = "NTLM"
-            elif 'Negotiate' in res.getheader('WWW-Authenticate'):
+            elif "Negotiate" in res.getheader("WWW-Authenticate"):
                 authenticationMethod = "Negotiate"
         except (KeyError, TypeError):
-            logging.error('No authentication requested by the server %s' % target_ip)
+            logging.error("No authentication requested by the server %s" % target_ip)
             return False
 
-        #NTLM Negotiate
-        type1 = getNTLMSSPType1('', self.target.domain)
+        # NTLM Negotiate
+        type1 = getNTLMSSPType1("", self.target.domain)
         negotiate = base64.b64encode(type1.getData()).decode("ascii")
-        headers = {'Authorization':'%s %s' % (authenticationMethod, negotiate)}
-        session.request('GET', path ,headers=headers)
+        headers = {"Authorization": "%s %s" % (authenticationMethod, negotiate)}
+        session.request("GET", path, headers=headers)
 
         # NTLM Challenge from Server
         res = session.getresponse()
         res.read()
         try:
-            serverChallengeBase64 = re.search(('%s ([a-zA-Z0-9+/]+={0,2})' % authenticationMethod), res.getheader('WWW-Authenticate')).group(1)
+            serverChallengeBase64 = re.search(
+                ("%s ([a-zA-Z0-9+/]+={0,2})" % authenticationMethod),
+                res.getheader("WWW-Authenticate"),
+            ).group(1)
             serverChallenge = base64.b64decode(serverChallengeBase64)
         except (IndexError, KeyError, AttributeError):
-            logging.error('No NTLM challenge returned from server')
+            logging.error("No NTLM challenge returned from server")
             return False
 
-        if struct.unpack('B', serverChallenge[:1])[0] == SPNEGO_NegTokenResp.SPNEGO_NEG_TOKEN_RESP:
+        if (
+            struct.unpack("B", serverChallenge[:1])[0]
+            == SPNEGO_NegTokenResp.SPNEGO_NEG_TOKEN_RESP
+        ):
             respToken2 = SPNEGO_NegTokenResp(serverChallenge)
-            type2 = respToken2['ResponseToken']
+            type2 = respToken2["ResponseToken"]
         else:
             type2 = serverChallenge
 
-        cb = b''
+        cb = b""
         if channel_binding:
             # Compute Channel Binding
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(1)
-            sslsock = ssl._create_unverified_context().wrap_socket(sock, server_hostname=target_ip)
+            sslsock = ssl._create_unverified_context().wrap_socket(
+                sock, server_hostname=target_ip
+            )
             sslsock.connect((target_ip, 443))
             peer_cert = sslsock.getpeercert(True)
             # From: https://github.com/ly4k/ldap3/commit/87f5760e5a68c2f91eac8ba375f4ea3928e2b9e0#diff-c782b790cfa0a948362bf47d72df8ddd6daac12e5757afd9d371d89385b27ef6R1383
-            from hashlib import sha256,md5
+            from hashlib import sha256, md5
+
             # Ugly but effective, to get the digest of the X509 DER in bytes
-            peer_certificate_sha256  = sha256(peer_cert).digest()
-        
-            channel_binding_struct = b''
-            initiator_address = b'\x00'*8
-            acceptor_address = b'\x00'*8
+            peer_certificate_sha256 = sha256(peer_cert).digest()
+
+            channel_binding_struct = b""
+            initiator_address = b"\x00" * 8
+            acceptor_address = b"\x00" * 8
 
             # https://datatracker.ietf.org/doc/html/rfc5929#section-4
-            application_data_raw = b'tls-server-end-point:' + peer_certificate_sha256
-            len_application_data = len(application_data_raw).to_bytes(4, byteorder='little', signed = False)
+            application_data_raw = b"tls-server-end-point:" + peer_certificate_sha256
+            len_application_data = len(application_data_raw).to_bytes(
+                4, byteorder="little", signed=False
+            )
             application_data = len_application_data
             application_data += application_data_raw
             channel_binding_struct += initiator_address
@@ -1003,19 +1091,25 @@ class Find:
             cb = md5(channel_binding_struct).digest()
 
         # NTLM Auth
-        type3, exportedSessionKey = getNTLMSSPType3(type1, bytes(type2), self.target.username, self.target.password, self.target.domain, channel_binding_value=cb)
+        type3, exportedSessionKey = getNTLMSSPType3(
+            type1,
+            bytes(type2),
+            self.target.username,
+            self.target.password,
+            self.target.domain,
+            channel_binding_value=cb,
+        )
 
         auth = base64.b64encode(type3.getData()).decode("ascii")
-        headers = {'Authorization':'%s %s' % (authenticationMethod, auth)}
-        session.request('GET', path, headers=headers)
+        headers = {"Authorization": "%s %s" % (authenticationMethod, auth)}
+        session.request("GET", path, headers=headers)
         res = session.getresponse()
         logging.debug(res.status)
         if res.status in (200, 301):
-            return  True
+            return True
         if res.status == 401:
             return False
         return None
-        
 
     def get_certificate_templates(self) -> List[LDAPEntry]:
         templates = self.connection.search(
@@ -1041,7 +1135,7 @@ class Find:
                 "objectGUID",
                 "whenCreated",
                 "whenChanged",
-                "msPKI-Template-Schema-Version"
+                "msPKI-Template-Schema-Version",
             ],
             query_sd=True,
         )
@@ -1088,32 +1182,32 @@ class Find:
     def get_users(self) -> List[LDAPEntry]:
         users = self.connection.search(
             "(objectclass=user)",
-            search_base="%s"
-            % self.connection.default_path,
-            attributes=[
-                "samAccountName",
-                "altSecurityIdentities"
-            ],
+            search_base="%s" % self.connection.default_path,
+            attributes=["samAccountName", "altSecurityIdentities"],
             query_sd=True,
         )
 
         return users
-    
+
     def get_mapping_vulnerabilities(self, users: LDAPEntry):
 
-        weak_mapping_users =  []
+        weak_mapping_users = []
 
-        for user in users :  
+        for user in users:
             # Search for ESC14_B_C_D
             mappings = user["attributes"]["altSecurityIdentities"]
             weak_mapping_criteria = ["X509:<RFC822>", "X509:<S>"]
             for mapping in mappings:
                 # Identify weak mappings
-                if any(criteria in mapping for criteria in weak_mapping_criteria) or ("X509:<I>" in mapping and "<S>" in mapping):
+                if any(criteria in mapping for criteria in weak_mapping_criteria) or (
+                    "X509:<I>" in mapping and "<S>" in mapping
+                ):
                     # Weak Mapping found
-                    weak_mapping_users.append("\"%s\" is configured with weak mapping : %s" % (user["attributes"]["samAccountName"],mapping))
+                    weak_mapping_users.append(
+                        '"%s" is configured with weak mapping : %s'
+                        % (user["attributes"]["samAccountName"], mapping)
+                    )
         return weak_mapping_users
-
 
     def security_to_bloodhound_aces(self, security: ActiveDirectorySecurity) -> List:
         aces = []
@@ -1152,11 +1246,11 @@ class Find:
                     {
                         "PrincipalSID": principal.get("objectSid"),
                         "PrincipalType": principal.get("objectType"),
-                        "RightName": EXTENDED_RIGHTS_MAP[extended_right].replace(
-                            "-", ""
-                        )
-                        if extended_right in EXTENDED_RIGHTS_MAP
-                        else extended_right,
+                        "RightName": (
+                            EXTENDED_RIGHTS_MAP[extended_right].replace("-", "")
+                            if extended_right in EXTENDED_RIGHTS_MAP
+                            else extended_right
+                        ),
                         "IsInherited": is_inherited,
                     }
                 )
@@ -1191,7 +1285,7 @@ class Find:
             "whenChanged": "Template Last Modified",
             "msPKI-Template-Schema-Version": "Template Schema Version",
             "msPKI-Certificate-Policy": "Issuance Policies",
-            "issuance_policies_linked_groups" : "Linked Groups"
+            "issuance_policies_linked_groups": "Linked Groups",
         }
 
         if template_properties is None:
@@ -1216,14 +1310,13 @@ class Find:
             if self.hide_admins and is_admin_sid(sid):
                 continue
 
-            if (
-                ( rights['rights'] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT ) and
-                ( EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"] )
+            if (rights["rights"] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT) and (
+                EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"]
             ):
                 enrollment_rights.append(self.connection.lookup_sid(sid).get("name"))
-            if (
-                ( rights['rights'] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT ) and
-                ( EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"] in rights["extended_rights"] )
+            if (rights["rights"] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT) and (
+                EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"]
+                in rights["extended_rights"]
             ):
                 all_extended_rights.append(self.connection.lookup_sid(sid).get("name"))
 
@@ -1257,31 +1350,32 @@ class Find:
             rights = rights["rights"]
             sid = self.connection.lookup_sid(sid).get("name")
 
-            for (right, principal_list, _) in rights_mapping:
+            for right, principal_list, _ in rights_mapping:
                 if right in rights:
                     if rights & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT:
                         principal_list.append(sid)
-            
-            if( 
-                ( CERTIFICATE_RIGHTS.WRITE_PROPERTY in rights ) and
-                ( rights & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT )
+
+            if (CERTIFICATE_RIGHTS.WRITE_PROPERTY in rights) and (
+                rights & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT
             ):
                 for extended_right in extended_rights:
-                    resolved_extended_right = EXTENDED_RIGHTS_MAP.get(extended_right, extended_right)
+                    resolved_extended_right = EXTENDED_RIGHTS_MAP.get(
+                        extended_right, extended_right
+                    )
                     principal_list = write_permissions.get(resolved_extended_right, [])
                     if sid not in principal_list:
                         principal_list.append(sid)
                     write_permissions[resolved_extended_right] = principal_list
-        
+
         for extended_right, principal_list in write_permissions.items():
             rights_mapping.append(
                 (
-                CERTIFICATE_RIGHTS.WRITE_PROPERTY,
-                principal_list,
-                f"Write Property {extended_right}"
+                    CERTIFICATE_RIGHTS.WRITE_PROPERTY,
+                    principal_list,
+                    f"Write Property {extended_right}",
                 )
             )
-        
+
         for _, principal_list, name in rights_mapping:
             if len(principal_list) > 0:
                 object_control_permissions[name] = principal_list
@@ -1346,10 +1440,9 @@ class Find:
                 and template.get("no_security_extension")
                 and template.get("client_authentication")
             ):
-                vulnerabilities[
-                    "ESC9"
-                ] = "%s can enroll and template has no security extension" % list_sids(
-                    enrollable_sids
+                vulnerabilities["ESC9"] = (
+                    "%s can enroll and template has no security extension"
+                    % list_sids(enrollable_sids)
                 )
 
             # ESC13
@@ -1359,11 +1452,13 @@ class Find:
                 and template.get("msPKI-Certificate-Policy")
                 and template.get("issuance_policies_linked_groups")
             ):
-                vulnerabilities[
-                    "ESC13"
-                ] = "%s can enroll, template allows client authentication and issuance policy is linked to group %s" % (list_sids(
-                    enrollable_sids
-                ), template.get("issuance_policies_linked_groups"))
+                vulnerabilities["ESC13"] = (
+                    "%s can enroll, template allows client authentication and issuance policy is linked to group %s"
+                    % (
+                        list_sids(enrollable_sids),
+                        template.get("issuance_policies_linked_groups"),
+                    )
+                )
 
             # ESC15 Check: User can enroll, enrollee supplies subject, and schema version is 1
             if (
@@ -1371,21 +1466,21 @@ class Find:
                 and template.get("enrollee_supplies_subject")
                 and template.get("msPKI-Template-Schema-Version") == 1
             ):
-                vulnerabilities[
-                    "ESC15*"
-                ] = "%s can enroll, enrollee supplies subject and schema version is 1. *CVE-2024-49019" % list_sids(
-                    enrollable_sids
+                vulnerabilities["ESC15*"] = (
+                    "%s can enroll, enrollee supplies subject and schema version is 1. *CVE-2024-49019"
+                    % list_sids(enrollable_sids)
                 )
 
         # ESC4
         security = CertifcateSecurity(template.get("nTSecurityDescriptor"))
         owner_sid = security.owner
 
-        if owner_sid in self.connection.get_user_sids(self.target.username, self.sid, self.dn):
-            vulnerabilities[
-                "ESC4"
-            ] = "Template is owned by %s" % self.connection.lookup_sid(owner_sid).get(
-                "name"
+        if owner_sid in self.connection.get_user_sids(
+            self.target.username, self.sid, self.dn
+        ):
+            vulnerabilities["ESC4"] = (
+                "Template is owned by %s"
+                % self.connection.lookup_sid(owner_sid).get("name")
             )
         else:
             # No reason to show if user is already owner
@@ -1407,10 +1502,11 @@ class Find:
                     template.get("schema_version") > 1
                     and template.get("authorized_signatures_required") > 0
                     and template.get("application_policies") is not None
-                    and "Certificate Request Agent" in template.get("application_policies")
+                    and "Certificate Request Agent"
+                    in template.get("application_policies")
                 )
             )
-        ) :
+        ):
             vulnerabilities["ESC3.2"] = (
                 "%s can enroll and template has schema version 1 or"
                 " requires a Certificate Request Agent signature"
@@ -1426,20 +1522,27 @@ class Find:
         aces = security.aces
         vulnerable_acl_sids = []
         for sid, rights in aces.items():
-            if sid not in self.connection.get_user_sids(self.target.username, self.sid, self.dn):
+            if sid not in self.connection.get_user_sids(
+                self.target.username, self.sid, self.dn
+            ):
                 continue
 
             ad_rights = rights["rights"]
             ad_extended_rights = rights["extended_rights"]
-            for right in [CERTIFICATE_RIGHTS.GENERIC_ALL, CERTIFICATE_RIGHTS.WRITE_OWNER, CERTIFICATE_RIGHTS.WRITE_DACL, CERTIFICATE_RIGHTS.GENERIC_WRITE]:
+            for right in [
+                CERTIFICATE_RIGHTS.GENERIC_ALL,
+                CERTIFICATE_RIGHTS.WRITE_OWNER,
+                CERTIFICATE_RIGHTS.WRITE_DACL,
+                CERTIFICATE_RIGHTS.GENERIC_WRITE,
+            ]:
                 if right in ad_rights:
                     vulnerable_acl_sids.append(sid)
                     has_vulnerable_acl = True
-            
+
             ## WRITE_PROPERTY is only interesting if you can write the entire object
-            if (
-                CERTIFICATE_RIGHTS.WRITE_PROPERTY in ad_rights and
-                ( '00000000-0000-0000-0000-000000000000' in ad_extended_rights and ad_rights & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT )
+            if CERTIFICATE_RIGHTS.WRITE_PROPERTY in ad_rights and (
+                "00000000-0000-0000-0000-000000000000" in ad_extended_rights
+                and ad_rights & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT
             ):
                 vulnerable_acl_sids.append(sid)
                 has_vulnerable_acl = True
@@ -1453,12 +1556,21 @@ class Find:
         aces = security.aces
         enrollable_sids = []
         for sid, rights in aces.items():
-            if sid not in self.connection.get_user_sids(self.target.username, self.sid, self.dn):
+            if sid not in self.connection.get_user_sids(
+                self.target.username, self.sid, self.dn
+            ):
                 continue
 
             if (
-                ( EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"] in rights["extended_rights"] and rights['rights'] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT )
-                or ( EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"] and rights['rights'] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT )
+                (
+                    EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"]
+                    in rights["extended_rights"]
+                    and rights["rights"] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT
+                )
+                or (
+                    EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"]
+                    and rights["rights"] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT
+                )
                 or CERTIFICATE_RIGHTS.GENERIC_ALL in rights["rights"]
             ):
                 enrollable_sids.append(sid)
@@ -1543,9 +1655,9 @@ class Find:
             ca.get("user_specified_san") == "Enabled"
             and ca.get("request_disposition") == "Issue"
         ):
-            vulnerabilities[
-                "ESC6"
-            ] = "Enrollees can specify SAN and Request Disposition is set to Issue. Does not work after May 2022"
+            vulnerabilities["ESC6"] = (
+                "Enrollees can specify SAN and Request Disposition is set to Issue. Does not work after May 2022"
+            )
 
         # ESC7
         has_vulnerable_acl, vulnerable_acl_sids = self.ca_has_vulnerable_acl(ca)
@@ -1557,17 +1669,29 @@ class Find:
         # ESC8
         web_enrollment = ca.get("web_enrollment")
         if web_enrollment and ca.get("request_disposition") in ["Issue", "Unknown"]:
-            if web_enrollment['http'] is not None and web_enrollment['http']['enabled']:# HTTP only 
+            if (
+                web_enrollment["http"] is not None and web_enrollment["http"]["enabled"]
+            ):  # HTTP only
                 vulnerabilities["ESC8"] = (
                     "Web Enrollment is enabled over HTTP and Request Disposition is set to %s"
                     % ca.get("request_disposition")
                 )
-            if web_enrollment['https'] is not None and web_enrollment['https']['enabled'] and not web_enrollment['https']['channel_binding']:# HTTPS only 
+            if (
+                web_enrollment["https"] is not None
+                and web_enrollment["https"]["enabled"]
+                and not web_enrollment["https"]["channel_binding"]
+            ):  # HTTPS only
                 vulnerabilities["ESC8"] = (
                     "Web Enrollment is enabled over HTTPS, Channel Binding is disabled and Request Disposition is set to %s"
                     % ca.get("request_disposition")
                 )
-            if web_enrollment['http'] is not None and web_enrollment['https'] is not None and web_enrollment['http']['enabled'] and web_enrollment['https']['enabled'] and not web_enrollment['https']['channel_binding']:# HTTP and HTTPS 
+            if (
+                web_enrollment["http"] is not None
+                and web_enrollment["https"] is not None
+                and web_enrollment["http"]["enabled"]
+                and web_enrollment["https"]["enabled"]
+                and not web_enrollment["https"]["channel_binding"]
+            ):  # HTTP and HTTPS
                 vulnerabilities["ESC8"] = (
                     "Web Enrollment is enabled over HTTP and HTTPS, Channel Binding is disabled and Request Disposition is set to %s"
                     % ca.get("request_disposition")
@@ -1578,17 +1702,20 @@ class Find:
             ca.get("enforce_encrypt_icertrequest") == "Disabled"
             and ca.get("request_disposition") == "Issue"
         ):
-            vulnerabilities[
-                "ESC11"
-            ] = "Encryption is not enforced for ICPR requests and Request Disposition is set to Issue"
+            vulnerabilities["ESC11"] = (
+                "Encryption is not enforced for ICPR requests and Request Disposition is set to Issue"
+            )
 
         # ESC14
-        if (self.esc14) :
+        if self.esc14:
             logging.info("Finding users with weak explicit mappings")
             users = self.get_users()
             mapping_vulnerabilities = self.get_mapping_vulnerabilities(users)
-            logging.info("Found %d users with weak explicit mapping" %(len(mapping_vulnerabilities)))
-            if (len(mapping_vulnerabilities) >0):
+            logging.info(
+                "Found %d users with weak explicit mapping"
+                % (len(mapping_vulnerabilities))
+            )
+            if len(mapping_vulnerabilities) > 0:
                 self.trailing_output = "\n" + "\n".join(mapping_vulnerabilities)
 
         return vulnerabilities
@@ -1603,7 +1730,9 @@ class Find:
 
         aces = security.aces
         for sid, rights in aces.items():
-            if sid not in self.connection.get_user_sids(self.target.username, self.sid, self.dn):
+            if sid not in self.connection.get_user_sids(
+                self.target.username, self.sid, self.dn
+            ):
                 continue
 
             ad_rights = rights["rights"]
@@ -1619,26 +1748,24 @@ class Find:
 
         return has_vulnerable_acl, vulnerable_acl_sids
 
-    def get_oid_properties(
-            self, oid: LDAPEntry, oid_properties: dict = None
-        ) -> dict:
-            properties_map = {
-                "cn": "Issuance Policy Name",
-                "displayName": "Display Name",
-                "templates": "Certificate Template(s)",
-                "linked_group" : "Linked Group"
-            }
+    def get_oid_properties(self, oid: LDAPEntry, oid_properties: dict = None) -> dict:
+        properties_map = {
+            "cn": "Issuance Policy Name",
+            "displayName": "Display Name",
+            "templates": "Certificate Template(s)",
+            "linked_group": "Linked Group",
+        }
 
-            if oid_properties is None:
-                oid_properties = OrderedDict()
+        if oid_properties is None:
+            oid_properties = OrderedDict()
 
-            for property_key, property_display in properties_map.items():
-                property_value = oid.get(property_key)
-                if property_value is None:
-                    continue
-                oid_properties[property_display] = property_value
+        for property_key, property_display in properties_map.items():
+            property_value = oid.get(property_key)
+            if property_value is None:
+                continue
+            oid_properties[property_display] = property_value
 
-            return oid_properties
+        return oid_properties
 
     def get_oid_permissions(self, oid: LDAPEntry):
         security = IssuancePolicySecurity(oid.get("nTSecurityDescriptor"))
@@ -1668,7 +1795,6 @@ class Find:
 
         return oid_permissions
 
-
     def get_oid_vulnerabilities(self, oid: LDAPEntry):
         def list_sids(sids: List[str]):
             sids_mapping = list(
@@ -1692,15 +1818,12 @@ class Find:
         owner_sid = security.owner
 
         if owner_sid in self.connection.get_user_sids(self.target.username):
-            vulnerabilities[
-                "ESC13"
-            ] = "Issuance Policy OID is owned by %s" % self.connection.lookup_sid(owner_sid).get(
-                "name"
+            vulnerabilities["ESC13"] = (
+                "Issuance Policy OID is owned by %s"
+                % self.connection.lookup_sid(owner_sid).get("name")
             )
         else:
-            has_vulnerable_acl, vulnerable_acl_sids = self.oid_has_vulnerable_acl(
-                oid
-            )
+            has_vulnerable_acl, vulnerable_acl_sids = self.oid_has_vulnerable_acl(oid)
             if has_vulnerable_acl:
                 vulnerabilities["ESC13"] = "%s has dangerous permissions" % list_sids(
                     vulnerable_acl_sids

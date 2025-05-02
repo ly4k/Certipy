@@ -14,7 +14,7 @@ from certipy.lib.certificate import (
     x509,
     asn1x509,
     NTDS_CA_SECURITY_EXT,
-    szOID_NTDS_OBJECTSID
+    szOID_NTDS_OBJECTSID,
 )
 from certipy.lib.logger import logging
 
@@ -210,18 +210,21 @@ class Forge:
             if type(alt_sid) == str:
                 alt_sid = alt_sid.encode()
 
-            sid_extension = asn1x509.GeneralNames([asn1x509.GeneralName(
-                    {
-                        "other_name": asn1x509.AnotherName(
-                            {
-                                "type_id": szOID_NTDS_OBJECTSID,
-                                "value": asn1x509.OctetString(alt_sid).retag(
-                                    {"explicit": 0}
-                                ),
-                            }
-                        )
-                    }
-                )]
+            sid_extension = asn1x509.GeneralNames(
+                [
+                    asn1x509.GeneralName(
+                        {
+                            "other_name": asn1x509.AnotherName(
+                                {
+                                    "type_id": szOID_NTDS_OBJECTSID,
+                                    "value": asn1x509.OctetString(alt_sid).retag(
+                                        {"explicit": 0}
+                                    ),
+                                }
+                            )
+                        }
+                    )
+                ]
             )
 
             cert = cert.add_extension(

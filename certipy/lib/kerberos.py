@@ -253,7 +253,7 @@ def get_kerberos_type1(
     authenticator["crealm"] = domain
     seq_set(authenticator, "cname", principal.components_to_asn1)
     now = datetime.datetime.utcnow()
-    
+
     authenticator["cusec"] = now.microsecond
     authenticator["ctime"] = KerberosTime.to_asn1(now)
 
@@ -271,6 +271,7 @@ def get_kerberos_type1(
 
     return cipher, session_key, blob.getData(), username
 
+
 class HttpxImpacketKerberosAuth(httpx.Auth):
     def __init__(self, target, service="HTTP"):
         """
@@ -281,8 +282,10 @@ class HttpxImpacketKerberosAuth(httpx.Auth):
         self.service = service
 
     def auth_flow(self, request: httpx.Request):
-        _, _, spnego_blob, _ = get_kerberos_type1(self.target, self.target.remote_name, self.service)
-        
+        _, _, spnego_blob, _ = get_kerberos_type1(
+            self.target, self.target.remote_name, self.service
+        )
+
         auth_header = "Negotiate " + base64.b64encode(spnego_blob).decode()
         request.headers["Authorization"] = auth_header
 

@@ -5,9 +5,11 @@ from asn1crypto import core
 
 from certipy.lib.formatting import to_pascal_case
 
+
 def _high_bit(value):
     """returns index of highest bit, or -1 if value is zero or negative"""
     return value.bit_length() - 1
+
 
 def _decompose(flag, value):
     """Extract all members from the value."""
@@ -37,7 +39,6 @@ def _decompose(flag, value):
     return members, not_covered
 
 
-
 class IntFlag(enum.IntFlag):
     def to_list(self):
         cls = self.__class__
@@ -64,6 +65,7 @@ class IntFlag(enum.IntFlag):
     def __repr__(self):
         return str(self)
 
+
 class Flag(enum.Flag):
     def __str__(self):
         cls = self.__class__
@@ -78,6 +80,7 @@ class Flag(enum.Flag):
                     [to_pascal_case(str(m._name_ or m._value_)) for m in members]
                 ),
             )
+
 
 # KerberosV5Spec2 DEFINITIONS EXPLICIT TAGS ::=
 TAG = "explicit"

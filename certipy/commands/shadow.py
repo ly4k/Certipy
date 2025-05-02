@@ -53,7 +53,7 @@ class Shadow:
         results = self.connection.search(
             search_base=target_dn,
             search_filter="(objectClass=*)",
-            search_scope = ldap3.BASE,
+            search_scope=ldap3.BASE,
             attributes=["SAMAccountName", "objectSid", "msDS-KeyCredentialLink"],
         )
 
@@ -201,7 +201,9 @@ class Shadow:
 
         authenticate = Authenticate(self.target, cert=cert, key=key)
         authenticate.authenticate(
-            username=user.get("sAMAccountName"), is_key_credential=True, domain=self.connection.domain
+            username=user.get("sAMAccountName"),
+            is_key_credential=True,
+            domain=self.connection.domain,
         )
 
         logging.info(
