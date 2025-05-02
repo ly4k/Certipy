@@ -908,6 +908,7 @@ class Find:
                 "objectGUID",
                 "whenCreated",
                 "whenChanged",
+                "msPKI-Template-Schema-Version"
             ],
             query_sd=True,
         )
@@ -1026,7 +1027,8 @@ class Find:
             "whenCreated": "Template Created",
             "whenChanged": "Template Last Modified",
             "msPKI-Certificate-Policy": "Issuance Policies",
-            "issuance_policies_linked_groups" : "Linked Groups"
+            "issuance_policies_linked_groups" : "Linked Groups",
+            "msPKI-Template-Schema-Version": "Template Schema Version"
         }
 
         if template_properties is None:
@@ -1199,6 +1201,17 @@ class Find:
                 ] = "%s can enroll, template allows client authentication and issuance policy is linked to group %s" % (list_sids(
                     enrollable_sids
                 ), template.get("issuance_policies_linked_groups"))
+            # ESC15 Check: User can enroll, enrollee supplies subject, and schema version is 1
+            if (
+                user_can_enroll
+                and template.get("enrollee_supplies_subject")
+                and template.get("msPKI-Template-Schema-Version") == 1
+            ):
+                vulnerabilities[
+                    "ESC15*"
+                ] = "%s can enroll, enrollee supplies subject and schema version is 1. *CVE-2024-49019" % list_sids(
+                    enrollable_sids
+                )
 
         # ESC4
         security = CertifcateSecurity(template.get("nTSecurityDescriptor"))
