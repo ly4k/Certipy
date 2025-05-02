@@ -54,6 +54,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Path to PFX for -on-behalf-of or -renew",
     )
     group.add_argument(
+        "-pfx-password", 
+        action="store", 
+        metavar="PFX file password"
+    )
+    group.add_argument(
         "-key-size",
         action="store",
         metavar="RSA key length",

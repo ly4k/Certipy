@@ -305,13 +305,22 @@ def get_object_sid_from_certificate(
     return None
 
 
-def create_pfx(key: rsa.RSAPrivateKey, cert: x509.Certificate) -> bytes:
+def create_pfx(key: rsa.RSAPrivateKey, cert: x509.Certificate, password=None) -> bytes:
+    encryption = NoEncryption()
+    if (password != None):
+        encryption = (
+            PrivateFormat.PKCS12.encryption_builder().
+            kdf_rounds(50000).
+            key_cert_algorithm(pkcs12.PBES.PBESv1SHA1And3KeyTripleDESCBC).
+            hmac_hash(hashes.SHA1()).build(bytes(password, 'utf-8'))
+        )
+
     return pkcs12.serialize_key_and_certificates(
         name=b"",
         key=key,
         cert=cert,
         cas=None,
-        encryption_algorithm=NoEncryption(),
+        encryption_algorithm=encryption,
     )
 
 

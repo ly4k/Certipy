@@ -186,6 +186,7 @@ certificate request options:
                         Use a Certificate Request Agent certificate to request on behalf of another user
   -pfx pfx/p12 file name
                         Path to PFX for -on-behalf-of or -renew
+  -pfx-password PFX file password
   -key-size RSA key length
                         Length of RSA key. Default: 2048
   -archive-key          Send private key for Key Archival
