@@ -44,13 +44,18 @@ class ActiveDirectorySecurity:
             if ace["AceType"] == ldaptypes.ACCESS_ALLOWED_ACE.ACE_TYPE:
                 self.aces[sid]["rights"] |= mask
 
-                if self.RIGHTS_TYPE.EXTENDED_RIGHT & mask:
-                    self.aces[sid]["extended_rights"].append(EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"])
-
-            if ace["AceType"] == ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ACE_TYPE and \
-               self.RIGHTS_TYPE.EXTENDED_RIGHT & mask and \
-               ace['Ace'].hasFlag(ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ACE_OBJECT_TYPE_PRESENT):
-
+            # Control permissions will not take effect if the ADS_RIGHT_DS_CONTROL_ACCESS flag is not set(preventing
+            # false positive by checking this bit flag).
+            #
+            # InheritedObjectType means the type of child object that can inherit the ACE, not extended right, for
+            # certificateTemplate object, the DACL flag bit SE_DACL_PROTECTED is set by default witch  prevents the
+            # DACL of the security descriptor from being modified by inheritable ACEs, in that case, the
+            # InheritedObjectType should be allways empty.
+            # there might be false positive while denied permission is set, but that is complicated:<
+            # TODO Add denied permission judgment
+            if ace["AceType"] == ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ACE_TYPE \
+                    and ace['Ace']['Mask'].hasPriv(ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ADS_RIGHT_DS_CONTROL_ACCESS) \
+                    and ace['Ace'].hasFlag(ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ACE_OBJECT_TYPE_PRESENT):
                 uuid = bin_to_string(ace["Ace"]["ObjectType"]).lower()
                 self.aces[sid]["extended_rights"].append(uuid)
 
