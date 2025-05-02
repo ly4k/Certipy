@@ -21,12 +21,13 @@ setup(
         "dsinternals~=1.2.4",
         "pyopenssl~=24.0.0",
         "requests~=2.32.3",
-        "requests_ntlm~=1.3.0",
+        "pycryptodome~=3.22.0",
+        'bs4~=0.0.2',
+        'httpx~=0.28.1',
+        'httpx-ntlm~=1.4.0',
         'winacl~=0.1.9; platform_system=="Windows"',
         'wmi~=1.4.9; platform_system=="Windows"',
-        "pycryptodome~=3.22.0",
         'unicrypto~=0.0.10; platform_system=="Windows"'
-        'bs4~=0.0.2',
     ],
     packages=[
         "certipy",

@@ -25,6 +25,7 @@ from certipy.lib.constants import (
     CERTIFICATION_AUTHORITY_RIGHTS,
     EXTENDED_RIGHTS_MAP,
     EXTENDED_RIGHTS_NAME_MAP,
+    ISSUANCE_POLICY_RIGHTS,
     MS_PKI_CERTIFICATE_NAME_FLAG,
     MS_PKI_ENROLLMENT_FLAG,
     MS_PKI_PRIVATE_KEY_FLAG,
@@ -1188,9 +1189,9 @@ class Find:
             "msPKI-Minimal-Key-Size": "Minimum RSA Key Length",
             "whenCreated": "Template Created",
             "whenChanged": "Template Last Modified",
+            "msPKI-Template-Schema-Version": "Template Schema Version",
             "msPKI-Certificate-Policy": "Issuance Policies",
-            "issuance_policies_linked_groups" : "Linked Groups",
-            "msPKI-Template-Schema-Version": "Template Schema Version"
+            "issuance_policies_linked_groups" : "Linked Groups"
         }
 
         if template_properties is None:
@@ -1363,6 +1364,7 @@ class Find:
                 ] = "%s can enroll, template allows client authentication and issuance policy is linked to group %s" % (list_sids(
                     enrollable_sids
                 ), template.get("issuance_policies_linked_groups"))
+
             # ESC15 Check: User can enroll, enrollee supplies subject, and schema version is 1
             if (
                 user_can_enroll

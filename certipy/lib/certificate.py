@@ -74,15 +74,6 @@ szOID_CMC_ADD_ATTRIBUTES = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.10.10.1")
 szOID_NTDS_CA_SECURITY_EXT = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.25.2")
 szOID_NTDS_OBJECTSID = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.25.2.1")
 
-# https://learn.microsoft.com/en-us/windows/win32/api/certenroll/nn-certenroll-ix509extensionsmimecapabilities
-smimedict = {
-    "des":"1.3.14.3.2.7",
-    "rc4":"1.2.840.113549.3.4",
-    "3des":"1.2.840.113549.1.9.16.3.6",
-    "aes128":"2.16.840.1.101.3.4.1.5",
-    "aes192":"2.16.840.1.101.3.4.1.25",
-    "aes256":"2.16.840.1.101.3.4.1.45",
-}
 
 class TaggedCertificationRequest(asn1core.Sequence):
     _fields = [
@@ -360,8 +351,10 @@ def create_csr(
         logging.debug("Generating RSA key")
         key = generate_rsa_key(key_size)
 
+    # csr = asn1csr.CertificationRequest()
     certification_request_info = asn1csr.CertificationRequestInfo()
     certification_request_info["version"] = "v1"
+    # csr = x509.CertificateSigningRequestBuilder()
 
     if subject:
         subject_name = get_subject_from_str(subject)

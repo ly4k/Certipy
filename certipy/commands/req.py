@@ -2,7 +2,6 @@ import argparse
 import re
 from typing import List
 
-import requests
 from impacket.dcerpc.v5 import rpcrt
 from impacket.dcerpc.v5.dtypes import DWORD, LPWSTR, NULL, PBYTE, ULONG
 from impacket.dcerpc.v5.ndr import NDRCALL, NDRSTRUCT
@@ -11,8 +10,8 @@ from impacket.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_PRIVACY
 from impacket.dcerpc.v5.dcom.oaut import string_to_bin
 from impacket.dcerpc.v5.dcomrt import DCOMCALL, DCOMANSWER
 from impacket.uuid import uuidtup_to_bin
-from requests_ntlm import HttpNtlmAuth
-from urllib3 import connection
+import httpx
+from httpx_ntlm import HttpNtlmAuth
 
 from certipy.lib.certificate import (
     cert_id_to_parts,
@@ -36,6 +35,7 @@ from certipy.lib.certificate import (
     rsa,
     x509,
 )
+from certipy.lib.kerberos import HttpxImpacketKerberosAuth
 from certipy.lib.errors import translate_error_code
 from certipy.lib.formatting import print_certificate_identifications
 from certipy.lib.logger import logging
@@ -45,20 +45,6 @@ from certipy.commands.ca import ICertCustom
 from certipy.lib.constants import OID_TO_STR_MAP
 
 from .ca import CA
-
-
-def _http_request(self, method, url, body=None, headers=None):
-    if headers is None:
-        headers = {}
-    else:
-        # Avoid modifying the headers passed into .request()
-        headers = headers.copy()
-    super(connection.HTTPConnection, self).request(
-        method, url, body=body, headers=headers
-    )
-
-
-connection.HTTPConnection.request = _http_request
 
 MSRPC_UUID_ICPR = uuidtup_to_bin(("91ae6020-9e3c-11cf-8d7c-00aa00c091be", "0.0"))
 
@@ -459,33 +445,25 @@ class WebRequestInterface(RequestInterface):
         self.base_url = ""
 
     @property
-    def session(self) -> requests.Session:
+    def session(self) -> httpx.Client:
         if self._session is not None:
             return self._session
 
+        # Create a session with httpx
         if self.target.do_kerberos:
-            raise Exception(
-                "Kerberos authentication is currently not supported with Web Enrollment"
-            )
+            session = httpx.Client(auth=HttpxImpacketKerberosAuth(self.target), timeout=self.target.timeout, verify=False)
+        else:
+            password = self.target.password
+            if self.target.nthash:
+                password = "%s:%s" % (self.target.nthash, self.target.nthash)
 
+            principal = "%s\\%s" % (self.target.domain, self.target.username)
+            session = httpx.Client(auth=HttpNtlmAuth(principal, password), timeout=self.target.timeout, verify=False)
+            
         scheme = self.parent.scheme
         port = self.parent.port
-
-        password = self.target.password
-        if self.target.nthash:
-            password = "%s:%s" % (self.target.nthash, self.target.nthash)
-
-        principal = "%s\\%s" % (self.target.domain, self.target.username)
-
-        session = requests.Session()
-        session.timeout = self.target.timeout
-        session.auth = HttpNtlmAuth(principal, password)
-        session.verify = False
-
         base_url = "%s://%s:%i" % (scheme, self.target.target_ip, port)
         logging.info("Checking for Web Enrollment on %s" % repr(base_url))
-
-        session.headers["User-Agent"] = None
 
         success = False
         try:
@@ -493,7 +471,7 @@ class WebRequestInterface(RequestInterface):
                 "%s/certsrv/" % base_url,
                 headers={"Host": self.target.remote_name},
                 timeout=self.target.timeout,
-                allow_redirects=False,
+                follow_redirects=False,
             )
         except Exception as e:
             logging.warning("Failed to connect to Web Enrollment interface: %s" % e)
@@ -506,6 +484,12 @@ class WebRequestInterface(RequestInterface):
             else:
                 logging.warning(
                     "Failed to authenticate to Web Enrollment at %s" % repr(base_url)
+                )
+                logging.debug(
+                    "Got status code: %s" % repr(res.status_code)
+                )
+                logging.debug(
+                    "HTML Response:\n%s" % repr(res.content)
                 )
 
         if not success:
@@ -521,7 +505,7 @@ class WebRequestInterface(RequestInterface):
                     "%s/certsrv/" % base_url,
                     headers={"Host": self.target.remote_name},
                     timeout=self.target.timeout,
-                    allow_redirects=False,
+                    follow_redirects=False,
                 )
             except Exception as e:
                 logging.warning("Failed to connect to Web Enrollment interface: %s" % e)
@@ -537,6 +521,12 @@ class WebRequestInterface(RequestInterface):
                     logging.warning(
                         "Failed to authenticate to Web Enrollment at %s"
                         % repr(base_url)
+                    )
+                    logging.debug(
+                        "Got status code: %s" % repr(res.status_code)
+                    )
+                    logging.debug(
+                        "HTML Response:\n%s" % repr(res.content)
                     )
 
         if not success:
@@ -708,7 +698,6 @@ class WebRequestInterface(RequestInterface):
         logging.info("Request ID is %d" % request_id)
 
         return self.retrieve(request_id)
-
 
 class Request:
     def __init__(

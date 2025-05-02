@@ -86,7 +86,6 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         metavar="Application Policy",
         help="Specify application policies for the certificate request using OIDs (e.g., '1.3.6.1.4.1.311.10.3.4' or 'Client Authentication')"
     )
-
     group.add_argument(
         "-smime",
         action="store",

@@ -3,10 +3,9 @@ import platform
 import socket
 from typing import Literal
 
+from certipy.lib.logger import logging
 from dns.resolver import Resolver
 from impacket.krb5.ccache import CCache
-
-from certipy.lib.logger import logging
 
 
 def is_ip(hostname: str) -> bool:
@@ -262,6 +261,8 @@ class Target:
 
         if options.ldap_port is not None:
             ldap_port = options.ldap_port
+        else:
+            ldap_port = None
 
         self.domain = domain
         self.username = username
