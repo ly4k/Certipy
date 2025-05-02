@@ -43,6 +43,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Output result as JSON",
     )
     group.add_argument(
+        "-csv",
+        action="store_true",
+        help="Output result as CSV",
+    )
+    group.add_argument(
         "-output",
         action="store",
         metavar="prefix",

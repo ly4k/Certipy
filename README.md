@@ -73,7 +73,7 @@ The `find` command is useful for enumerating AD CS certificate templates, certif
 ```
 Certipy v4.0.0 - by Oliver Lyak (ly4k)
 
-usage: certipy find [-h] [-debug] [-bloodhound] [-old-bloodhound] [-text] [-stdout] [-json] [-output prefix] [-enabled] [-dc-only] [-vulnerable] [-hide-admins] [-scheme ldap scheme] [-dc-ip ip address] [-target-ip ip address] [-target dns/ip address] [-ns nameserver] [-dns-tcp]
+usage: certipy find [-h] [-debug] [-bloodhound] [-old-bloodhound] [-text] [-stdout] [-json] [-csv] [-output prefix] [-enabled] [-dc-only] [-vulnerable] [-hide-admins] [-scheme ldap scheme] [-dc-ip ip address] [-target-ip ip address] [-target dns/ip address] [-ns nameserver] [-dns-tcp]
                     [-timeout seconds] [-u username@domain] [-p password] [-hashes [LMHASH:]NTHASH] [-k] [-sspi] [-aes hex key] [-no-pass]
 
 optional arguments:
@@ -86,6 +86,7 @@ output options:
   -text                 Output result as text
   -stdout               Output result as text to stdout
   -json                 Output result as JSON
+  -csv                  Output result as CSV
   -output prefix        Filename prefix for writing results to
 
 find options:
