@@ -32,6 +32,7 @@ from certipy.lib.certificate import (
     load_pfx,
     pem_to_cert,
     pem_to_key,
+    cert_to_der,
     rsa,
     x509,
 )
@@ -725,6 +726,7 @@ class Request:
         pfx_password: str = None,
         key_size: int = None,
         archive_key: bool = False,
+        cax_cert: bool = False,
         renew: bool = False,
         out: str = None,
         key: rsa.RSAPrivateKey = None,
@@ -751,6 +753,7 @@ class Request:
         self.pfx_password = pfx_password
         self.key_size = key_size
         self.archive_key = archive_key
+        self.cax_cert = cax_cert
         self.renew = renew
         self.out = out
         self.key = key
@@ -975,12 +978,34 @@ class Request:
 
         return pfx, outfile
 
+    def getCAX(self) -> bool:
+        username = self.target.username
+
+        ca = CA(self.target, self.ca)
+        logging.info("Trying to retrieve CAX certificate")
+        cax_cert = ca.get_exchange_certificate()
+        logging.info("Retrieved CAX certificate")     
+        cax_cert = cert_to_der(cax_cert)
+
+        return cax_cert
+
 
 def entry(options: argparse.Namespace) -> None:
     target = Target.from_options(options)
     del options.target
 
     request = Request(target=target, **vars(options))
+
+    if options.cax_cert:
+        if not options.out:
+            logging.error("Please specify an output file for the cax certificate!")
+            return
+        
+        cax = request.getCAX()
+        with open(options.out, "wb") as f:
+            f.write(cax)
+        logging.info("CAX certificate save to %s" % options.out)
+        return
 
     if options.retrieve:
         request.retrieve()

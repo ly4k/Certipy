@@ -70,6 +70,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Send private key for Key Archival",
     )
     group.add_argument(
+        "-cax-cert",
+        action="store_true",
+        help="Retrieve CAX Cert for relay with enabled Key Archival",
+    )
+    group.add_argument(
         "-renew",
         action="store_true",
         help="Create renewal request",

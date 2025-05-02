@@ -55,6 +55,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         default=2048,
         type=int,
     )
+    group.add_argument(
+        "-archive-key",
+        action="store",
+        help="Specify CAX Certificate for Key Archival, you can request the cax cert with 'certipy req -cax-cert'",
+    )
 
     group = subparser.add_argument_group("output options")
     group.add_argument("-out", action="store", metavar="output file name")
