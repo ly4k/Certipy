@@ -200,7 +200,7 @@ class Shadow:
 
         authenticate = Authenticate(self.target, cert=cert, key=key)
         authenticate.authenticate(
-            username=user.get("sAMAccountName"), is_key_credential=True
+            username=user.get("sAMAccountName"), is_key_credential=True, domain=self.connection.domain
         )
 
         logging.info(
