@@ -107,8 +107,8 @@ class Forge:
                 cert = cert.issuer_name(ca_cert.subject)
             cert = cert.public_key(tmp_cert.public_key())
             cert = cert.serial_number(serial_number)
-            cert = cert.not_valid_before(tmp_cert.not_valid_before)
-            cert = cert.not_valid_after(tmp_cert.not_valid_after)
+            cert = cert.not_valid_before(tmp_cert.not_valid_before_utc)
+            cert = cert.not_valid_after(tmp_cert.not_valid_after_utc)
 
             cert = cert.add_extension(
                 x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),
@@ -119,6 +119,7 @@ class Forge:
                 x509.AuthorityKeyIdentifier.oid,
                 x509.SubjectAlternativeName.oid,
                 x509.ExtendedKeyUsage.oid,
+                NTDS_CA_SECURITY_EXT,
             ]
 
             crl = self.get_crl()
