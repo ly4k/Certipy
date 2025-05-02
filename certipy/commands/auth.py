@@ -106,6 +106,7 @@ class Authenticate:
         self,
         target: Target = None,
         pfx: str = None,
+        password: str = None,
         cert: x509.Certificate = None,
         key: rsa.RSAPublicKey = None,
         no_save: bool = False,
@@ -123,6 +124,7 @@ class Authenticate:
     ):
         self.target = target
         self.pfx = pfx
+        self.password = password
         self.cert = cert
         self.key = key
         self.no_save = no_save
@@ -144,8 +146,13 @@ class Authenticate:
         self.lm_hash: str = None
 
         if self.pfx is not None:
+            password = None
+            if self.password:
+                password = self.password.encode()
             with open(self.pfx, "rb") as f:
-                self.key, self.cert = load_pfx(f.read())
+                pfx = f.read()
+            self.key, self.cert = load_pfx(pfx, password)
+
 
     def authenticate(
         self, username: str = None, domain: str = None, is_key_credential=False
