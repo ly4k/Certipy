@@ -99,9 +99,11 @@ class Find:
         csv: bool = False,
         bloodhound: bool = False,
         old_bloodhound: bool = False,
+        esc14: bool = False,
         text: bool = False,
         stdout: bool = False,
         output: str = None,
+        trailing_output : str = "",
         enabled: bool = False,
         oids: bool = False,
         vulnerable: bool = False,
@@ -121,7 +123,9 @@ class Find:
         self.old_bloodhound = old_bloodhound
         self.text = text or stdout
         self.stdout = stdout
+        self.esc14 = esc14
         self.output = output
+        self.trailing_output = trailing_output
         self.enabled = enabled
         self.oids = oids
         self.vuln = vulnerable
@@ -550,12 +554,14 @@ class Find:
             output = self.get_output_for_text_and_json(templates, cas, oids)
 
             if self.text or not_specified:
+                output_text_stdout = copy.copy(output)
+                if self.trailing_output : output_text_stdout ["ESC14"] = self.trailing_output
                 if self.stdout:
                     logging.info("Enumeration output:")
-                    pretty_print(output)
+                    pretty_print(output_text_stdout)
                 else:
                     with open("%s_Certipy.txt" % prefix, "w") as f:
-                        pretty_print(output, print=lambda x: f.write(x) + f.write("\n"))
+                        pretty_print(output_text_stdout, print=lambda x: f.write(x) + f.write("\n"))
                     logging.info(
                         "Saved text output to %s" % repr("%s_Certipy.txt" % prefix)
                     )
@@ -1078,6 +1084,36 @@ class Find:
 
         return cas
 
+    def get_users(self) -> List[LDAPEntry]:
+        users = self.connection.search(
+            "(objectclass=user)",
+            search_base="%s"
+            % self.connection.default_path,
+            attributes=[
+                "samAccountName",
+                "altSecurityIdentities"
+            ],
+            query_sd=True,
+        )
+
+        return users
+    
+    def get_mapping_vulnerabilities(self, users: LDAPEntry):
+
+        weak_mapping_users =  []
+
+        for user in users :  
+            # Search for ESC14_B_C_D
+            mappings = user["attributes"]["altSecurityIdentities"]
+            weak_mapping_criteria = ["X509:<RFC822>", "X509:<S>"]
+            for mapping in mappings:
+                # Identify weak mappings
+                if any(criteria in mapping for criteria in weak_mapping_criteria) or ("X509:<I>" in mapping and "<S>" in mapping):
+                    # Weak Mapping found
+                    weak_mapping_users.append("\"%s\" is configured with weak mapping : %s" % (user["attributes"]["samAccountName"],mapping))
+        return weak_mapping_users
+
+
     def security_to_bloodhound_aces(self, security: ActiveDirectorySecurity) -> List:
         aces = []
 
@@ -1543,6 +1579,15 @@ class Find:
             vulnerabilities[
                 "ESC11"
             ] = "Encryption is not enforced for ICPR requests and Request Disposition is set to Issue"
+
+        # ESC14
+        if (self.esc14) :
+            logging.info("Finding users with weak explicit mappings")
+            users = self.get_users()
+            mapping_vulnerabilities = self.get_mapping_vulnerabilities(users)
+            logging.info("Found %d users with weak explicit mapping" %(len(mapping_vulnerabilities)))
+            if (len(mapping_vulnerabilities) >0):
+                self.trailing_output = "\n" + "\n".join(mapping_vulnerabilities)
 
         return vulnerabilities
 

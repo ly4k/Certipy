@@ -26,6 +26,7 @@ Certipy is an offensive tool for enumerating and abusing Active Directory Certif
       - [ESC8](#esc8)
       - [ESC9 & ESC10](#esc9--esc10)
       - [ESC11](#esc11)
+      - [ESC14](#esc14)
       - [ESC15](#esc15)
   - [Contact](#contact)
   - [Credits](#credits)
@@ -821,6 +822,21 @@ Certipy v4.7.0 - by Oliver Lyak (ly4k)
 [*] Certificate object SID is 'S-1-5-21-980154951-4172460254-2779440654-500'
 [*] Saved certificate and private key to 'administrator.pfx'
 [*] Exiting...
+```
+#### ESC14
+
+ESC14 is when a user has write access to the `altSecurityIdentities` attribute of a target account (ESC14 A) or when a weak certificate mapping is configured on a target account (ESC14 B-C-D).
+
+In the case of an ESC14 A, we can enroll on a certificate and create an explicit mapping on the target account by modifying its `altSecurityIdentities` attribute and pointing it to the certificate obtained. This certificate can then be used to authenticate as the target.
+
+In the case of an ESC14 B-C-D, the target is configured with a weak explicit mapping that can be abused by modifying the relevant attributes on a separate victim account to match the explicit mapping of the target. We can then enroll on a certificate as the victim, and use this same certificate to authenticate as the target.
+
+There are a number of conditions on certificate templates or other configuration elements that affect the use of ESC14. See the original [blog post](https://posts.specterops.io/adcs-esc14-abuse-technique-333a004dc2b9) for more information. 
+
+The `find`command below identifies users and computers   configured with weak explicit mapping.
+
+```bash
+$ certipy find -u john@corp.local -p Passw0rd -dc-ip 172.16.126.128 -esc14
 ```
 
 ### ESC15

@@ -92,6 +92,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         metavar="distinguished name",
         help="Distinguished name of the user provided in the command line, useful for cross domain authentication",
     )
+    group.add_argument(
+        "-esc14",
+        action="store_true",
+        help="Search for ESC14 vulnerability (warning, may take some time). Not compatible with BloodHound or JSON output",
+    )
 
     group = subparser.add_argument_group("connection options")
     group.add_argument(
