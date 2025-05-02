@@ -110,3 +110,8 @@ def add_argument_group(
         required=False,
         help="Choose LDAP port",
     )
+    group.add_argument(
+        "-ldap-auth-simple",
+        action="store_true",
+        help="Use ldap3.SIMPLE auth type"
+    )
