@@ -368,6 +368,15 @@ class Find:
                 "authorized_signatures_required", authorized_signatures_required
             )
 
+            schema_version = template.get("msPKI-Template-Schema-Version")
+            if schema_version is not None:
+                schema_version = int(schema_version)
+            else:
+                schema_version = 1
+            template.set(
+                "schema_version", schema_version
+            )
+
             application_policies = template.get_raw("msPKI-RA-Application-Policies")
             if not isinstance(application_policies, list):
                 if application_policies is None:
@@ -733,6 +742,8 @@ class Find:
                 "msPKI-Certificate-Name-Flag",
                 "msPKI-Minimal-Key-Size",
                 "msPKI-RA-Signature",
+                "msPKI-Template-Schema-Version",
+                "msPKI-RA-Application-Policies",
                 "pKIExtendedKeyUsage",
                 "nTSecurityDescriptor",
                 "objectGUID",
@@ -828,6 +839,7 @@ class Find:
             "requires_key_archival": "Requires Key Archival",
             "application_policies": "Application Policies",
             "authorized_signatures_required": "Authorized Signatures Required",
+            "schema_version": "Schema Version",
             "validity_period": "Validity Period",
             "renewal_period": "Renewal Period",
             "msPKI-Minimal-Key-Size": "Minimum RSA Key Length"
@@ -954,7 +966,7 @@ class Find:
 
             # ESC3
             if user_can_enroll and template.get("enrollment_agent"):
-                vulnerabilities["ESC3"] = (
+                vulnerabilities["ESC3.1"] = (
                     "%s can enroll and template has Certificate Request Agent EKU set"
                     % list_sids(enrollable_sids)
                 )
@@ -986,6 +998,26 @@ class Find:
                 vulnerabilities["ESC4"] = "%s has dangerous permissions" % list_sids(
                     vulnerable_acl_sids
                 )
+
+        if (
+            not template.get("requires_manager_approval")
+            and user_can_enroll
+            and template.get("client_authentication")
+            and (
+                template.get("schema_version") == 1
+                or (
+                    template.get("schema_version") > 1
+                    and template.get("authorized_signatures_required") > 0
+                    and template.get("application_policies") is not None
+                    and "Certificate Request Agent" in template.get("application_policies")
+                )
+            )
+        ) :
+            vulnerabilities["ESC3.2"] = (
+                "%s can enroll and template has schema version 1 or"
+                " requires a Certificate Request Agent signature"
+                % list_sids(enrollable_sids)
+            )
 
         return vulnerabilities
 
