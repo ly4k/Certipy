@@ -269,6 +269,12 @@ class CERTIFICATE_RIGHTS(IntFlag):
             filtered_members.append(member)
         return filtered_members
 
+class ISSUANCE_POLICY_RIGHTS(IntFlag):
+    GENERIC_READ = 131220
+    GENERIC_ALL = 983551
+    WRITE_OWNER = 524288
+    WRITE_DACL = 262144
+    WRITE_PROPERTY = 32
 
 # https://github.com/GhostPack/Certify/blob/2b1530309c0c5eaf41b2505dfd5a68c83403d031/Certify/Domain/CertificateAuthority.cs#L11
 class CERTIFICATION_AUTHORITY_RIGHTS(IntFlag):
