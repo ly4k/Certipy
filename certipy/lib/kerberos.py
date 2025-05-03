@@ -1,7 +1,17 @@
+"""
+Kerberos authentication module for Certipy.
+
+This module provides functionality to obtain Kerberos tickets and authenticate to services
+using Kerberos. It supports:
+- Obtaining TGT (Ticket Granting Ticket) and TGS (Ticket Granting Service) tickets
+- Kerberos authentication for HTTP requests
+- SSPI integration for Windows systems
+"""
+
 import base64
 import datetime
 import os
-from typing import Tuple
+from typing import Optional, Tuple
 
 import httpx
 from impacket.krb5 import constants
@@ -18,140 +28,175 @@ from certipy.lib.logger import logging
 from certipy.lib.target import Target
 
 
+def _convert_to_binary(data: Optional[str]) -> Optional[bytes]:
+    """
+    Convert string hex representation to bytes if needed.
+
+    Args:
+        data: String hex representation or bytes
+
+    Returns:
+        Bytes representation or None if input was None or empty
+    """
+    if data is None:
+        return None
+
+    if len(data) == 0:
+        return None
+
+    return bytes.fromhex(data)
+
+
 def get_TGS(
     target: Target,
     target_name: str,
     service: str = "host",
 ) -> Tuple[bytes, type, Key, str, str]:
-    # Modified version of impacket.krb5.kerberosv5.getKerberosType1 to just return the tgs
+    """
+    Get a Ticket Granting Service (TGS) ticket for accessing a specific service.
 
-    username = target.username or ""
+    This function tries multiple strategies to obtain a TGS:
+    1. Using SSPI if configured
+    2. Using an existing Kerberos ticket cache
+    3. Requesting a new TGT and then a TGS
+
+    Args:
+        target: Target object containing authentication details
+        target_name: Name of the target server
+        service: Service type (default: "host")
+
+    Returns:
+        Tuple containing:
+        - TGS data
+        - Cipher object
+        - Session key
+        - Username
+        - Domain
+
+    Raises:
+        KerberosError: If authentication fails
+        Exception: On various errors such as missing credentials or unsupported encryption types
+    """
+    username = target.username
     password = target.password
-    domain = target.domain or ""
-    lmhash = target.lmhash
-    nthash = target.nthash
-    aes_key = target.aes
+    domain = target.domain
+    lmhash = _convert_to_binary(target.lmhash)
+    nthash = _convert_to_binary(target.nthash)
+    aes_key = _convert_to_binary(target.aes)
     kdc_host = target.dc_ip
 
-    # Convert to binary form, just in case we're receiving strings
-    if isinstance(lmhash, str):
-        try:
-            lmhash = bytes.fromhex(lmhash)
-        except TypeError:
-            pass
-    if isinstance(nthash, str):
-        try:
-            nthash = bytes.fromhex(nthash)
-        except TypeError:
-            pass
-    if isinstance(aes_key, str):
-        try:
-            aes_key = bytes.fromhex(aes_key)
-        except TypeError:
-            pass
+    TGT: Optional[dict] = None
+    TGS: Optional[dict] = None
 
-    TGT = None
-    TGS = None
-
+    # Try to get TGS using SSPI (Windows only)
     if target.use_sspi:
         from certipy.lib.sspi import get_tgt
 
-        server_name = "%s/%s" % (service, target_name)
-
-        logging.debug("Trying to get TGS for %s via SSPI" % repr(server_name))
+        server_name = f"{service}/{target_name}"
+        logging.debug(f"Trying to get TGS for {server_name!r} via SSPI")
         ccache = get_tgt(server_name)
+
+        if ccache is None:
+            raise Exception("Failed to get TGT via SSPI")
+
+        if len(ccache.credentials) == 0:
+            raise Exception("No credentials found in SSPI TGT")
 
         TGT = ccache.credentials[0].toTGT()
     else:
+        # Try to use existing ticket cache
         try:
             ccache = CCache.loadFile(os.getenv("KRB5CCNAME"))
         except Exception:
-            # No cache present
-            pass
+            ccache = None
+
         if ccache:
-            # retrieve domain information from CCache file if needed
+            # Validate cache data
             if ccache.principal is None:
                 raise Exception("No principal found in CCache file")
-
             if ccache.principal.realm is None:
                 raise Exception("No realm/domain found in CCache file")
 
+            # Extract domain from cache if needed
+            # TODO: Support unicode domain names
             ccache_domain = ccache.principal.realm["data"].decode("utf-8")
-
-            if domain == "":
+            if not domain:
                 domain = ccache_domain
-                logging.debug("Domain retrieved from CCache: %s" % domain)
+                logging.debug(f"Domain retrieved from CCache: {domain}")
 
+            # Extract username from cache
             ccache_username = "/".join(
                 map(lambda x: x["data"].decode(), ccache.principal.components)
             )
 
-            logging.debug("Using Kerberos Cache: %s" % os.getenv("KRB5CCNAME"))
-            principal = "%s/%s@%s" % (service, target_name.upper(), domain.upper())
+            logging.debug(f"Using Kerberos Cache: {os.getenv('KRB5CCNAME')}")
+
+            # Try to find appropriate credentials in cache
+            principal = f"{service}/{target_name.upper()}@{domain.upper()}"
             creds = ccache.getCredential(principal)
+
             if creds is None:
-                # Let's try for the TGT and go from there
-                principal = "krbtgt/%s@%s" % (domain.upper(), domain.upper())
+                # Look for TGT if service ticket not found
+                principal = f"krbtgt/{domain.upper()}@{domain.upper()}"
                 creds = ccache.getCredential(principal)
                 if creds is not None:
                     TGT = creds.toTGT()
                     logging.debug("Using TGT from cache")
                 else:
-                    logging.debug("No valid credentials found in cache. ")
+                    logging.debug("No valid credentials found in cache.")
             else:
                 TGS = creds.toTGS(principal)
 
-            # retrieve user information from CCache file if needed
+            # Validate user information
             if creds is not None:
                 ccache_username = (
                     creds["client"].prettyPrint().split(b"@")[0].decode("utf-8")
                 )
-                logging.debug("Username retrieved from CCache: %s" % ccache_username)
-            elif len(ccache.principal.components) > 0:
+                logging.debug(f"Username retrieved from CCache: {ccache_username}")
+            elif ccache.principal.components:
                 ccache_username = ccache.principal.components[0]["data"].decode("utf-8")
-                logging.debug("Username retrieved from CCache: %s" % ccache_username)
+                logging.debug(f"Username retrieved from CCache: {ccache_username}")
 
-            if ccache_username.lower() != username.lower():
+            # Validate username in cache against requested username
+            if ccache_username.lower() != username.lower() and username:
                 logging.warning(
-                    "Username %s does not match username in CCache %s"
-                    % (repr(username), repr(ccache_username))
+                    f"Username {username!r} does not match username in CCache {ccache_username!r}"
                 )
                 TGT = None
                 TGS = None
             else:
                 username = ccache_username
 
-            if ccache_domain.lower() != domain.lower():
+            # Validate domain
+            if ccache_domain.lower() != domain.lower() and domain:
                 logging.warning(
-                    "Domain %s does not match domain in CCache %s"
-                    % (repr(domain), repr(ccache_domain))
+                    f"Domain {domain!r} does not match domain in CCache {ccache_domain!r}"
                 )
 
-    # First of all, we need to get a TGT for the user
-    username = Principal(username, type=constants.PrincipalNameType.NT_PRINCIPAL)
+    # Create principal object for the user
+    user_principal = Principal(username, type=constants.PrincipalNameType.NT_PRINCIPAL)
+
     while True:
         if TGT is None:
             if TGS is None:
                 try:
-                    logging.debug(
-                        "Getting TGT for %s" % repr("%s@%s" % (username, domain))
-                    )
+                    # Request new TGT
+                    logging.debug(f"Getting TGT for {username!r}@{domain!r}")
                     tgt, cipher, _, session_key = getKerberosTGT(
-                        username, password, domain, lmhash, nthash, aes_key, kdc_host  # type: ignore
+                        user_principal, password, domain, lmhash, nthash, aes_key, kdc_host  # type: ignore
                     )
-                    logging.debug("Got TGT for %s" % repr("%s@%s" % (username, domain)))
+                    logging.debug(f"Got TGT for {username!r}@{domain!r}")
                 except KerberosError as e:
+                    # Handle encryption type not supported error
                     if e.getErrorCode() == constants.ErrorCodes.KDC_ERR_ETYPE_NOSUPP:
-                        # We might face this if the target does not support AES
-                        # So, if that's the case we'll force using RC4 by converting
-                        # the password to lm/nt hashes and hope for the best. If that's already
-                        # done, byebye.
+                        # Fall back to RC4 if AES not supported and we're using password auth
                         if (
-                            lmhash == b""
-                            and nthash == b""
-                            and (aes_key == b"" or aes_key is None)
-                            and TGT is None
-                            and TGS is None
+                            not lmhash
+                            and not nthash
+                            and (not aes_key or aes_key == b"")
+                            and not TGT
+                            and not TGS
+                            and password
                         ):
                             from impacket.ntlm import compute_lmhash, compute_nthash
 
@@ -163,60 +208,57 @@ def get_TGS(
                             raise
                     else:
                         raise
-
         else:
+            # Use existing TGT
             tgt = TGT["KDC_REP"]
             cipher = TGT["cipher"]
             session_key = TGT["sessionKey"]
 
-        # Now that we have the TGT, we should ask for a TGS for cifs
-
+        # Request TGS using the TGT if we don't already have one
         if TGS is None:
-            server_name = Principal(
-                "%s/%s" % (service, target_name),
+            server_principal = Principal(
+                f"{service}/{target_name}",
                 type=constants.PrincipalNameType.NT_SRV_INST,
             )
             try:
-                logging.debug(
-                    "Getting TGS for %s" % repr("%s/%s" % (service, target_name))
-                )
+                logging.debug(f"Getting TGS for {service}/{target_name!r}")
                 tgs, cipher, _, session_key = getKerberosTGS(
-                    server_name, domain, kdc_host, tgt, cipher, session_key
+                    server_principal, domain, kdc_host, tgt, cipher, session_key
                 )
-
-                logging.debug("Got TGS for %s" % repr("%s/%s" % (service, target_name)))
+                logging.debug(f"Got TGS for {service}/{target_name!r}")
+                break
             except KerberosError as e:
+                # Handle encryption type not supported error
                 if e.getErrorCode() == constants.ErrorCodes.KDC_ERR_ETYPE_NOSUPP:
-                    # We might face this if the target does not support AES
-                    # So, if that's the case we'll force using RC4 by converting
-                    # the password to lm/nt hashes and hope for the best. If that's already
-                    # done, byebye.
+                    # Fall back to RC4 if AES not supported and we're using password auth
                     if (
-                        lmhash == b""
-                        and nthash == b""
-                        and (aes_key == b"" or aes_key is None)
-                        and TGT is None
-                        and TGS is None
+                        not lmhash
+                        and not nthash
+                        and (not aes_key or aes_key == b"")
+                        and not TGT
+                        and not TGS
+                        and password
                     ):
                         from impacket.ntlm import compute_lmhash, compute_nthash
 
                         logging.debug("Got KDC_ERR_ETYPE_NOSUPP, fallback to RC4")
                         lmhash = compute_lmhash(password)
                         nthash = compute_nthash(password)
+                        # Start over with the new hashes
+                        TGT = None
                     else:
                         raise
                 else:
                     raise
-            else:
-                break
         else:
+            # Use existing TGS
             tgs = TGS["KDC_REP"]
             cipher = TGS["cipher"]
             session_key = TGS["sessionKey"]
             break
 
+    # Extract client information from ticket
     ticket = decoder.decode(tgs, asn1Spec=TGS_REP())[0]
-
     client_name = Principal()
     client_name = client_name.from_asn1(ticket, "crealm", "cname")
 
@@ -231,66 +273,110 @@ def get_kerberos_type1(
     target_name: str = "",
     service: str = "host",
 ) -> Tuple[type, Key, bytes, str]:
+    """
+    Generate a Kerberos Type 1 authentication message (AP_REQ).
+
+    This function creates a SPNEGO token containing Kerberos authentication data
+    that can be used in HTTP or other protocol authentication.
+
+    Args:
+        target: Target object containing authentication details
+        target_name: Name of the target server (default: empty string)
+        service: Service type (default: "host")
+
+    Returns:
+        Tuple containing:
+        - Cipher object
+        - Session key
+        - SPNEGO token blob
+        - Username
+    """
     tgs, cipher, session_key, username, domain = get_TGS(target, target_name, service)
 
+    # Create principal for the client
     principal = Principal(username, type=constants.PrincipalNameType.NT_PRINCIPAL)
 
+    # Build SPNEGO init token
     blob = SPNEGO_NegTokenInit()
-
     blob["MechTypes"] = [TypesMech["MS KRB5 - Microsoft Kerberos 5"]]
 
+    # Extract ticket from TGS response
     tgs_rep: TGS_REP = decoder.decode(tgs, asn1Spec=TGS_REP())[0]
     ticket = Ticket()
     _ = ticket.from_asn1(tgs_rep["ticket"])
 
+    # Build AP_REQ message
     ap_req = AP_REQ()
     ap_req["pvno"] = 5
     ap_req["msg-type"] = int(constants.ApplicationTagNumbers.AP_REQ)
-
-    opts = []
-    ap_req["ap-options"] = constants.encodeFlags(opts)
+    ap_req["ap-options"] = constants.encodeFlags([])  # No options
     seq_set(ap_req, "ticket", ticket.to_asn1)
 
+    # Create authenticator
     authenticator = Authenticator()
     authenticator["authenticator-vno"] = 5
     authenticator["crealm"] = domain
     seq_set(authenticator, "cname", principal.components_to_asn1)
-    now = datetime.datetime.now(datetime.timezone.utc)
 
+    # Add timestamp
+    now = datetime.datetime.now(datetime.timezone.utc)
     authenticator["cusec"] = now.microsecond
     authenticator["ctime"] = KerberosTime.to_asn1(now)
 
+    # Encode and encrypt the authenticator
     encoded_authenticator = encoder.encode(authenticator)
-
     encrypted_encoded_authenticator = cipher.encrypt(
         session_key, 11, encoded_authenticator, None
     )
 
+    # Add the encrypted authenticator to the AP_REQ
     ap_req["authenticator"] = noValue
     ap_req["authenticator"]["etype"] = cipher.enctype
     ap_req["authenticator"]["cipher"] = encrypted_encoded_authenticator
 
+    # Add the AP_REQ to the SPNEGO token
     blob["MechToken"] = encoder.encode(ap_req)
 
     return cipher, session_key, blob.getData(), username
 
 
 class HttpxImpacketKerberosAuth(httpx.Auth):
-    def __init__(self, target, service="HTTP"):
+    """
+    HTTPX authentication class for Kerberos authentication.
+
+    This class enables Kerberos authentication for HTTPX requests by
+    implementing the auth_flow protocol required by HTTPX.
+    """
+
+    def __init__(self, target: Target, service: str = "HTTP"):
         """
-        :param target: the Target object
-        :param service: the service to use for authentication
+        Initialize the Kerberos authentication handler.
+
+        Args:
+            target: Target object containing connection and authentication details
+            service: Service principal name prefix to use (default: "HTTP")
         """
         self.target = target
         self.service = service
 
     def auth_flow(self, request: httpx.Request):
+        """
+        Implement the authentication flow for HTTPX.
+
+        This method adds a Kerberos authentication header to the request.
+
+        Args:
+            request: The HTTPX request to modify
+
+        Yields:
+            The modified request
+        """
         _, _, spnego_blob, _ = get_kerberos_type1(
             self.target, self.target.remote_name, self.service
         )
 
-        auth_header = "Negotiate " + base64.b64encode(spnego_blob).decode()
+        auth_header = f"Negotiate {base64.b64encode(spnego_blob).decode()}"
         request.headers["Authorization"] = auth_header
 
-        # Yield the modified request to be sent.
+        # Yield the modified request to be sent
         yield request
