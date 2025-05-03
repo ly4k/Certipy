@@ -3,21 +3,21 @@ version = "?"
 
 # Try modern importlib.metadata approach (Python 3.8+)
 try:
-    from importlib.metadata import version as get_version
+    from importlib.metadata import version as get_version # type: ignore
 
     version = get_version("certipy-ad")
 except ImportError:
     # For Python < 3.8, try importlib_metadata backport
     try:
-        from importlib_metadata import version as get_version
+        from importlib_metadata import version as get_version # type: ignore
 
         version = get_version("certipy-ad")
     except ImportError:
         # Fall back to pkg_resources (setuptools)
         try:
-            import pkg_resources
+            import pkg_resources # type: ignore
 
-            version = pkg_resources.get_distribution("certipy-ad").version
+            version = pkg_resources.get_distribution("certipy-ad").version # type: ignore
         except (ImportError, pkg_resources.DistributionNotFound):
             print(
                 "Cannot determine Certipy version. "
