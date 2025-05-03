@@ -54,7 +54,7 @@ from certipy.lib.certificate import (
     rsa,
     x509,
 )
-from certipy.lib.constants import OID_TO_STR_MAP
+from certipy.lib.constants import OID_TO_STR_MAP, USER_AGENT
 from certipy.lib.errors import translate_error_code
 from certipy.lib.formatting import print_certificate_identifications
 from certipy.lib.kerberos import HttpxImpacketKerberosAuth
@@ -677,9 +677,6 @@ class WebRequestInterface:
         if self._session is not None:
             return self._session
 
-        if self.target is None:
-            raise Exception("Target is not set")
-
         # Create a session with httpx with appropriate authentication
         if self.target.do_kerberos:
             session = httpx.Client(
@@ -740,10 +737,12 @@ class WebRequestInterface:
         Returns:
             True if connection was successful, False otherwise
         """
-        headers = {}
+        headers = {
+            "User-Agent": USER_AGENT,
+        }
         host_value = self.target.remote_name or self.target.target_ip
         if host_value:
-            headers = {"Host": host_value}
+            headers["Host"] = host_value
 
         try:
             res = session.get(

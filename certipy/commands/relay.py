@@ -63,7 +63,7 @@ from certipy.lib.certificate import (
 from certipy.lib.errors import translate_error_code
 from certipy.lib.formatting import print_certificate_identifications
 from certipy.lib.logger import logging
-from certipy.lib.target import Target
+from certipy.lib.target import DnsResolver, Target
 
 
 class ADCSHTTPRelayServer(HTTPRelayClient):
@@ -1042,6 +1042,7 @@ class Relay:
 
         self._request = Request(
             Target(
+                DnsResolver.create(),
                 timeout=self.timeout,
             ),
             ca=self.ca,

@@ -37,6 +37,7 @@ class Target:
 
     def __init__(
         self,
+        resolver: "DnsResolver",
         domain: str = "",
         username: str = "",
         password: Optional[str] = None,
@@ -58,6 +59,7 @@ class Target:
         Initialize a Target with the specified connection parameters.
 
         Args:
+            resolver: DNS resolver for hostname resolution
             domain: Domain name (empty string if not specified)
             username: Username (empty string if not specified)
             password: Password (None if not specified)
@@ -75,6 +77,8 @@ class Target:
             ldap_channel_binding: Use LDAP channel binding
             ldap_port: LDAP port to use
         """
+        self.resolver = resolver
+
         self.domain: str = domain
         self.username: str = username
         self.password: Optional[str] = password
@@ -91,7 +95,6 @@ class Target:
         self.timeout: int = timeout
         self.ldap_channel_binding: bool = ldap_channel_binding
         self.ldap_port: Optional[int] = ldap_port
-        self.resolver: Optional[DnsResolver] = None
 
     @staticmethod
     def from_options(
@@ -198,8 +201,32 @@ class Target:
             else False
         )
 
+        # Adjust DC IP if needed
+        if dc_as_target and options.dc_ip is None and is_ip(remote_name):
+            dc_ip = remote_name
+
+        # Set up DNS resolver
+        ns = options.ns if hasattr(options, "ns") else dc_ip
+        dns_tcp = options.dns_tcp if hasattr(options, "dns_tcp") else False
+
+        # Handle target IP
+        target_ip = options.target_ip if hasattr(options, "target_ip") else None
+        if is_ip(remote_name):
+            target_ip = remote_name
+
+        resolver = DnsResolver.create(ns=ns, dc_ip=dc_ip, dns_tcp=dns_tcp)
+
+        target_ip = target_ip
+        if target_ip is None:
+            target_ip = resolver.resolve(remote_name)
+
+        # Ensure DC IP is resolved
+        if dc_ip is None and domain:
+            dc_ip = resolver.resolve(domain)
+
         # Create target instance
         target = Target(
+            resolver,
             domain=domain,
             username=username,
             password=password,
@@ -216,29 +243,6 @@ class Target:
             ldap_channel_binding=ldap_channel_binding,
             ldap_port=ldap_port,
         )
-
-        # Adjust DC IP if needed
-        if dc_as_target and options.dc_ip is None and is_ip(remote_name):
-            target.dc_ip = remote_name
-
-        # Set up DNS resolver
-        ns = options.ns if hasattr(options, "ns") else target.dc_ip
-        dns_tcp = options.dns_tcp if hasattr(options, "dns_tcp") else False
-
-        # Handle target IP
-        target_ip = options.target_ip if hasattr(options, "target_ip") else None
-        if is_ip(remote_name):
-            target_ip = remote_name
-
-        target.resolver = DnsResolver.create(target, ns=ns, dns_tcp=dns_tcp)
-
-        target.target_ip = target_ip
-        if target.target_ip is None:
-            target.target_ip = target.resolver.resolve(remote_name)
-
-        # Ensure DC IP is resolved
-        if target.dc_ip is None and domain:
-            target.dc_ip = target.resolver.resolve(domain)
 
         return target
 
@@ -311,8 +315,21 @@ class Target:
             else:
                 remote_name = ""
 
+        # Handle DNS and target IP configuration
+        if ns is None:
+            ns = dc_ip
+
+        if is_ip(remote_name):
+            target_ip = remote_name
+
+        resolver = DnsResolver.create(ns=ns, dc_ip=dc_ip, dns_tcp=dns_tcp)
+
+        if target_ip is None:
+            target_ip = resolver.resolve(remote_name)
+
         # Create target instance
         target = Target(
+            resolver,
             domain=domain,
             username=username,
             password=password,
@@ -331,18 +348,6 @@ class Target:
             ldap_port=ldap_port,
         )
 
-        # Handle DNS and target IP configuration
-        if ns is None:
-            ns = dc_ip
-
-        if is_ip(remote_name):
-            target.target_ip = remote_name
-
-        target.resolver = DnsResolver.create(target, ns=ns, dns_tcp=dns_tcp)
-
-        if target.target_ip is None:
-            target.target_ip = target.resolver.resolve(remote_name)
-
         return target
 
     def resolve_hostname(self, hostname: str) -> str:
@@ -355,9 +360,6 @@ class Target:
         Returns:
             The resolved IP address or the original hostname if resolution fails
         """
-        if self.resolver is None:
-            self.resolver = DnsResolver.create(self)
-
         return self.resolver.resolve(hostname)
 
     def __repr__(self) -> str:
@@ -405,8 +407,8 @@ class DnsResolver:
 
     @staticmethod
     def create(
-        target: Optional["Target"] = None,
         ns: Optional[str] = None,
+        dc_ip: Optional[str] = None,
         dns_tcp: bool = False,
     ) -> "DnsResolver":
         """
@@ -424,9 +426,7 @@ class DnsResolver:
 
         # We can't put all possible nameservers in the list of nameservers, since
         # the resolver will fail if one of them fails
-        nameserver = ns
-        if nameserver is None and target is not None:
-            nameserver = target.dc_ip
+        nameserver = ns or dc_ip
 
         if nameserver is not None:
             resolver.resolver.nameservers = [nameserver]

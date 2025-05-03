@@ -2,6 +2,7 @@
 Constants module for Certipy.
 
 This module defines various constants used throughout Certipy for:
+- User agent strings for HTTP requests
 - Well-known security identifiers (SIDs) and relative identifiers (RIDs)
 - PKI certificate flags and options
 - Access control and rights constants
@@ -13,6 +14,14 @@ certificate services, and security descriptors.
 """
 
 from certipy.lib.structs import IntFlag
+
+#
+# User Agent
+#
+
+LATEST_EDGE_VERSION = "136.0.3240.50"
+
+USER_AGENT = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{LATEST_EDGE_VERSION.split('.')[0]}.0.0.0 Safari/537.36 Edg/{LATEST_EDGE_VERSION}"
 
 #
 # Security Identifiers (SIDs) and Relative Identifiers (RIDs)

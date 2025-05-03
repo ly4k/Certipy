@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Tuple
 from certipy.lib.logger import logging
 
 # Type aliases for better readability
-PrintFunc = Callable[..., None]
+PrintFunc = Callable[..., Any]
 JsonLike = Dict[str, Any]
 CertIdentification = Tuple[str, str]
 

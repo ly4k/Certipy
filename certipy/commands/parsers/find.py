@@ -18,16 +18,6 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
 
     group = subparser.add_argument_group("output options")
     group.add_argument(
-        "-bloodhound",
-        action="store_true",
-        help="Output result as BloodHound data for the custom-built BloodHound version from @ly4k with PKI support",
-    )
-    group.add_argument(
-        "-old-bloodhound",
-        action="store_true",
-        help="Output result as BloodHound data for the original BloodHound version from @BloodHoundAD without PKI support",
-    )
-    group.add_argument(
         "-text",
         action="store_true",
         help="Output result as text",
@@ -58,7 +48,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     group.add_argument(
         "-enabled",
         action="store_true",
-        help="Show only enabled certificate templates. Does not affect BloodHound output",
+        help="Show only enabled certificate templates",
     )
     group.add_argument(
         "-dc-only",
@@ -68,34 +58,29 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     group.add_argument(
         "-vulnerable",
         action="store_true",
-        help="Show only vulnerable certificate templates based on nested group memberships. Does not affect BloodHound output",
+        help="Show only vulnerable certificate templates based on nested group memberships",
     )
     group.add_argument(
         "-oids",
         action="store_true",
-        help="Show OIDs (Issuance Policies) and their properties.",
+        help="Show OIDs (Issuance Policies) and their properties",
     )
     group.add_argument(
         "-hide-admins",
         action="store_true",
-        help="Don't show administrator permissions for -text, -stdout, and -json. Does not affect BloodHound output",
+        help="Don't show administrator permissions for -text, -stdout, -json, and -csv",
     )
     group.add_argument(
         "-sid",
         action="store",
         metavar="object sid",
-        help="SID of the user provided in the command line, useful for cross domain authentication.",
+        help="SID of the user provided in the command line, useful for cross domain authentication",
     )
     group.add_argument(
         "-dn",
         action="store",
         metavar="distinguished name",
         help="Distinguished name of the user provided in the command line, useful for cross domain authentication",
-    )
-    group.add_argument(
-        "-esc14",
-        action="store_true",
-        help="Search for ESC14 vulnerability (warning, may take some time). Not compatible with BloodHound or JSON output",
     )
 
     group = subparser.add_argument_group("connection options")
