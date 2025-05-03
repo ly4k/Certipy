@@ -12,25 +12,16 @@ from asn1crypto import csr as asn1csr
 from asn1crypto import x509 as asn1x509
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import (
-    padding,
-    rsa,
-    dsa,
-    ec,
-    ed25519,
-    ed448,
-)
+from cryptography.hazmat.primitives.asymmetric import (dsa, ec, ed448, ed25519,
+                                                       padding, rsa)
 from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.padding import PKCS7
-from cryptography.hazmat.primitives.serialization import (
-    Encoding,
-    NoEncryption,
-    PrivateFormat,
-    PublicFormat,
-    pkcs12,
-)
-from cryptography.x509 import SubjectKeyIdentifier, SubjectAlternativeName
+from cryptography.hazmat.primitives.serialization import (Encoding,
+                                                          NoEncryption,
+                                                          PrivateFormat,
+                                                          PublicFormat, pkcs12)
+from cryptography.x509 import SubjectAlternativeName, SubjectKeyIdentifier
 from cryptography.x509.oid import ExtensionOID, NameOID
 from impacket.dcerpc.v5.nrpc import checkNullString
 from pyasn1.codec.der import decoder

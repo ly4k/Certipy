@@ -1,50 +1,42 @@
 import argparse
 import base64
 import copy
+import csv
 import json
 import os
 import re
-import requests
-import ssl
 import socket
+import ssl
 import struct
 import time
-import urllib3
 import zipfile
-import csv
-from http.client import HTTPSConnection
 from collections import OrderedDict
 from datetime import datetime
+from http.client import HTTPSConnection
 from typing import List
 
+import requests
+import urllib3
 from asn1crypto import x509
-from certipy.lib.constants import (
-    ISSUANCE_POLICY_RIGHTS,
-    ACTIVE_DIRECTORY_RIGHTS,
-    CERTIFICATE_RIGHTS,
-    CERTIFICATION_AUTHORITY_RIGHTS,
-    EXTENDED_RIGHTS_MAP,
-    EXTENDED_RIGHTS_NAME_MAP,
-    ISSUANCE_POLICY_RIGHTS,
-    MS_PKI_CERTIFICATE_NAME_FLAG,
-    MS_PKI_ENROLLMENT_FLAG,
-    MS_PKI_PRIVATE_KEY_FLAG,
-    OID_TO_STR_MAP,
-)
+from impacket.dcerpc.v5 import rrp
+from impacket.ntlm import getNTLMSSPType1, getNTLMSSPType3
+from impacket.spnego import SPNEGO_NegTokenResp
+
+from certipy.lib.constants import (ACTIVE_DIRECTORY_RIGHTS, CERTIFICATE_RIGHTS,
+                                   CERTIFICATION_AUTHORITY_RIGHTS,
+                                   EXTENDED_RIGHTS_MAP,
+                                   EXTENDED_RIGHTS_NAME_MAP,
+                                   ISSUANCE_POLICY_RIGHTS,
+                                   MS_PKI_CERTIFICATE_NAME_FLAG,
+                                   MS_PKI_ENROLLMENT_FLAG,
+                                   MS_PKI_PRIVATE_KEY_FLAG, OID_TO_STR_MAP)
 from certipy.lib.formatting import pretty_print
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import logging
 from certipy.lib.rpc import get_dce_rpc_from_string_binding
-from certipy.lib.security import (
-    ActiveDirectorySecurity,
-    CertifcateSecurity,
-    IssuancePolicySecurity,
-    is_admin_sid,
-)
+from certipy.lib.security import (ActiveDirectorySecurity, CertifcateSecurity,
+                                  IssuancePolicySecurity, is_admin_sid)
 from certipy.lib.target import Target
-from impacket.dcerpc.v5 import rrp
-from impacket.ntlm import getNTLMSSPType1, getNTLMSSPType3
-from impacket.spnego import SPNEGO_NegTokenResp
 
 from .ca import CA
 
@@ -1068,7 +1060,7 @@ class Find:
             sslsock.connect((target_ip, 443))
             peer_cert = sslsock.getpeercert(True)
             # From: https://github.com/ly4k/ldap3/commit/87f5760e5a68c2f91eac8ba375f4ea3928e2b9e0#diff-c782b790cfa0a948362bf47d72df8ddd6daac12e5757afd9d371d89385b27ef6R1383
-            from hashlib import sha256, md5
+            from hashlib import md5, sha256
 
             # Ugly but effective, to get the digest of the X509 DER in bytes
             peer_certificate_sha256 = sha256(peer_cert).digest()

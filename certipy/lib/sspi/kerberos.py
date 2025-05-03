@@ -1,32 +1,16 @@
 from impacket.krb5.ccache import CCache
 
+from certipy.lib.structs import (AP_REQ, KRB_CRED, Authenticator,
+                                 AuthenticatorChecksum, ChecksumFlags,
+                                 EncryptedData, InitialContextToken)
+
 from .encryption import Key, _enctype_table
-from .netsecapi import (
-    ISC_REQ,
-    SEC_E,
-    SECPKG_ATTR,
-    SECPKG_CRED,
-    AcquireCredentialsHandle,
-    InitializeSecurityContext,
-    LsaCallAuthenticationPackage,
-    LsaConnectUntrusted,
-    LsaFreeReturnBuffer,
-    LsaLookupAuthenticationPackage,
-    QueryContextAttributes,
-    SecPkgContext_SessionKey,
-    extract_ticket,
-    get_lsa_error,
-    submit_tkt_helper,
-)
-from certipy.lib.structs import (
-    AP_REQ,
-    KRB_CRED,
-    Authenticator,
-    AuthenticatorChecksum,
-    ChecksumFlags,
-    EncryptedData,
-    InitialContextToken,
-)
+from .netsecapi import (ISC_REQ, SEC_E, SECPKG_ATTR, SECPKG_CRED,
+                        AcquireCredentialsHandle, InitializeSecurityContext,
+                        LsaCallAuthenticationPackage, LsaConnectUntrusted,
+                        LsaFreeReturnBuffer, LsaLookupAuthenticationPackage,
+                        QueryContextAttributes, SecPkgContext_SessionKey,
+                        extract_ticket, get_lsa_error, submit_tkt_helper)
 
 
 def submit_ticket(ticket_data: bytes):

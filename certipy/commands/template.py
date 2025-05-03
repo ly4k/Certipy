@@ -2,12 +2,12 @@ import argparse
 import collections
 import json
 from itertools import groupby
-from typing import Dict, Any
+from typing import Any, Dict
 
 import ldap3
+from ldap3.core.results import RESULT_INSUFFICIENT_ACCESS_RIGHTS
 from ldap3.protocol.microsoft import security_descriptor_control
 from ldap3.utils.conv import escape_filter_chars
-from ldap3.core.results import RESULT_INSUFFICIENT_ACCESS_RIGHTS
 
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import logging

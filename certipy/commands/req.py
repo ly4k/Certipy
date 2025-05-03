@@ -2,47 +2,34 @@ import argparse
 import re
 from typing import List, Tuple
 
+import httpx
+from httpx_ntlm import HttpNtlmAuth
 from impacket.dcerpc.v5 import rpcrt
+from impacket.dcerpc.v5.dcom.oaut import string_to_bin
+from impacket.dcerpc.v5.dcomrt import DCOMANSWER, DCOMCALL, DCOMConnection
 from impacket.dcerpc.v5.dtypes import DWORD, LPWSTR, NULL, PBYTE, ULONG
 from impacket.dcerpc.v5.ndr import NDRCALL, NDRSTRUCT
 from impacket.dcerpc.v5.nrpc import checkNullString
 from impacket.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_PRIVACY
-from impacket.dcerpc.v5.dcom.oaut import string_to_bin
-from impacket.dcerpc.v5.dcomrt import DCOMCALL, DCOMANSWER, DCOMConnection
 from impacket.uuid import uuidtup_to_bin
-import httpx
-from httpx_ntlm import HttpNtlmAuth
 
-from certipy.lib.certificate import (
-    cert_id_to_parts,
-    cert_to_pem,
-    create_csr,
-    create_key_archival,
-    create_on_behalf_of,
-    create_pfx,
-    create_renewal,
-    csr_to_der,
-    der_to_cert,
-    der_to_csr,
-    der_to_pem,
-    get_identifications_from_certificate,
-    get_object_sid_from_certificate,
-    key_to_pem,
-    load_pfx,
-    pem_to_cert,
-    pem_to_key,
-    cert_to_der,
-    rsa,
-    x509,
-)
-from certipy.lib.kerberos import HttpxImpacketKerberosAuth
+from certipy.commands.ca import ICertCustom
+from certipy.lib.certificate import (cert_id_to_parts, cert_to_der,
+                                     cert_to_pem, create_csr,
+                                     create_key_archival, create_on_behalf_of,
+                                     create_pfx, create_renewal, csr_to_der,
+                                     der_to_cert, der_to_csr, der_to_pem,
+                                     get_identifications_from_certificate,
+                                     get_object_sid_from_certificate,
+                                     key_to_pem, load_pfx, pem_to_cert,
+                                     pem_to_key, rsa, x509)
+from certipy.lib.constants import OID_TO_STR_MAP
 from certipy.lib.errors import translate_error_code
 from certipy.lib.formatting import print_certificate_identifications
+from certipy.lib.kerberos import HttpxImpacketKerberosAuth
 from certipy.lib.logger import logging
 from certipy.lib.rpc import get_dce_rpc, get_dcom_connection
 from certipy.lib.target import Target
-from certipy.commands.ca import ICertCustom
-from certipy.lib.constants import OID_TO_STR_MAP
 
 from .ca import CA
 

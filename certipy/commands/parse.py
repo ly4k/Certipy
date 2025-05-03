@@ -1,9 +1,9 @@
 import argparse
 import re
-
 from typing import List
-from certipy.lib.registry import RegConnection, RegEntry
+
 from certipy.commands import find
+from certipy.lib.registry import RegConnection, RegEntry
 
 
 class Parse(find.Find):

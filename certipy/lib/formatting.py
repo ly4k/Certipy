@@ -1,5 +1,5 @@
-from typing import Callable, List, Tuple
 import datetime
+from typing import Callable, List, Tuple
 
 from certipy.lib.logger import logging
 

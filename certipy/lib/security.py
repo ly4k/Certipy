@@ -6,13 +6,10 @@ from ldap3.protocol.formatters.formatters import format_sid
 
 INHERITED_ACE = 0x10
 
-from certipy.lib.constants import (
-    ACTIVE_DIRECTORY_RIGHTS,
-    CERTIFICATE_RIGHTS,
-    CERTIFICATION_AUTHORITY_RIGHTS,
-    EXTENDED_RIGHTS_NAME_MAP,
-    ISSUANCE_POLICY_RIGHTS,
-)
+from certipy.lib.constants import (ACTIVE_DIRECTORY_RIGHTS, CERTIFICATE_RIGHTS,
+                                   CERTIFICATION_AUTHORITY_RIGHTS,
+                                   EXTENDED_RIGHTS_NAME_MAP,
+                                   ISSUANCE_POLICY_RIGHTS)
 
 
 class ActiveDirectorySecurity:

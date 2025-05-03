@@ -2,10 +2,10 @@ import ssl
 from typing import Any, List, Union
 
 import ldap3
-from ldap3.core.results import RESULT_STRONGER_AUTH_REQUIRED
 from ldap3.core.exceptions import LDAPSocketOpenError
-from ldap3.protocol.microsoft import security_descriptor_control
+from ldap3.core.results import RESULT_STRONGER_AUTH_REQUIRED
 from ldap3.operation.bind import bind_operation
+from ldap3.protocol.microsoft import security_descriptor_control
 
 from certipy.lib.constants import WELLKNOWN_SIDS
 from certipy.lib.kerberos import get_kerberos_type1

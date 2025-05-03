@@ -36,6 +36,13 @@ def main() -> None:
         default=argparse.SUPPRESS,
         help="Show this help message and exit",
     )
+    _ = parser.add_argument(
+        "-debug",
+        "--debug",
+        action="store_true",
+        help="Enable debug output",
+        default=False,
+    )
 
     subparsers = parser.add_subparsers(help="Action", dest="action", required=True)
 
@@ -51,7 +58,7 @@ def main() -> None:
 
     options = parser.parse_args()
 
-    if options.debug is True:
+    if options.debug:
         logger.logging.setLevel(logging.DEBUG)
     else:
         logger.logging.setLevel(logging.INFO)

@@ -1,5 +1,6 @@
 from typing import List
-from certipy.lib.constants import WELLKNOWN_SIDS, WELLKNOWN_RIDS
+
+from certipy.lib.constants import WELLKNOWN_RIDS, WELLKNOWN_SIDS
 from certipy.lib.ldap import LDAPEntry
 
 

@@ -9,53 +9,36 @@ import tempfile
 from random import getrandbits
 
 import ldap3
-from ldap3.core.exceptions import LDAPUnavailableResult
 from asn1crypto import cms, core
 from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from impacket.dcerpc.v5.rpcrt import TypeSerialization1
 from impacket.examples.ldap_shell import LdapShell as _LdapShell
 from impacket.krb5 import constants
-from impacket.krb5.asn1 import (
-    AD_IF_RELEVANT,
-    AP_REQ,
-    AS_REP,
-    TGS_REP,
-    TGS_REQ,
-    Authenticator,
-    EncASRepPart,
-    EncTicketPart,
-)
+from impacket.krb5.asn1 import (AD_IF_RELEVANT, AP_REQ, AS_REP, TGS_REP,
+                                TGS_REQ, Authenticator, EncASRepPart,
+                                EncTicketPart)
 from impacket.krb5.asn1 import Ticket as TicketAsn1
 from impacket.krb5.asn1 import seq_set, seq_set_iter
 from impacket.krb5.ccache import CCache
 from impacket.krb5.crypto import Key, _enctype_table
 from impacket.krb5.kerberosv5 import KerberosError, sendReceive
-from impacket.krb5.pac import (
-    NTLM_SUPPLEMENTAL_CREDENTIAL,
-    PAC_CREDENTIAL_DATA,
-    PAC_CREDENTIAL_INFO,
-    PAC_INFO_BUFFER,
-    PACTYPE,
-)
+from impacket.krb5.pac import (NTLM_SUPPLEMENTAL_CREDENTIAL,
+                               PAC_CREDENTIAL_DATA, PAC_CREDENTIAL_INFO,
+                               PAC_INFO_BUFFER, PACTYPE)
 from impacket.krb5.types import KerberosTime, Principal, Ticket
+from ldap3.core.exceptions import LDAPUnavailableResult
 from pyasn1.codec.der import decoder, encoder
 from pyasn1.type.univ import noValue
 
-from certipy.lib.certificate import (
-    cert_id_to_parts,
-    cert_to_pem,
-    get_identifications_from_certificate,
-    get_object_sid_from_certificate,
-    hash_digest,
-    hashes,
-    key_to_pem,
-    load_pfx,
-    rsa,
-    x509,
-)
+from certipy.lib.certificate import (cert_id_to_parts, cert_to_pem,
+                                     get_identifications_from_certificate,
+                                     get_object_sid_from_certificate,
+                                     hash_digest, hashes, key_to_pem, load_pfx,
+                                     rsa, x509)
 from certipy.lib.errors import KRB5_ERROR_MESSAGES
 from certipy.lib.logger import logging
-from certipy.lib.pkinit import PA_PK_AS_REP, Enctype, KDCDHKeyInfo, build_pkinit_as_req
+from certipy.lib.pkinit import (PA_PK_AS_REP, Enctype, KDCDHKeyInfo,
+                                build_pkinit_as_req)
 from certipy.lib.target import Target
 
 

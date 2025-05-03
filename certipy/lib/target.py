@@ -1,11 +1,12 @@
+import argparse
 import os
 import platform
 import socket
-import argparse
 
-from certipy.lib.logger import logging
 from dns.resolver import Resolver
 from impacket.krb5.ccache import CCache
+
+from certipy.lib.logger import logging
 
 
 def is_ip(hostname: str | None) -> bool:
