@@ -1,6 +1,24 @@
+"""
+Certificate request module for Certipy.
+
+This module provides functionality for:
+- Requesting certificates from Active Directory Certificate Services (AD CS)
+- Retrieving pending or issued certificates
+- Supporting various request methods (RPC, DCOM, Web Enrollment)
+- Handling certificate templates and custom attributes
+- Supporting certificate renewal, key archival, and on-behalf-of requests
+
+Key components:
+- Request: Main class for certificate operations
+- RequestInterface: Abstract base class for different request protocols
+- RPCRequestInterface: Certificate requests via MS-ICPR
+- DCOMRequestInterface: Certificate requests via DCOM
+- WebRequestInterface: Certificate requests via Web Enrollment
+"""
+
 import argparse
 import re
-from typing import List, Tuple
+from typing import Any, Dict, List, Optional, Protocol, Tuple, Union
 
 import httpx
 from httpx_ntlm import HttpNtlmAuth
@@ -13,7 +31,7 @@ from impacket.dcerpc.v5.nrpc import checkNullString
 from impacket.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_PRIVACY
 from impacket.uuid import uuidtup_to_bin
 
-from certipy.commands.ca import ICertCustom
+from certipy.commands.ca import CA, ICertCustom
 from certipy.lib.certificate import (
     cert_id_to_parts,
     cert_to_der,
@@ -44,18 +62,108 @@ from certipy.lib.logger import logging
 from certipy.lib.rpc import get_dce_rpc, get_dcom_connection
 from certipy.lib.target import Target
 
-from .ca import CA
+#
+# Constants and protocol UUIDs
+#
 
+# MS-ICPR protocol UUID
 MSRPC_UUID_ICPR = uuidtup_to_bin(("91ae6020-9e3c-11cf-8d7c-00aa00c091be", "0.0"))
 
-# https://winprotocoldoc.blob.core.windows.net/productionwindowsarchives/MS-WCCE/[MS-WCCE].pdf
+# DCOM interface identifiers
 CLSID_ICertRequest = string_to_bin("D99E6E74-FC88-11D0-B498-00A0C90312F3")
 IID_ICertRequestD = uuidtup_to_bin(("D99E6E70-FC88-11D0-B498-00A0C90312F3", "0.0"))
+
+# Certificate disposition codes
+DISPOSITION_SUCCESS = 3
+DISPOSITION_PENDING = 5
+
+#
+# Protocol Structures for MS-WCCE and MS-ICPR
+#
+
+
+class CERTTRANSBLOB(NDRSTRUCT):
+    """
+    ASN.1 structure for certificate data transfer.
+
+    Defined in [MS-WCCE] section 2.2.2.2
+    """
+
+    structure = (
+        ("cb", ULONG),  # Size of the pb field
+        ("pb", PBYTE),  # Certificate data
+    )
+
+
+class CertServerRequest(NDRCALL):
+    """
+    RPC interface for certificate requests.
+
+    Defined in [MS-ICPR] section 3.1.4.1
+    """
+
+    opnum = 0
+    structure = (
+        ("dwFlags", DWORD),  # Request flags
+        ("pwszAuthority", LPWSTR),  # CA name
+        ("pdwRequestId", DWORD),  # Request ID
+        ("pctbAttribs", CERTTRANSBLOB),  # Request attributes
+        ("pctbRequest", CERTTRANSBLOB),  # Certificate request data
+    )
+
+
+class CertServerRequestD(DCOMCALL):
+    """
+    DCOM interface for certificate requests.
+
+    Defined in [MS-WCCE] section 3.1.1.4.3
+    """
+
+    opnum = 3
+    structure = (
+        ("dwFlags", DWORD),  # Request flags
+        ("pwszAuthority", LPWSTR),  # CA name
+        ("pdwRequestId", DWORD),  # Request ID
+        ("pwszAttributes", LPWSTR),  # Request attributes
+        ("pctbRequest", CERTTRANSBLOB),  # Certificate request data
+    )
+
+
+class CertServerRequestResponse(NDRCALL):
+    """
+    RPC response structure for certificate requests.
+
+    Defined in [MS-ICPR] section 3.1.4.1
+    """
+
+    structure = (
+        ("pdwRequestId", DWORD),  # Request ID
+        ("pdwDisposition", ULONG),  # Request status
+        ("pctbCert", CERTTRANSBLOB),  # Certificate data
+        ("pctbEncodedCert", CERTTRANSBLOB),  # DER-encoded certificate
+        ("pctbDispositionMessage", CERTTRANSBLOB),  # Error message if applicable
+    )
+
+
+class CertServerRequestDResponse(DCOMANSWER):
+    """
+    DCOM response structure for certificate requests.
+
+    Defined in [MS-WCCE] section 3.1.1.4.3
+    """
+
+    structure = (
+        ("pdwRequestId", DWORD),  # Request ID
+        ("pdwDisposition", ULONG),  # Request status
+        ("pctbCertChain", CERTTRANSBLOB),  # Certificate chain data
+        ("pctbEncodedCert", CERTTRANSBLOB),  # DER-encoded certificate
+        ("pctbDispositionMessage", CERTTRANSBLOB),  # Error message if applicable
+    )
 
 
 class ICertRequestD(ICertCustom):
     """
-    ICertRequestD DCOM interface.
+    ICertRequestD DCOM interface implementation.
     """
 
     def __init__(self, interface):
@@ -64,98 +172,101 @@ class ICertRequestD(ICertCustom):
 
 
 class DCERPCSessionError(rpcrt.DCERPCException):
+    """
+    Custom exception for handling certificate request errors.
+    """
+
     def __init__(self, error_string=None, error_code=None, packet=None):
         rpcrt.DCERPCException.__init__(self, error_string, error_code, packet)
 
     def __str__(self) -> str:
+        """Format the error message with translated error code."""
         self.error_code &= 0xFFFFFFFF  # type: ignore
         error_msg = translate_error_code(self.error_code)
-        return "RequestSessionError: %s" % error_msg
+        return f"RequestSessionError: {error_msg}"
 
 
-# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-wcce/d6bee093-d862-4122-8f2b-7b49102097dc
-class CERTTRANSBLOB(NDRSTRUCT):
-    structure = (
-        ("cb", ULONG),
-        ("pb", PBYTE),
-    )
+#
+# Request Interface Protocol
+#
 
 
-# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-icpr/0c6f150e-3ead-4006-b37f-ebbf9e2cf2e7
-class CertServerRequest(NDRCALL):
-    opnum = 0
-    structure = (
-        ("dwFlags", DWORD),
-        ("pwszAuthority", LPWSTR),
-        ("pdwRequestId", DWORD),
-        ("pctbAttribs", CERTTRANSBLOB),
-        ("pctbRequest", CERTTRANSBLOB),
-    )
+class RequestInterface(Protocol):
+    """
+    Protocol defining the interface for certificate request operations.
 
+    This is the base class for different request methods (RPC, DCOM, Web).
+    """
 
-# https://winprotocoldoc.blob.core.windows.net/productionwindowsarchives/MS-WCCE/[MS-WCCE].pdf
-class CertServerRequestD(DCOMCALL):
-    opnum = 3
-    structure = (
-        ("dwFlags", DWORD),
-        ("pwszAuthority", LPWSTR),
-        ("pdwRequestId", DWORD),
-        ("pwszAttributes", LPWSTR),
-        ("pctbRequest", CERTTRANSBLOB),
-    )
+    parent: "Request"
 
-
-# https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-icpr/0c6f150e-3ead-4006-b37f-ebbf9e2cf2e7
-class CertServerRequestResponse(NDRCALL):
-    structure = (
-        ("pdwRequestId", DWORD),
-        ("pdwDisposition", ULONG),
-        ("pctbCert", CERTTRANSBLOB),
-        ("pctbEncodedCert", CERTTRANSBLOB),
-        ("pctbDispositionMessage", CERTTRANSBLOB),
-    )
-
-
-# https://winprotocoldoc.blob.core.windows.net/productionwindowsarchives/MS-WCCE/[MS-WCCE].pdf
-class CertServerRequestDResponse(DCOMANSWER):
-    structure = (
-        ("pdwRequestId", DWORD),
-        ("pdwDisposition", ULONG),
-        ("pctbCertChain", CERTTRANSBLOB),
-        ("pctbEncodedCert", CERTTRANSBLOB),
-        ("pctbDispositionMessage", CERTTRANSBLOB),
-    )
-
-
-class RequestInterface:
     def __init__(self, parent: "Request"):
+        """
+        Initialize the request interface.
+
+        Args:
+            parent: The parent Request object
+        """
         self.parent = parent
 
-    def retrieve(self, request_id: int) -> x509.Certificate:
-        raise NotImplementedError("Abstract method")
+    def retrieve(self, request_id: int) -> Union[x509.Certificate, None]:
+        """
+        Retrieve a certificate by request ID.
+
+        Args:
+            request_id: The request ID to retrieve
+
+        Returns:
+            Certificate object if successful, None on failure
+        """
+        ...
 
     def request(
-        self,
-        csr: bytes,
-        attributes: List[str],
-    ) -> x509.Certificate:
-        raise NotImplementedError("Abstract method")
+        self, csr: bytes, attributes_list: List[str]
+    ) -> Union[x509.Certificate, None]:
+        """
+        Submit a certificate request.
+
+        Args:
+            csr: Certificate signing request data
+            attributes_list: List of certificate attributes
+
+        Returns:
+            Certificate object if successful, None on failure
+        """
+        ...
 
 
-class DCOMRequestInterface(RequestInterface):
+#
+# Request Interface Implementations
+#
+
+
+class DCOMRequestInterface:
     """
-    Request interface for DCOM.
+    Request interface for DCOM communication with Certificate Services.
     """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._dcom: DCOMConnection | None = None
+    def __init__(self, parent: "Request"):
+        """
+        Initialize the DCOM request interface.
+
+        Args:
+            parent: The parent Request object
+        """
+        self.parent = parent
+        self._dcom: Optional[DCOMConnection] = None
 
     @property
     def dcom(self) -> DCOMConnection:
         """
-        Establish a DCOM connection to the target using certipy's get_dcom_connection
-        function.
+        Get or establish a DCOM connection to the certificate authority.
+
+        Returns:
+            Active DCOM connection
+
+        Raises:
+            Exception: If target is not set or connection fails
         """
         if self._dcom is not None:
             return self._dcom
@@ -166,16 +277,22 @@ class DCOMRequestInterface(RequestInterface):
         self._dcom = get_dcom_connection(self.parent.target)
         return self._dcom
 
-    def retrieve(self, request_id: int) -> x509.Certificate | None:
+    def retrieve(self, request_id: int) -> Optional[x509.Certificate]:
         """
-        Retrieve an already requested certificate via request_id. Only the first
-        few lines until the cert_req_d.request were modified. The rest is the
-        same code as for the RPC interface.
+        Retrieve a certificate by request ID via DCOM.
+
+        Args:
+            request_id: The request ID to retrieve
+
+        Returns:
+            Certificate object if successful, None on failure
         """
+        # Prepare empty blob for request
         empty = CERTTRANSBLOB()
         empty["cb"] = 0
         empty["pb"] = NULL
 
+        # Build the request structure
         request = CertServerRequestD()
         request["dwFlags"] = 0
         request["pwszAuthority"] = checkNullString(self.parent.ca)
@@ -183,138 +300,170 @@ class DCOMRequestInterface(RequestInterface):
         request["pwszAttributes"] = empty
         request["pctbRequest"] = empty
 
-        logging.info(f"Rerieving certificate with ID {request_id}")
+        logging.info(f"Retrieving certificate with ID {request_id}")
 
+        # Create and configure the DCOM interface
         i_cert_req = self.dcom.CoCreateInstanceEx(CLSID_ICertRequest, IID_ICertRequestD)
         i_cert_req.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)  # type: ignore
 
+        # Submit the request
         cert_req_d = ICertRequestD(i_cert_req)
         response = cert_req_d.request(request)
 
+        # Process the response
         error_code = response["pdwDisposition"]
 
-        if error_code == 3:
+        if error_code == DISPOSITION_SUCCESS:
             logging.info("Successfully retrieved certificate")
+            # Convert the returned certificate data
+            cert = der_to_cert(b"".join(response["pctbEncodedCert"]["pb"]))
+            return cert
+
+        elif error_code == DISPOSITION_PENDING:
+            logging.warning("Certificate request is still pending approval")
         else:
-            if error_code == 5:
-                logging.warning("Certificate request is still pending approval")
+            # Handle error case
+            error_msg = translate_error_code(error_code)
+            if "unknown error code" in error_msg:
+                logging.error(
+                    f"Got unknown error while trying to retrieve certificate: ({error_msg}): "
+                    f"{b''.join(response['pctbDispositionMessage']['pb']).decode('utf-16le')}"
+                )
             else:
-                error_msg = translate_error_code(error_code)
-                if "unknown error code" in error_msg:
-                    logging.error(
-                        "Got unknown error while trying to retrieve certificate: (%s): %s"
-                        % (
-                            error_msg,
-                            b"".join(response["pctbDispositionMessage"]["pb"]).decode(
-                                "utf-16le"
-                            ),
-                        )
-                    )
-                else:
-                    logging.error(
-                        "Got error while trying to retrieve certificate: %s" % error_msg
-                    )
+                logging.error(
+                    f"Got error while trying to retrieve certificate: {error_msg}"
+                )
 
-            return None
-
-        cert = der_to_cert(b"".join(response["pctbEncodedCert"]["pb"]))
-
-        return cert
+        return None
 
     def request(
         self, csr: bytes, attributes_list: List[str]
-    ) -> x509.Certificate | None:
+    ) -> Optional[x509.Certificate]:
         """
-        Request a new certificate via CSR. Only the first few lines until the
-        cert_req_d.request were modified. The rest is the same code as for the
-        RPC interface.
+        Submit a certificate request via DCOM.
+
+        Args:
+            csr: Certificate signing request data
+            attributes_list: List of certificate attributes
+
+        Returns:
+            Certificate object if successful, None on failure
         """
+        # Format attributes
         attributes = checkNullString("\n".join(attributes_list))
 
+        # Prepare the certificate request data
         pctb_request = CERTTRANSBLOB()
         pctb_request["cb"] = len(csr)
         pctb_request["pb"] = csr
 
+        # Build the request structure
         request = CertServerRequestD()
         request["dwFlags"] = 0
         request["pwszAuthority"] = checkNullString(self.parent.ca)
-        request["pdwRequestId"] = self.parent.request_id
+        request["pdwRequestId"] = self.parent.request_id or 0
         request["pwszAttributes"] = attributes
         request["pctbRequest"] = pctb_request
 
         logging.info("Requesting certificate via DCOM")
 
+        # Create and configure the DCOM interface
         i_cert_req = self.dcom.CoCreateInstanceEx(CLSID_ICertRequest, IID_ICertRequestD)
         i_cert_req.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)  # type: ignore
 
+        # Submit the request
         cert_req_d = ICertRequestD(i_cert_req)
         response = cert_req_d.request(request)
 
+        # Process the response
         error_code = response["pdwDisposition"]
         request_id = response["pdwRequestId"]
 
-        if error_code == 3:
+        if error_code == DISPOSITION_SUCCESS:
             logging.info("Successfully requested certificate")
+            cert = der_to_cert(b"".join(response["pctbEncodedCert"]["pb"]))
+            logging.info(f"Request ID is {request_id}")
+            return cert
 
+        # Handle non-successful responses
+        if error_code == DISPOSITION_PENDING:
+            logging.warning("Certificate request is pending approval")
         else:
-            if error_code == 5:
-                logging.warning("Certificate request is pending approval")
-            else:
-                error_msg = translate_error_code(error_code)
-                if "unknown error code" in error_msg:
-                    logging.error(
-                        "Got unknown error while trying to request certificate: (%s): %s"
-                        % (
-                            error_msg,
-                            b"".join(response["pctbDispositionMessage"]["pb"]).decode(
-                                "utf-16le"
-                            ),
-                        )
-                    )
-                else:
-                    logging.error(
-                        "Got error while trying to request certificate: %s" % error_msg
-                    )
-
-        logging.info("Request ID is %d" % request_id)
-
-        if error_code != 3:
-            should_save = input(
-                "Would you like to save the private key? (y/N) "
-            ).rstrip("\n")
-
-            if should_save.lower() == "y":
-                out = (
-                    self.parent.out if self.parent.out is not None else str(request_id)
+            error_msg = translate_error_code(error_code)
+            if "unknown error code" in error_msg:
+                logging.error(
+                    f"Got unknown error while trying to request certificate: ({error_msg}): "
+                    f"{b''.join(response['pctbDispositionMessage']['pb']).decode('utf-16le')}"
                 )
-                with open("%s.key" % out, "wb") as f:
+            else:
+                logging.error(
+                    f"Got error while trying to request certificate: {error_msg}"
+                )
+
+        logging.info(f"Request ID is {request_id}")
+
+        # Ask if the user wants to save the private key for pending requests
+        self._handle_pending_key_save(request_id)
+
+        return None
+
+    def _handle_pending_key_save(self, request_id: int) -> None:
+        """
+        Handle saving the private key for pending requests.
+
+        Args:
+            request_id: The certificate request ID
+        """
+        should_save = input("Would you like to save the private key? (y/N) ").rstrip(
+            "\n"
+        )
+
+        if should_save.lower() == "y":
+            out = self.parent.out if self.parent.out is not None else str(request_id)
+
+            try:
+                with open(f"{out}.key", "wb") as f:
                     if self.parent.key is None:
                         logging.error("No private key found")
-                        return None
+                        return
 
                     _ = f.write(key_to_pem(self.parent.key))
 
-                logging.info("Saved private key to %s.key" % out)
-
-            return None
-
-        cert = der_to_cert(b"".join(response["pctbEncodedCert"]["pb"]))
-
-        return cert
+                logging.info(f"Saved private key to {out}.key")
+            except Exception as e:
+                logging.error(f"Failed to save private key: {str(e)}")
 
 
-class RPCRequestInterface(RequestInterface):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+class RPCRequestInterface:
+    """
+    Request interface for RPC communication with Certificate Services.
+    """
 
+    def __init__(self, parent: "Request"):
+        """
+        Initialize the RPC request interface.
+
+        Args:
+            parent: The parent Request object
+        """
+        self.parent = parent
         self._dce = None
 
     @property
-    def dce(self) -> rpcrt.DCERPC_v5 | None:
+    def dce(self) -> Optional[rpcrt.DCERPC_v5]:
+        """
+        Get or establish an RPC connection to the certificate authority.
+
+        Returns:
+            Active RPC connection
+
+        Raises:
+            Exception: If target is not set or connection fails
+        """
         if self._dce is not None:
             return self._dce
 
-        if MSRPC_UUID_ICPR is None:
+        if not MSRPC_UUID_ICPR:
             # Should never happen
             raise Exception("Failed to get MSRPC UUID for ICertRequest")
 
@@ -323,7 +472,7 @@ class RPCRequestInterface(RequestInterface):
 
         self._dce = get_dce_rpc(
             MSRPC_UUID_ICPR,
-            r"\pipe\cert",
+            "\\pipe\\cert",
             self.parent.target,
             timeout=self.parent.target.timeout,
             dynamic=self.parent.dynamic,
@@ -332,12 +481,47 @@ class RPCRequestInterface(RequestInterface):
 
         return self._dce
 
-    def retrieve(self, request_id: int) -> x509.Certificate:
+    def dce_request(self, request: NDRCALL) -> Dict[str, Any]:
+        """
+        Send a DCE RPC request and handle the response.
 
+        This wrapper method properly handles the DCE RPC request to ensure static
+        code analysis tools correctly understand the return value. The underlying
+        impacket.dcerpc.v5.rpcrt.DCERPC_v5.request method has type annotation
+        issues that cause some analyzers to think it never returns.
+
+        Args:
+            request: The RPC request structure to send
+
+        Returns:
+            Dict containing the parsed response
+
+        Raises:
+            Exception: If the DCE RPC connection isn't established or request fails
+        """
+        if self.dce is None:
+            raise Exception("Failed to get DCE RPC connection")
+
+        # Call the underlying request method with error checking disabled
+        # We manually handle errors to provide better error messages
+        return self.dce.request(request, checkError=False)
+
+    def retrieve(self, request_id: int) -> Optional[x509.Certificate]:
+        """
+        Retrieve a certificate by request ID via RPC.
+
+        Args:
+            request_id: The request ID to retrieve
+
+        Returns:
+            Certificate object if successful, False on failure
+        """
+        # Prepare empty blob for request
         empty = CERTTRANSBLOB()
         empty["cb"] = 0
         empty["pb"] = NULL
 
+        # Build the request structure
         request = CertServerRequest()
         request["dwFlags"] = 0
         request["pwszAuthority"] = checkNullString(self.parent.ca)
@@ -345,61 +529,67 @@ class RPCRequestInterface(RequestInterface):
         request["pctbAttribs"] = empty
         request["pctbRequest"] = empty
 
-        logging.info("Retrieving certificate with ID %d" % request_id)
+        logging.info(f"Retrieving certificate with ID {request_id}")
 
-        if self.dce is None:
-            raise Exception("Failed to get DCE RPC connection")
+        # Submit the request
+        response = self.dce_request(request)
 
-        response = self.dce.request(request, checkError=False)
-
+        # Process the response
         error_code = response["pdwDisposition"]
 
-        if error_code == 3:
+        if error_code == DISPOSITION_SUCCESS:
             logging.info("Successfully retrieved certificate")
+            cert = der_to_cert(b"".join(response["pctbEncodedCert"]["pb"]))
+            return cert
+
+        elif error_code == DISPOSITION_PENDING:
+            logging.warning("Certificate request is still pending approval")
         else:
-            if error_code == 5:
-                logging.warning("Certificate request is still pending approval")
+            # Handle error case
+            error_msg = translate_error_code(error_code)
+            if "unknown error code" in error_msg:
+                logging.error(
+                    f"Got unknown error while trying to retrieve certificate: ({error_msg}): "
+                    f"{b''.join(response['pctbDispositionMessage']['pb']).decode('utf-16le')}"
+                )
             else:
-                error_msg = translate_error_code(error_code)
-                if "unknown error code" in error_msg:
-                    logging.error(
-                        "Got unknown error while trying to retrieve certificate: (%s): %s"
-                        % (
-                            error_msg,
-                            b"".join(response["pctbDispositionMessage"]["pb"]).decode(
-                                "utf-16le"
-                            ),
-                        )
-                    )
-                else:
-                    logging.error(
-                        "Got error while trying to retrieve certificate: %s" % error_msg
-                    )
+                logging.error(
+                    f"Got error while trying to retrieve certificate: {error_msg}"
+                )
 
-            return False
-
-        cert = der_to_cert(b"".join(response["pctbEncodedCert"]["pb"]))
-
-        return cert
+        return None
 
     def request(
-        self,
-        csr: bytes,
-        attributes_list: List[str],
-    ) -> x509.Certificate:
+        self, csr: bytes, attributes_list: List[str]
+    ) -> Optional[x509.Certificate]:
+        """
+        Submit a certificate request via RPC.
+
+        Args:
+            csr: Certificate signing request data
+            attributes_list: List of certificate attributes
+
+        Returns:
+            Certificate object if successful, False on failure
+        """
+        # Format attributes
         attributes = checkNullString("\n".join(attributes_list)).encode("utf-16le")
+
+        # Prepare attribute blob
         pctb_attribs = CERTTRANSBLOB()
         pctb_attribs["cb"] = len(attributes)
         pctb_attribs["pb"] = attributes
 
+        # Prepare request blob
         pctb_request = CERTTRANSBLOB()
         pctb_request["cb"] = len(csr)
         pctb_request["pb"] = csr
 
+        # Build the request structure
         request = CertServerRequest()
         request["dwFlags"] = 0
         request["pwszAuthority"] = checkNullString(self.parent.ca)
-        request["pdwRequestId"] = self.parent.request_id
+        request["pdwRequestId"] = self.parent.request_id or 0
         request["pctbAttribs"] = pctb_attribs
         request["pctbRequest"] = pctb_request
 
@@ -408,74 +598,89 @@ class RPCRequestInterface(RequestInterface):
         if self.dce is None:
             raise Exception("Failed to get DCE RPC connection")
 
-        response = self.dce.request(request)
+        # Submit the request
+        response = self.dce_request(request)
 
+        # Process the response
         error_code = response["pdwDisposition"]
         request_id = response["pdwRequestId"]
 
-        if error_code == 3:
+        if error_code == DISPOSITION_SUCCESS:
             logging.info("Successfully requested certificate")
+            cert = der_to_cert(b"".join(response["pctbEncodedCert"]["pb"]))
+            logging.info(f"Request ID is {request_id}")
+            return cert
+
+        # Handle non-successful responses
+        if error_code == DISPOSITION_PENDING:
+            logging.warning("Certificate request is pending approval")
         else:
-            if error_code == 5:
-                logging.warning("Certificate request is pending approval")
-            else:
-                error_msg = translate_error_code(error_code)
-                if "unknown error code" in error_msg:
-                    logging.error(
-                        "Got unknown error while trying to request certificate: (%s): %s"
-                        % (
-                            error_msg,
-                            b"".join(response["pctbDispositionMessage"]["pb"]).decode(
-                                "utf-16le"
-                            ),
-                        )
-                    )
-                else:
-                    logging.error(
-                        "Got error while trying to request certificate: %s" % error_msg
-                    )
-
-        logging.info("Request ID is %d" % request_id)
-
-        if error_code != 3:
-            should_save = input(
-                "Would you like to save the private key? (y/N) "
-            ).rstrip("\n")
-
-            if should_save.lower() == "y":
-                out = (
-                    self.parent.out if self.parent.out is not None else str(request_id)
+            error_msg = translate_error_code(error_code)
+            if "unknown error code" in error_msg:
+                logging.error(
+                    f"Got unknown error while trying to request certificate: ({error_msg}): "
+                    f"{b''.join(response['pctbDispositionMessage']['pb']).decode('utf-16le')}"
                 )
-                with open("%s.key" % out, "wb") as f:
-                    f.write(key_to_pem(self.parent.key))
+            else:
+                logging.error(
+                    f"Got error while trying to request certificate: {error_msg}"
+                )
 
-                logging.info("Saved private key to %s.key" % out)
+        logging.info(f"Request ID is {request_id}")
 
-            return False
+        # Ask if the user wants to save the private key for pending requests
+        should_save = input("Would you like to save the private key? (y/N) ").rstrip(
+            "\n"
+        )
 
-        cert = der_to_cert(b"".join(response["pctbEncodedCert"]["pb"]))
+        if should_save.lower() == "y":
+            out = self.parent.out if self.parent.out is not None else str(request_id)
+            with open(f"{out}.key", "wb") as f:
+                if self.parent.key is None:
+                    logging.error("No private key found")
+                    return None
+                _ = f.write(key_to_pem(self.parent.key))
 
-        return cert
+            logging.info(f"Saved private key to {out}.key")
+
+        return None
 
 
-class WebRequestInterface(RequestInterface):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+class WebRequestInterface:
+    """
+    Request interface for Web Enrollment communication with Certificate Services.
+    """
 
+    def __init__(self, parent: "Request"):
+        """
+        Initialize the Web Enrollment request interface.
+
+        Args:
+            parent: The parent Request object
+        """
+        self.parent = parent
         self.target = self.parent.target
-
         self._session = None
         self.base_url = ""
 
     @property
-    def session(self) -> httpx.Client | None:
+    def session(self) -> Optional[httpx.Client]:
+        """
+        Get or establish an HTTP session to the certificate authority.
+
+        Returns:
+            Active HTTP session, or None if connection failed
+
+        Raises:
+            Exception: If target is not set or connection fails
+        """
         if self._session is not None:
             return self._session
 
         if self.target is None:
             raise Exception("Target is not set")
 
-        # Create a session with httpx
+        # Create a session with httpx with appropriate authentication
         if self.target.do_kerberos:
             session = httpx.Client(
                 auth=HttpxImpacketKerberosAuth(self.target),
@@ -483,24 +688,58 @@ class WebRequestInterface(RequestInterface):
                 verify=False,
             )
         else:
+            # NTLM authentication
             password = self.target.password
             if self.target.nthash:
-                password = "%s:%s" % (self.target.nthash, self.target.nthash)
+                password = f"{self.target.nthash}:{self.target.nthash}"
 
-            principal = "%s\\%s" % (self.target.domain, self.target.username)
+            principal = f"{self.target.domain}\\{self.target.username}"
             session = httpx.Client(
                 auth=HttpNtlmAuth(principal, password),
                 timeout=self.target.timeout,
                 verify=False,
             )
 
-        scheme = self.parent.scheme
-        port = self.parent.port
-        base_url = "%s://%s:%i" % (scheme, self.target.target_ip, port)
-        logging.info("Checking for Web Enrollment on %s" % repr(base_url))
+        # Try the specified scheme and port first
+        scheme = self.parent.scheme or "https"
+        port = self.parent.port or (443 if scheme == "https" else 80)
 
-        success = False
+        base_url = f"{scheme}://{self.target.target_ip}:{port}"
+        logging.info(f"Checking for Web Enrollment on {repr(base_url)}")
 
+        success = self._try_connection(session, base_url)
+
+        # If the first attempt fails, try the alternative scheme
+        if not success:
+            alt_scheme = "http" if scheme == "https" else "https"
+            alt_port = 80 if alt_scheme == "http" else 443
+
+            base_url = f"{alt_scheme}://{self.target.target_ip}:{alt_port}"
+            logging.info(
+                f"Trying to connect to Web Enrollment interface {repr(base_url)}"
+            )
+
+            success = self._try_connection(session, base_url)
+
+        if not success:
+            logging.error("Could not connect to Web Enrollment")
+            return None
+
+        self.base_url = base_url
+        self._session = session
+        return self._session
+
+    def _try_connection(self, session: httpx.Client, base_url: str) -> bool:
+        """
+        Try to connect to the Web Enrollment interface.
+
+        Args:
+            session: HTTP session to use
+            base_url: Base URL to connect to
+
+        Returns:
+            True if connection was successful, False otherwise
+        """
         headers = {}
         host_value = self.target.remote_name or self.target.target_ip
         if host_value:
@@ -508,74 +747,46 @@ class WebRequestInterface(RequestInterface):
 
         try:
             res = session.get(
-                "%s/certsrv/" % base_url,
+                f"{base_url}/certsrv/",
                 headers=headers,
                 timeout=self.target.timeout,
                 follow_redirects=False,
             )
-        except Exception as e:
-            logging.warning("Failed to connect to Web Enrollment interface: %s" % e)
-        else:
+
             if res.status_code == 200:
-                success = True
+                return True
             elif res.status_code == 401:
-                logging.error("Unauthorized for Web Enrollment at %s" % repr(base_url))
-                return None
+                logging.error(f"Unauthorized for Web Enrollment at {repr(base_url)}")
             else:
                 logging.warning(
-                    "Failed to authenticate to Web Enrollment at %s" % repr(base_url)
+                    f"Failed to authenticate to Web Enrollment at {repr(base_url)}"
                 )
-                logging.debug("Got status code: %s" % repr(res.status_code))
-                logging.debug("HTML Response:\n%s" % repr(res.content))
+                logging.debug(f"Got status code: {repr(res.status_code)}")
+                logging.debug(f"HTML Response:\n{repr(res.content)}")
 
-        if not success:
-            scheme = "https" if scheme == "http" else "http"
-            port = 80 if scheme == "http" else 443
-            base_url = "%s://%s:%i" % (scheme, self.target.target_ip, port)
-            logging.info(
-                "Trying to connect to Web Enrollment interface %s" % repr(base_url)
-            )
+        except Exception as e:
+            logging.warning(f"Failed to connect to Web Enrollment interface: {e}")
 
-            try:
-                res = session.get(
-                    "%s/certsrv/" % base_url,
-                    headers=headers,
-                    timeout=self.target.timeout,
-                    follow_redirects=False,
-                )
-            except Exception as e:
-                logging.warning("Failed to connect to Web Enrollment interface: %s" % e)
-                return None
-            else:
-                if res.status_code == 200:
-                    success = True
-                elif res.status_code == 401:
-                    logging.error(
-                        "Unauthorized for Web Enrollment at %s" % repr(base_url)
-                    )
-                else:
-                    logging.warning(
-                        "Failed to authenticate to Web Enrollment at %s"
-                        % repr(base_url)
-                    )
-                    logging.debug("Got status code: %s" % repr(res.status_code))
-                    logging.debug("HTML Response:\n%s" % repr(res.content))
+        return False
 
-        if not success:
-            return None
+    def retrieve(self, request_id: int) -> Optional[x509.Certificate]:
+        """
+        Retrieve a certificate by request ID via Web Enrollment.
 
-        self.base_url = base_url
-        self._session = session
-        return self._session
+        Args:
+            request_id: The request ID to retrieve
 
-    def retrieve(self, request_id: int) -> x509.Certificate | None:
-        logging.info("Retrieving certificate for request ID: %d" % request_id)
+        Returns:
+            Certificate object if successful, None on failure
+        """
+        logging.info(f"Retrieving certificate for request ID: {request_id}")
 
         if self.session is None:
             raise Exception("Failed to get HTTP session")
 
+        # Request the certificate
         res = self.session.get(
-            "%s/certsrv/certnew.cer" % self.base_url, params={"ReqID": request_id}
+            f"{self.base_url}/certsrv/certnew.cer", params={"ReqID": request_id}
         )
 
         if res.status_code != 200:
@@ -588,21 +799,26 @@ class WebRequestInterface(RequestInterface):
                 )
             return None
 
+        # Handle PEM and DER format responses
         if b"BEGIN CERTIFICATE" in res.content:
+            # Certificate in PEM format
             cert = pem_to_cert(res.content)
+            return cert
         else:
+            # Not a certificate - process the error
             content = res.text
             if "Taken Under Submission" in content:
                 logging.warning("Certificate request is pending approval")
             elif "The requested property value is empty" in content:
-                logging.warning("Unknown request ID %d" % request_id)
+                logging.warning(f"Unknown request ID {request_id}")
             else:
+                # Try to extract error code
                 error_code = re.findall(r" (0x[0-9a-fA-F]+) \(", content)
                 try:
-                    error_code = int(error_code[0], 16)
-                    msg = translate_error_code(error_code)
-                    logging.warning("Got error from AD CS: %s" % msg)
-                except:
+                    error_code_int = int(error_code[0], 16)
+                    msg = translate_error_code(error_code_int)
+                    logging.warning(f"Got error from AD CS: {msg}")
+                except Exception:
                     if self.parent.verbose:
                         logging.warning("Got unknown error from AD CS:")
                         print(content)
@@ -610,27 +826,35 @@ class WebRequestInterface(RequestInterface):
                         logging.warning(
                             "Got unknown error from AD CS. Use -debug to print the response"
                         )
-
             return None
 
-        return cert
-
     def request(
-        self,
-        csr_bytes: bytes,
-        attributes_list: List[str],
-    ) -> x509.Certificate | None:
+        self, csr: bytes, attributes_list: List[str]
+    ) -> Optional[x509.Certificate]:
+        """
+        Submit a certificate request via Web Enrollment.
+
+        Args:
+            csr_bytes: Certificate signing request data
+            attributes_list: List of certificate attributes
+
+        Returns:
+            Certificate object if successful, None on failure
+        """
         if self.session is None:
             raise Exception("Failed to get HTTP session")
 
-        csr = der_to_pem(csr_bytes, "CERTIFICATE REQUEST")
+        # Convert CSR from DER to PEM format
+        csr_pem = der_to_pem(csr, "CERTIFICATE REQUEST")
 
+        # Join attributes
         attributes = "\n".join(attributes_list)
 
+        # Prepare request parameters
         params = {
             "Mode": "newreq",
             "CertAttrib": attributes,
-            "CertRequest": csr,
+            "CertRequest": csr_pem,
             "TargetStoreFlags": "0",
             "SaveCert": "yes",
             "ThumbPrint": "",
@@ -638,7 +862,8 @@ class WebRequestInterface(RequestInterface):
 
         logging.info("Requesting certificate via Web Enrollment")
 
-        res = self.session.post("%s/certsrv/certfnsh.asp" % self.base_url, data=params)
+        # Submit the request
+        res = self.session.post(f"{self.base_url}/certsrv/certfnsh.asp", data=params)
         content = res.text
 
         if res.status_code != 200:
@@ -649,125 +874,196 @@ class WebRequestInterface(RequestInterface):
                 logging.warning("Use -debug to print the response")
             return None
 
-        request_id = re.findall(r"certnew.cer\?ReqID=([0-9]+)&", content)
-        if not request_id:
-            if "template that is not supported" in content:
-                logging.error(
-                    "Template %s is not supported by AD CS" % repr(self.parent.template)
-                )
-                return None
-            else:
-                request_id = re.findall(r"Your Request Id is ([0-9]+)", content)
-                if len(request_id) != 1:
-                    logging.error("Failed to get request id from response")
-                    request_id = None
-                else:
-                    request_id = int(request_id[0])
+        # Try to extract the request ID
+        request_id_matches = re.findall(r"certnew.cer\?ReqID=([0-9]+)&", content)
 
-                    logging.info("Request ID is %d" % request_id)
+        # If request ID found, certificate was issued immediately
+        if request_id_matches:
+            request_id = int(request_id_matches[0])
+            logging.info(f"Request ID is {request_id}")
+            return self.retrieve(request_id)
 
+        # Handle pending or failed requests
+        request_id = None
+
+        # Check for pending requests
+        if "template that is not supported" in content:
+            logging.error(
+                f"Template {repr(self.parent.template)} is not supported by AD CS"
+            )
+        else:
+            # Try to find request ID in other format
+            request_id_matches = re.findall(r"Your Request Id is ([0-9]+)", content)
+            if request_id_matches:
+                request_id = int(request_id_matches[0])
+                logging.info(f"Request ID is {request_id}")
+
+                # Check for different error conditions
                 if "Certificate Pending" in content:
                     logging.warning("Certificate request is pending approval")
                 elif '"Denied by Policy Module"' in content:
-                    res = self.session.get(
-                        "%s/certsrv/certnew.cer" % self.base_url,
-                        params={"ReqID": request_id},
-                    )
-                    try:
-                        error_codes = re.findall(
-                            r"(0x[a-zA-Z0-9]+) \([-]?[0-9]+ ",
-                            res.text,
-                            flags=re.MULTILINE,
-                        )
-
-                        error_msg = translate_error_code(int(error_codes[0], 16))
-                        logging.error(
-                            "Got error while trying to request certificate: %s"
-                            % error_msg
-                        )
-                    except:
-                        logging.warning("Got unknown error from AD CS:")
-                        if self.parent.verbose:
-                            print(res.text)
-                        else:
-                            logging.warning("Use -debug to print the response")
+                    self._handle_policy_denial(request_id)
                 else:
-                    error_code = re.findall(
-                        r"Denied by Policy Module  (0x[0-9a-fA-F]+),", content
-                    )
-                    try:
-                        error_code = int(error_code[0], 16)
-                        msg = translate_error_code(error_code)
-                        logging.warning("Got error from AD CS: %s" % msg)
-                    except:
-                        logging.warning("Got unknown error from AD CS:")
-                        if self.parent.verbose:
-                            print(content)
-                        else:
-                            logging.warning("Use -debug to print the response")
+                    self._handle_other_errors(content)
 
-            if request_id is None:
-                return None
+        # Save private key if there's a request ID
+        if request_id is not None:
+            self._handle_pending_key_save(request_id)
 
-            should_save = input(
-                "Would you like to save the private key? (y/N) "
-            ).rstrip("\n")
+        return None
 
-            if should_save.lower() == "y":
-                out = (
-                    self.parent.out if self.parent.out is not None else str(request_id)
-                )
-                with open("%s.key" % out, "wb") as f:
+    def _handle_policy_denial(self, request_id: int) -> None:
+        """
+        Handle certificate request denied by policy.
+
+        Args:
+            request_id: The certificate request ID
+        """
+        if self.session is None:
+            raise Exception("Failed to get HTTP session")
+
+        res = self.session.get(
+            f"{self.base_url}/certsrv/certnew.cer", params={"ReqID": request_id}
+        )
+
+        try:
+            error_codes = re.findall(
+                r"(0x[a-zA-Z0-9]+) \([-]?[0-9]+ ",
+                res.text,
+                flags=re.MULTILINE,
+            )
+
+            error_msg = translate_error_code(int(error_codes[0], 16))
+            logging.error(f"Got error while trying to request certificate: {error_msg}")
+        except Exception:
+            logging.warning("Got unknown error from AD CS:")
+            if self.parent.verbose:
+                print(res.text)
+            else:
+                logging.warning("Use -debug to print the response")
+
+    def _handle_other_errors(self, content: str) -> None:
+        """
+        Handle other certificate request errors.
+
+        Args:
+            content: Response content
+        """
+        error_code_matches = re.findall(
+            r"Denied by Policy Module  (0x[0-9a-fA-F]+),", content
+        )
+
+        try:
+            error_code = int(error_code_matches[0], 16)
+            msg = translate_error_code(error_code)
+            logging.warning(f"Got error from AD CS: {msg}")
+        except Exception:
+            logging.warning("Got unknown error from AD CS:")
+            if self.parent.verbose:
+                print(content)
+            else:
+                logging.warning("Use -debug to print the response")
+
+    def _handle_pending_key_save(self, request_id: int) -> None:
+        """
+        Handle saving the private key for pending requests.
+
+        Args:
+            request_id: The certificate request ID
+        """
+        should_save = input("Would you like to save the private key? (y/N) ").rstrip(
+            "\n"
+        )
+
+        if should_save.lower() == "y":
+            out = self.parent.out if self.parent.out is not None else str(request_id)
+
+            try:
+                with open(f"{out}.key", "wb") as f:
                     if self.parent.key is None:
                         logging.error("No private key found")
-                        return None
+                        return
+
                     _ = f.write(key_to_pem(self.parent.key))
 
-                logging.info("Saved private key to %s.key" % out)
+                logging.info(f"Saved private key to {out}.key")
+            except Exception as e:
+                logging.error(f"Failed to save private key: {str(e)}")
 
-            return None
 
-        if len(request_id) == 0:
-            logging.error("Failed to get request id from response")
-            return None
-
-        request_id = int(request_id[0])
-
-        logging.info("Request ID is %d" % request_id)
-
-        return self.retrieve(request_id)
+#
+# Main Request class
+#
 
 
 class Request:
+    """
+    Main class for certificate operations with AD CS.
+
+    This class provides functionality for requesting, retrieving, and managing
+    certificates from Active Directory Certificate Services.
+    """
+
     def __init__(
         self,
-        target: Target | None = None,
-        ca: str | None = None,
-        template: str | None = None,
-        upn: str | None = None,
-        dns: str | None = None,
-        sid: str | None = None,
-        subject: str | None = None,
-        retrieve: int | None = None,
-        on_behalf_of: str | None = None,
-        pfx: str | None = None,
-        pfx_password: str | None = None,
+        target: Target,
+        ca: Optional[str] = None,
+        template: Optional[str] = None,
+        upn: Optional[str] = None,
+        dns: Optional[str] = None,
+        sid: Optional[str] = None,
+        subject: Optional[str] = None,
+        retrieve: Optional[int] = None,
+        on_behalf_of: Optional[str] = None,
+        pfx: Optional[str] = None,
+        pfx_password: Optional[str] = None,
         key_size: int = 2048,
         archive_key: bool = False,
         cax_cert: bool = False,
         renew: bool = False,
-        out: str | None = None,
-        key: rsa.RSAPrivateKey | None = None,
+        out: Optional[str] = None,
+        key: Optional[rsa.RSAPrivateKey] = None,
         web: bool = False,
         dcom: bool = False,
-        port: int | None = None,
-        scheme: str | None = None,
+        port: Optional[int] = None,
+        scheme: Optional[str] = None,
         dynamic_endpoint: bool = False,
-        debug=False,
-        application_policies: List[str] | None = None,
-        smime: str | None = None,
+        debug: bool = False,
+        application_policies: Optional[List[str]] = None,
+        smime: Optional[str] = None,
         **kwargs,
     ):
+        """
+        Initialize a certificate request object.
+
+        Args:
+            target: Target information including host and authentication
+            ca: Certificate Authority name
+            template: Certificate template name
+            upn: Alternative UPN (User Principal Name)
+            dns: Alternative DNS name
+            sid: Alternative SID (Security Identifier)
+            subject: Certificate subject name
+            retrieve: Request ID to retrieve
+            on_behalf_of: Username to request on behalf of
+            pfx: Path to PKCS#12/PFX file
+            pfx_password: Password for PFX file
+            key_size: RSA key size in bits
+            archive_key: Whether to archive the private key
+            cax_cert: Whether to retrieve the CAX certificate
+            renew: Whether to renew an existing certificate
+            out: Output file path
+            key: Pre-generated RSA key
+            web: Use Web Enrollment instead of RPC
+            dcom: Use DCOM instead of RPC
+            port: Port for Web Enrollment
+            scheme: Scheme for Web Enrollment (http/https)
+            dynamic_endpoint: Use dynamic RPC endpoint
+            debug: Enable verbose debug output
+            application_policies: List of application policy OIDs
+            smime: SMIME capability identifier
+        """
+        # Core parameters
         self.target = target
         self.ca = ca
         self.template = template
@@ -785,69 +1081,87 @@ class Request:
         self.renew = renew
         self.out = out
         self.key = key
+
+        # Convert application policy names to OIDs
         self.application_policies = [
             OID_TO_STR_MAP.get(policy, policy)
             for policy in (application_policies or [])
         ]
         self.smime = smime
 
+        # Connection parameters
         self.web = web
         self.dcom = dcom
         self.port = port
         self.scheme = scheme
 
-        self.dynamic = dynamic_endpoint
-        self.verbose = debug
-        self.kwargs = kwargs
-
+        # Handle default ports based on scheme
         if not self.port and self.scheme:
             if self.scheme == "http":
                 self.port = 80
             elif self.scheme == "https":
                 self.port = 443
 
-        self._dce = None
+        # Debug options
+        self.dynamic = dynamic_endpoint
+        self.verbose = debug
+        self.kwargs = kwargs
 
+        # Interface is initialized on demand
         self._interface = None
 
     @property
     def interface(self) -> RequestInterface:
+        """
+        Get the appropriate request interface based on configuration.
+
+        Returns:
+            Configured request interface instance
+        """
         if self._interface is not None:
             return self._interface
 
+        # Select interface based on configuration
         if self.web:
             self._interface = WebRequestInterface(self)
-
         elif self.dcom:
             self._interface = DCOMRequestInterface(self)
-
         else:
             self._interface = RPCRequestInterface(self)
 
         return self._interface
 
     def retrieve(self) -> bool:
+        """
+        Retrieve a certificate by request ID.
+
+        Returns:
+            True if successful, False otherwise
+        """
         if self.request_id is None:
             logging.error("No request ID specified")
             return False
 
         request_id = int(self.request_id)
 
+        # Retrieve the certificate using the appropriate interface
         cert = self.interface.retrieve(request_id)
-        if cert is False:
+        if cert is False or cert is None:
             logging.error("Failed to retrieve certificate")
             return False
 
+        # Extract and display certificate information
         identifications = get_identifications_from_certificate(cert)
-
         print_certificate_identifications(identifications)
 
+        # Check for object SID
         object_sid = get_object_sid_from_certificate(cert)
         if object_sid is not None:
-            logging.info("Certificate object SID is %s" % repr(object_sid))
+            logging.info(f"Certificate object SID is {repr(object_sid)}")
         else:
             logging.info("Certificate has no object SID")
 
+        # Determine output filename
         out = self.out
         if out is None:
             out, _ = cert_id_to_parts(identifications)  # type: ignore
@@ -855,33 +1169,44 @@ class Request:
                 if not self.target is None and not self.target.username is None:
                     out = self.target.username
                 else:
-                    out = "%d" % request_id
+                    out = f"{request_id}"
 
             out = out.rstrip("$").lower()
 
+        # Try to find matching private key
         try:
-            with open("%d.key" % request_id, "rb") as f:
+            with open(f"{request_id}.key", "rb") as f:
                 key = pem_to_key(f.read())
+
+            # If key found, save as PFX
+            logging.info(f"Loaded private key from {repr(f'{request_id}.key')}")
+            pfx = create_pfx(key, cert, self.pfx_password)
+
+            with open(f"{out}.pfx", "wb") as f:
+                _ = f.write(pfx)
+
+            logging.info(f"Saved certificate and private key to {repr(f'{out}.pfx')}")
+
         except Exception:
+            # If no key found, save just the certificate
             logging.warning(
                 "Could not find matching private key. Saving certificate as PEM"
             )
-            with open("%s.crt" % out, "wb") as f:
+
+            with open(f"{out}.crt", "wb") as f:
                 _ = f.write(cert_to_pem(cert))
 
-            logging.info("Saved certificate to %s" % repr("%s.crt" % out))
-        else:
-            logging.info("Loaded private key from %s" % repr("%d.key" % request_id))
-            pfx = create_pfx(key, cert, self.pfx_password)
-            with open("%s.pfx" % out, "wb") as f:
-                _ = f.write(pfx)
-            logging.info(
-                "Saved certificate and private key to %s" % repr("%s.pfx" % out)
-            )
+            logging.info(f"Saved certificate to {repr(f'{out}.crt')}")
 
         return True
 
-    def request(self) -> bool | Tuple[bytes, str]:
+    def request(self) -> Union[bool, Tuple[bytes, str]]:
+        """
+        Request a new certificate from AD CS.
+
+        Returns:
+            PFX data and filename if successful, False otherwise
+        """
         if self.target is None:
             logging.error("No target specified")
             return False
@@ -890,14 +1215,17 @@ class Request:
             logging.error("No username specified")
             return False
 
+        # Determine username for certificate
         username = self.target.username
 
+        # Validate request options
         if sum(map(bool, [self.archive_key, self.on_behalf_of, self.renew])) > 1:
             logging.error(
                 "Combinations of -renew, -on-behalf-of, and -archive-key are currently not supported"
             )
             return False
 
+        # Handle on-behalf-of requests
         if self.on_behalf_of:
             username = self.on_behalf_of
             if self.on_behalf_of.count("\\") > 0:
@@ -909,20 +1237,25 @@ class Request:
                         "Domain part of '-on-behalf-of' should not be a FQDN"
                     )
 
+        # Handle certificate renewal
         renewal_cert = None
         renewal_key = None
         if self.renew:
             if self.pfx is None:
                 logging.error(
-                    "A certificate and private key (-pfx) is required in order for renewal"
+                    "A certificate and private key (-pfx) is required for renewal"
                 )
                 return False
 
             with open(self.pfx, "rb") as f:
                 renewal_key, renewal_cert = load_pfx(f.read())
+                if not renewal_key or not renewal_cert:
+                    logging.error("Failed to load certificate and private key from PFX")
+                    return False
 
+        # Convert application policy names to OIDs
         converted_policies = []
-        for policy in self.application_policies:
+        for policy in self.application_policies or []:
             oid = next(
                 (k for k, v in OID_TO_STR_MAP.items() if v.lower() == policy.lower()),
                 policy,
@@ -931,6 +1264,7 @@ class Request:
 
         self.application_policies = converted_policies
 
+        # Create the CSR
         csr, key = create_csr(
             username,
             alt_dns=self.alt_dns,
@@ -945,8 +1279,10 @@ class Request:
         )
         self.key = key
 
-        csr = csr_to_der(csr)
+        # Convert CSR to DER format
+        csr_der = csr_to_der(csr)
 
+        # Handle key archival
         if self.archive_key:
             ca = CA(self.target, self.ca)
             logging.info("Trying to retrieve CAX certificate")
@@ -957,24 +1293,27 @@ class Request:
                 logging.error("Currently only RSA keys are supported for key archival")
                 return False
 
-            csr = create_key_archival(der_to_csr(csr), self.key, cax_cert)
+            csr_der = create_key_archival(der_to_csr(csr_der), self.key, cax_cert)
 
+        # Handle certificate renewal
         if self.renew:
-            if renewal_cert is None or renewal_key is None:
+            if not renewal_cert or not renewal_key:
                 logging.error(
-                    "A certificate and private key (-pfx) is required in order for renewal"
+                    "A certificate and private key (-pfx) is required for renewal"
                 )
                 return False
+
             if not isinstance(renewal_key, rsa.RSAPrivateKey):
-                logging.error("Currently only RSA keys are supported for key archival")
+                logging.error("Currently only RSA keys are supported for renewal")
                 return False
 
-            csr = create_renewal(csr, renewal_cert, renewal_key)
+            csr_der = create_renewal(csr_der, renewal_cert, renewal_key)
 
+        # Handle on-behalf-of requests
         if self.on_behalf_of:
             if self.pfx is None:
                 logging.error(
-                    "A certificate and private key (-pfx) is required in order to request on behalf of another user"
+                    "A certificate and private key (-pfx) is required for on-behalf-of requests"
                 )
                 return False
 
@@ -983,7 +1322,7 @@ class Request:
 
             if agent_key is None or agent_cert is None:
                 logging.error(
-                    "Failed to load certificate and private key from %s" % self.pfx
+                    f"Failed to load certificate and private key from {self.pfx}"
                 )
                 return False
 
@@ -993,44 +1332,50 @@ class Request:
                 )
                 return False
 
-            csr = create_on_behalf_of(csr, self.on_behalf_of, agent_cert, agent_key)
+            csr_der = create_on_behalf_of(
+                csr_der, self.on_behalf_of, agent_cert, agent_key
+            )
 
         # Construct attributes list
-        attributes = ["CertificateTemplate:%s" % self.template]
+        attributes = [f"CertificateTemplate:{self.template}"]
 
         if self.alt_upn is not None or self.alt_dns is not None:
             san = []
             if self.alt_dns:
-                san.append("dns=%s" % self.alt_dns)
+                san.append(f"dns={self.alt_dns}")
             if self.alt_upn:
-                san.append("upn=%s" % self.alt_upn)
+                san.append(f"upn={self.alt_upn}")
 
-            attributes.append("SAN:%s" % "&".join(san))
+            attributes.append(f"SAN:{'&'.join(san)}")
 
         if self.application_policies:
             policy_string = "&".join(self.application_policies)
             attributes.append(f"ApplicationPolicies:{policy_string}")
 
-        cert = self.interface.request(csr, attributes)
+        # Submit the certificate request
+        cert = self.interface.request(csr_der, attributes)
 
-        if cert is False:
+        if cert is False or cert is None:
             logging.error("Failed to request certificate")
             return False
 
+        # Log subject info
         if self.subject:
             subject = ",".join(map(lambda x: x.rfc4514_string(), cert.subject.rdns))
-            logging.info("Got certificate with subject: %s" % subject)
+            logging.info(f"Got certificate with subject: {subject}")
 
+        # Extract and display certificate information
         identifications = get_identifications_from_certificate(cert)
-
         print_certificate_identifications(identifications)
 
+        # Check for object SID
         object_sid = get_object_sid_from_certificate(cert)
         if object_sid is not None:
-            logging.info("Certificate object SID is %s" % repr(object_sid))
+            logging.info(f"Certificate object SID is {repr(object_sid)}")
         else:
             logging.info("Certificate has no object SID")
 
+        # Determine output filename
         out = self.out
         if out is None:
             out, _ = cert_id_to_parts(identifications)  # type: ignore
@@ -1039,18 +1384,24 @@ class Request:
 
             out = out.rstrip("$").lower()
 
+        # Create PFX and save to file
         pfx = create_pfx(key, cert, self.pfx_password)
-
-        outfile = "%s.pfx" % out
+        outfile = f"{out}.pfx"
 
         with open(outfile, "wb") as f:
             _ = f.write(pfx)
 
-        logging.info("Saved certificate and private key to %s" % repr(outfile))
+        logging.info(f"Saved certificate and private key to {repr(outfile)}")
 
         return pfx, outfile
 
-    def getCAX(self) -> bool | bytes:
+    def getCAX(self) -> Union[bool, bytes]:
+        """
+        Retrieve the CAX (Exchange) certificate.
+
+        Returns:
+            CAX certificate in DER format if successful, False otherwise
+        """
         if self.target is None:
             logging.error("No target specified")
             return False
@@ -1059,30 +1410,44 @@ class Request:
         logging.info("Trying to retrieve CAX certificate")
         cax_cert = ca.get_exchange_certificate()
         logging.info("Retrieved CAX certificate")
-        cax_cert = cert_to_der(cax_cert)
+        cax_cert_der = cert_to_der(cax_cert)
 
-        return cax_cert
+        return cax_cert_der
+
+
+#
+# Command-line entry point
+#
 
 
 def entry(options: argparse.Namespace) -> None:
-    target = Target.from_options(options)
+    """
+    Command-line entry point for certificate operations.
 
+    Args:
+        options: Command-line arguments
+    """
+    # Create target from options
+    target = Target.from_options(options)
     options.__delattr__("target")
 
+    # Create request object
     request = Request(target=target, **vars(options))
 
+    # Handle CAX certificate retrieval
     if options.cax_cert:
         if not options.out:
-            logging.error("Please specify an output file for the cax certificate!")
+            logging.error("Please specify an output file for the CAX certificate!")
             return
 
         cax = request.getCAX()
         if isinstance(cax, bytes):
             with open(options.out, "wb") as f:
                 _ = f.write(cax)
-            logging.info("CAX certificate save to %s" % options.out)
+            logging.info(f"CAX certificate saved to {options.out}")
         return
 
+    # Handle certificate retrieval or request
     if options.retrieve:
         _ = request.retrieve()
     else:
