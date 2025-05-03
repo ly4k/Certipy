@@ -13,10 +13,6 @@ that represent authentication endpoints. It handles:
 The primary class is Target, which encapsulates all connection parameters
 needed to authenticate to and interact with Windows/Active Directory services.
 Helper classes like DnsResolver provide supporting functionality.
-
-Usage:
-    target = Target.from_options(options)  # Create from command-line arguments
-    target = Target.create(username="user@domain.com", password="secret")  # Create programmatically
 """
 
 import argparse
