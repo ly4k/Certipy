@@ -867,7 +867,7 @@ class CA:
         if template is None:
             return False
 
-        action = "disabl" if disable else "enabl"
+        action = "disable" if disable else "enable"
 
         # Update template list based on action
         if disable:
@@ -909,7 +909,7 @@ class CA:
         except DCERPCSessionError as e:
             if "E_ACCESSDENIED" in str(e):
                 logging.error(
-                    f"Access denied: Insufficient permissions to {action}e template"
+                    f"Access denied: Insufficient permissions to {action} template"
                 )
                 return False
             raise e
@@ -917,12 +917,12 @@ class CA:
         error_code = resp["ErrorCode"]
         if error_code == 0:
             logging.info(
-                f"Successfully {action}ed {repr(template.get('cn'))} on {repr(self.ca)}"
+                f"Successfully {action}d {repr(template.get('cn'))} on {repr(self.ca)}"
             )
             return True
         else:
             error_msg = translate_error_code(error_code)
-            logging.error(f"Failed to {action}e certificate template: {error_msg}")
+            logging.error(f"Failed to {action} certificate template: {error_msg}")
             return False
 
     def disable(self) -> bool:
@@ -1407,7 +1407,7 @@ class CA:
         logging.info("Cleaning up")
 
         # Clean up: delete temporary files on the server
-        cleanup_cmd = r"cmd.exe /c del /f /q C:\Windows\Tasks\Certipy\* && rmdir C:\Windows\Tasks\Certipy"
+        cleanup_cmd = "cmd.exe /c del /f /q C:\\Windows\\Tasks\\Certipy\\* && rmdir C:\\Windows\\Tasks\\Certipy"
 
         # Update and run the service again for cleanup
         resp = scmr.hRChangeServiceConfigW(
