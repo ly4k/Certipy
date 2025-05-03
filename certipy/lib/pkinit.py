@@ -153,8 +153,8 @@ class PA_PK_AS_REP(asn1core.Choice):
 
 class DirtyDH:
     def __init__(self):
-        self.p = None
-        self.g = None
+        self.p: int | None = None
+        self.g: int | None = None
         self.shared_key = None
         self.shared_key_int = None
         self.private_key = os.urandom(32)
@@ -181,6 +181,8 @@ class DirtyDH:
         return DirtyDH.from_dict(dhp)
 
     def get_public_key(self):
+        if self.p is None or self.g is None:
+            raise ValueError("p and g must be set before getting the public key")
         # y = g^x mod p
         return pow(self.g, self.private_key_int, self.p)
 
@@ -348,11 +350,11 @@ def build_pkinit_as_req(
     payload["signedAuthPack"] = signed_authpack
 
     pa_data_1 = {}
-    pa_data_1["padata-type"] = constants.PreAuthenticationDataTypes.PA_PK_AS_REQ.value
+    pa_data_1["padata-type"] = constants.PreAuthenticationDataTypes.PA_PK_AS_REQ
     pa_data_1["padata-value"] = payload.dump()
 
     pa_data_0 = {}
-    pa_data_0["padata-type"] = constants.PreAuthenticationDataTypes.PA_PAC_REQUEST.value
+    pa_data_0["padata-type"] = constants.PreAuthenticationDataTypes.PA_PAC_REQUEST
     pa_data_0["padata-value"] = PA_PAC_REQUEST({"include-pac": True}).dump()
 
     asreq = {}

@@ -15,7 +15,7 @@ class Parse(find.Find):
         published: List[str] = [],
         **kwargs
     ):
-        super().__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.dc_only = True
         self.target.username = "unknown"
         self.target.target_ip = "unknown"
@@ -91,7 +91,7 @@ class ParseBof(Parse):
                     datatype = None
 
                     if (
-                        "HKEY_USERS\.DEFAULT\\Software\\Microsoft\\Cryptography\\CertificateTemplateCache\\"
+                        "HKEY_USERS\\.DEFAULT\\Software\\Microsoft\\Cryptography\\CertificateTemplateCache\\"
                         in line
                     ):
                         if template is not None:
@@ -107,7 +107,7 @@ class ParseBof(Parse):
 
                     if line.startswith("\t"):
                         line = line.strip()
-                        parts = re.split("\s+", line)
+                        parts = re.split(r"\s+", line)
                         if len(parts) < 2:
                             line = next(lines)
                             continue
@@ -131,7 +131,7 @@ class ParseBof(Parse):
                                 if not line.startswith(" "):
                                     break
                                 else:
-                                    data = data + re.split("\s+", line.strip())
+                                    data = data + re.split(r"\s+", line.strip())
                             # print(data)
                             data = bytes.fromhex("".join(data))
 
@@ -174,7 +174,7 @@ class ParseReg(Parse):
             while True:
                 try:
                     if line.startswith(
-                        "[HKEY_USERS\.DEFAULT\\Software\\Microsoft\\Cryptography\\CertificateTemplateCache\\"
+                        "[HKEY_USERS\\.DEFAULT\\Software\\Microsoft\\Cryptography\\CertificateTemplateCache\\"
                     ):
                         line = line[1:-1]
                         if template is not None:
@@ -246,22 +246,22 @@ class ParseReg(Parse):
 def entry(options: argparse.Namespace) -> None:
 
     domain = options.domain
-    del options.domain
+    options.__delattr__("domain")
 
     ca = options.ca
-    del options.ca
+    options.__delattr__("ca")
 
     sids = options.sids
-    del options.sids
+    options.__delattr__("sids")
 
     published = options.published
-    del options.published
+    options.__delattr__("published")
 
     file = options.file
-    del options.file
+    options.__delattr__("file")
 
     format = options.format
-    del options.format
+    options.__delattr__("format")
 
     if format == "bof":
         parse = ParseBof(domain, ca, sids, published, **vars(options))

@@ -22,14 +22,14 @@ def main() -> None:
         description="Active Directory Certificate Services enumeration and abuse",
     )
 
-    parser.add_argument(
+    _ = parser.add_argument(
         "-v",
         "--version",
         action="store_true",
         help="Show Certipy's version number and exit",
         default=argparse.SUPPRESS,
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "-h",
         "--help",
         action="help",

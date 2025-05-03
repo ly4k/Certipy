@@ -159,7 +159,7 @@ class ICertAdminD2_GetConfigEntryResponse(DCOMANSWER):
 
 class ICertCustom(IRemUnknown):
     def request(self, req, *args, **kwargs):
-        req["ORPCthis"] = self.get_cinstance().get_ORPCthis()
+        req["ORPCthis"] = self.get_cinstance().get_ORPCthis()  # type: ignore
         req["ORPCthis"]["flags"] = 0
         self.connect(self._iid)
         dce = self.get_dce_rpc()
@@ -201,15 +201,15 @@ class CA:
     def __init__(
         self,
         target: Target,
-        ca: str = None,
-        template: str = None,
-        officer: str = None,
-        request_id: int = 0,
-        connection: LDAPConnection = None,
+        ca: str | None = None,
+        template: str | None = None,
+        officer: str | None = None,
+        request_id: int | None = None,
+        connection: LDAPConnection | None = None,
         scheme: str = "ldaps",
-        dc_host: str = None,
+        dc_host: str | None = None,
         dynamic: bool = False,
-        config: str = None,
+        config: str | None = None,
         timeout: int = 5,
         debug: bool = False,
         **kwargs
@@ -227,10 +227,10 @@ class CA:
         self.verbose = debug
         self.kwargs = kwargs
 
-        self._connection: LDAPConnection = connection
-        self._cert_admin: ICertAdminD = None
-        self._cert_admin2: ICertAdminD2 = None
-        self._cert_request2: ICertRequestD2 = None
+        self._connection: LDAPConnection | None = connection
+        self._cert_admin: ICertAdminD | None = None
+        self._cert_admin2: ICertAdminD2 | None = None
+        self._cert_request2: ICertRequestD2 | None = None
         self._rrp_dce = None
 
     @property
@@ -249,6 +249,9 @@ class CA:
             target.remote_name = self.dc_host
 
             if target.dc_ip is None:
+                if target.resolver is None:
+                    raise ValueError("Expected a resolver to be set, but got None.")
+
                 target.dc_ip = target.resolver.resolve(self.dc_host)
 
         if target.dc_ip:
@@ -259,13 +262,21 @@ class CA:
             else:
                 remote_name = target.domain
 
-            if "." not in remote_name:
+            if remote_name is None:
                 logging.warning(
-                    "%s doesn't look like a FQDN. DNS resolution will probably fail."
-                    % repr(remote_name)
+                    "No remote name or target IP specified. This may fail. Try specifying -target-ip"
                 )
+            else:
+                if "." not in remote_name:
+                    logging.warning(
+                        "%s doesn't look like a FQDN. DNS resolution will probably fail."
+                        % repr(remote_name)
+                    )
 
-            target.target_ip = target.resolver.resolve(remote_name)
+                if target.resolver is None:
+                    raise ValueError("Expected a resolver to be set, but got None.")
+
+                target.target_ip = target.resolver.resolve(remote_name)
 
         self._connection = LDAPConnection(target, self.scheme)
         self._connection.connect()
@@ -279,7 +290,7 @@ class CA:
 
         dcom = get_dcom_connection(self.target)
         iInterface = dcom.CoCreateInstanceEx(CLSID_ICertAdminD, IID_ICertAdminD)
-        iInterface.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
+        iInterface.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)  # type: ignore
         self._cert_admin = ICertAdminD(iInterface)
         return self._cert_admin
 
@@ -290,7 +301,7 @@ class CA:
 
         dcom = get_dcom_connection(self.target)
         iInterface = dcom.CoCreateInstanceEx(CLSID_ICertAdminD, IID_ICertAdminD2)
-        iInterface.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
+        iInterface.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)  # type: ignore
         self._cert_admin2 = ICertAdminD2(iInterface)
 
         return self._cert_admin2
@@ -302,7 +313,7 @@ class CA:
 
         dcom = get_dcom_connection(self.target)
         iInterface = dcom.CoCreateInstanceEx(CLSID_CCertRequestD, IID_ICertRequestD2)
-        iInterface.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
+        iInterface.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)  # type: ignore
         self._cert_request2 = ICertRequestD2(iInterface)
 
         return self._cert_request2
@@ -428,6 +439,11 @@ class CA:
             self.rrp_dce, configuration_key["phkResult"], "Security"
         )
 
+        if not isinstance(security_descriptor, bytes):
+            raise ValueError(
+                "Expected a bytes object, got %s" % repr(type(security_descriptor))
+            )
+
         security_descriptor = CASecurity(security_descriptor)
 
         return (edit_flags, request_disposition, interface_flags, security_descriptor)
@@ -551,7 +567,7 @@ class CA:
         except DCERPCSessionError as e:
             if "E_ACCESSDENIED" in str(e):
                 logging.error("Got access denied while trying to get templates")
-                return None
+                return False
             raise e
 
         certificate_templates = (
@@ -816,22 +832,22 @@ class CA:
             )
             return False
 
-    def add_officer(self, officer: str) -> bool:
+    def add_officer(self, officer: str) -> bool | None:
         return self.add(
             officer, CERTIFICATION_AUTHORITY_RIGHTS.MANAGE_CERTIFICATES.value, "officer"
         )
 
-    def remove_officer(self, officer: str) -> bool:
+    def remove_officer(self, officer: str) -> bool | None:
         return self.remove(
             officer, CERTIFICATION_AUTHORITY_RIGHTS.MANAGE_CERTIFICATES.value, "officer"
         )
 
-    def add_manager(self, manager: str) -> bool:
+    def add_manager(self, manager: str) -> bool | None:
         return self.add(
             manager, CERTIFICATION_AUTHORITY_RIGHTS.MANAGE_CA.value, "manager"
         )
 
-    def remove_manager(self, manager: str) -> bool:
+    def remove_manager(self, manager: str) -> bool | None:
         return self.remove(
             manager, CERTIFICATION_AUTHORITY_RIGHTS.MANAGE_CA.value, "manager"
         )
@@ -1035,7 +1051,8 @@ class CA:
 
 def entry(options: argparse.Namespace) -> None:
     target = Target.from_options(options)
-    del options.target
+
+    options.__delattr__("target")
 
     ca = CA(target, **vars(options))
 

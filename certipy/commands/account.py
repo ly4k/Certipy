@@ -3,6 +3,10 @@ import random
 import string
 
 import ldap3
+from ldap3.core.results import (
+    RESULT_INSUFFICIENT_ACCESS_RIGHTS,
+    RESULT_UNWILLING_TO_PERFORM,
+)
 
 from certipy.lib.formatting import pretty_print
 from certipy.lib.ldap import LDAPConnection
@@ -15,14 +19,14 @@ class Account:
         self,
         target: Target,
         user: str,
-        dns: str = None,
-        upn: str = None,
-        sam: str = None,
-        spns: str = None,
-        passw: str = None,
-        group: str = None,
+        dns: str | None = None,
+        upn: str | None = None,
+        sam: str | None = None,
+        spns: str | None = None,
+        passw: str | None = None,
+        group: str | None = None,
         scheme: str = "ldaps",
-        connection: LDAPConnection = None,
+        connection: LDAPConnection | None = None,
         timeout: int = 5,
         debug: bool = False,
         **kwargs
@@ -130,13 +134,13 @@ class Account:
                 % (repr(username), repr(password))
             )
             return True
-        elif result["result"] == ldap3.core.results.RESULT_INSUFFICIENT_ACCESS_RIGHTS:
+        elif result["result"] == RESULT_INSUFFICIENT_ACCESS_RIGHTS:
             logging.error(
                 "User %s doesn't have the right to create a machine account"
                 % repr(self.target.username)
             )
         elif (
-            result["result"] == ldap3.core.results.RESULT_UNWILLING_TO_PERFORM
+            result["result"] == RESULT_UNWILLING_TO_PERFORM
             and int(result["message"].split(":")[0].strip(), 16) == 0x216D
         ):
             logging.error(
@@ -239,7 +243,7 @@ class Account:
         if result["result"] == 0:
             logging.info("Successfully updated %s" % repr(user.get("sAMAccountName")))
             return True
-        elif result["result"] == ldap3.core.results.RESULT_INSUFFICIENT_ACCESS_RIGHTS:
+        elif result["result"] == RESULT_INSUFFICIENT_ACCESS_RIGHTS:
             logging.error(
                 "User %s doesn't have permission to update these attributes on %s"
                 % (repr(self.target.username), repr(user.get("sAMAccountName")))
@@ -258,7 +262,7 @@ class Account:
         if result["result"] == 0:
             logging.info("Successfully deleted %s" % repr(user.get("sAMAccountName")))
             return True
-        elif result["result"] == ldap3.core.results.RESULT_INSUFFICIENT_ACCESS_RIGHTS:
+        elif result["result"] == RESULT_INSUFFICIENT_ACCESS_RIGHTS:
             logging.error(
                 "User %s doesn't have permission to delete %s"
                 % (repr(self.target.username), repr(user.get("sAMAccountName")))
@@ -269,7 +273,8 @@ class Account:
 
 def entry(options: argparse.Namespace) -> None:
     target = Target.from_options(options, dc_as_target=True)
-    del options.target
+
+    options.__delattr__("target")
 
     account = Account(target, **vars(options))
 

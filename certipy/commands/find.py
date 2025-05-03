@@ -30,7 +30,6 @@ from certipy.lib.constants import (
     MS_PKI_ENROLLMENT_FLAG,
     MS_PKI_PRIVATE_KEY_FLAG,
     OID_TO_STR_MAP,
-    WELLKNOWN_SIDS,
 )
 from certipy.lib.formatting import pretty_print
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
@@ -1859,7 +1858,8 @@ class Find:
 
 def entry(options: argparse.Namespace) -> None:
     target = Target.from_options(options, dc_as_target=True)
-    del options.target
+
+    options.__delattr__("target")
 
     find = Find(target=target, **vars(options))
     find.find()

@@ -3,7 +3,7 @@ from setuptools import setup
 with open("README.md") as f:
     readme = f.read()
 
-setup(
+_ = setup(
     name="certipy-ad",
     version="4.8.2",
     license="MIT",

@@ -3,7 +3,9 @@ from typing import Any, List, Union
 
 import ldap3
 from ldap3.core.results import RESULT_STRONGER_AUTH_REQUIRED
+from ldap3.core.exceptions import LDAPSocketOpenError
 from ldap3.protocol.microsoft import security_descriptor_control
+from ldap3.operation.bind import bind_operation
 
 from certipy.lib.constants import WELLKNOWN_SIDS
 from certipy.lib.kerberos import get_kerberos_type1
@@ -63,11 +65,11 @@ class LDAPConnection:
             else:
                 self.port = 636
 
-        self.default_path: str = None
-        self.configuration_path: str = None
-        self.ldap_server: ldap3.Server = None
-        self.ldap_conn: ldap3.Connection = None
-        self.domain: str = None
+        self.default_path: str | None = None
+        self.configuration_path: str | None = None
+        self.ldap_server: ldap3.Server | None = None
+        self.ldap_conn: ldap3.Connection | None = None
+        self.domain: str | None = None
 
         self.sid_map = {}
 
@@ -76,14 +78,16 @@ class LDAPConnection:
         self._users = {}
         self._user_sids = {}
 
-    def connect(self, version: ssl._SSLMethod = None) -> None:
+        self.warned_missing_domain_sid_lookup = False
+
+    def connect(self, version: ssl._SSLMethod | None = None) -> None:
         user = "%s\\%s" % (self.target.domain, self.target.username)
         user_upn = "%s@%s" % (self.target.username, self.target.domain)
 
         if version is None:
             try:
                 self.connect(version=ssl.PROTOCOL_TLSv1_2)
-            except ldap3.core.exceptions.LDAPSocketOpenError as e:
+            except LDAPSocketOpenError as e:
                 if self.scheme != "ldaps":
                     logging.warning(
                         "Got error while trying to connecto to LDAP: %s" % e
@@ -91,6 +95,9 @@ class LDAPConnection:
                 self.connect(version=ssl.PROTOCOL_TLSv1)
             return
         else:
+            if self.target.target_ip is None:
+                raise Exception("Target IP is not set")
+
             if self.scheme == "ldaps":
                 tls = ldap3.Tls(
                     validate=ssl.CERT_NONE, version=version, ciphers="ALL:@SECLEVEL=0"
@@ -131,12 +138,14 @@ class LDAPConnection:
                     ldap_pass = self.target.password
                 channel_binding = {}
                 if self.target.ldap_channel_binding:
+                    # We're waiting for ldap3 to support channel binding in their stable release
+                    # Currently, channel binding is only available in either an unstable or patched version of ldap3
                     if not hasattr(ldap3, "TLS_CHANNEL_BINDING"):
                         raise Exception(
                             "To use LDAP channel binding, install the patched ldap3 module: pip3 install git+https://github.com/ly4k/ldap3"
                         )
                     channel_binding["channel_binding"] = (
-                        ldap3.TLS_CHANNEL_BINDING
+                        ldap3.TLS_CHANNEL_BINDING  # type: ignore
                         if self.target.ldap_channel_binding
                         else None
                     )
@@ -210,13 +219,16 @@ class LDAPConnection:
         logging.debug("Configuration path: %s" % self.configuration_path)
         self.domain = self.ldap_server.info.other["ldapServiceName"][0].split("@")[-1]
 
-    def LDAP3KerberosLogin(self, connection: ldap3.Connection) -> bool:
+    def LDAP3KerberosLogin(self, connection: ldap3.Connection):
+        if self.target.remote_name is None:
+            logging.warning("Target remote name is not set.")
+
         _, _, blob, username = get_kerberos_type1(
             self.target,
-            target_name=self.target.remote_name,
+            target_name=self.target.remote_name or "",
         )
 
-        request = ldap3.operation.bind.bind_operation(
+        request = bind_operation(
             connection.version,
             ldap3.SASL,
             username,
@@ -252,17 +264,21 @@ class LDAPConnection:
 
         connection.bound = True
 
-        return True
-
     def add(self, *args, **kwargs) -> Any:
+        if not self.ldap_conn:
+            raise Exception("LDAP connection is not established")
         self.ldap_conn.add(*args, **kwargs)
         return self.ldap_conn.result
 
     def delete(self, *args, **kwargs) -> Any:
+        if not self.ldap_conn:
+            raise Exception("LDAP connection is not established")
         self.ldap_conn.delete(*args, **kwargs)
         return self.ldap_conn.result
 
     def modify(self, *args, **kwargs) -> Any:
+        if not self.ldap_conn:
+            raise Exception("LDAP connection is not established")
         self.ldap_conn.modify(*args, **kwargs)
         return self.ldap_conn.result
 
@@ -270,7 +286,7 @@ class LDAPConnection:
         self,
         search_filter: str,
         attributes: Union[str, List[str]] = ldap3.ALL_ATTRIBUTES,
-        search_base: str = None,
+        search_base: str | None = None,
         query_sd: bool = False,
         **kwargs,
     ) -> List["LDAPEntry"]:
@@ -281,6 +297,9 @@ class LDAPConnection:
             controls = security_descriptor_control(sdflags=0x5)
         else:
             controls = None
+
+        if self.ldap_conn is None:
+            raise Exception("LDAP connection is not established")
 
         results = self.ldap_conn.extend.standard.paged_search(
             search_base=search_base,
@@ -316,7 +335,7 @@ class LDAPConnection:
 
     def get_user(
         self, username: str, silent: bool = False, *args, **kwargs
-    ) -> LDAPEntry:
+    ) -> LDAPEntry | None:
         def _get_user(username, *args, **kwargs):
             sanitized_username = username.lower().strip()
             if sanitized_username in self._users:
@@ -384,7 +403,9 @@ class LDAPConnection:
 
         return domain_sid
 
-    def get_user_sids(self, username: str, user_sid: str = None, user_dn: str = None):
+    def get_user_sids(
+        self, username: str, user_sid: str | None = None, user_dn: str | None = None
+    ):
         sanitized_username = username.lower().strip()
         if sanitized_username in self._user_sids:
             return self._user_sids[sanitized_username]
@@ -431,7 +452,7 @@ class LDAPConnection:
                 "(|%s)" % "".join(member_of_queries),
                 attributes="objectSid",
             )
-        except Exception as e:
+        except Exception:
             logging.warning("Failed to get user SIDs. Try increasing -timeout")
             return sids
 
@@ -449,10 +470,16 @@ class LDAPConnection:
             return self.sid_map[sid]
 
         if sid in WELLKNOWN_SIDS:
+            if self.domain is None and not self.warned_missing_domain_sid_lookup:
+                self.warned_missing_domain_sid_lookup = True
+                logging.warning(
+                    "Domain is not set for LDAP connection. This may cause issues when looking up SIDs"
+                )
+
             return LDAPEntry(
                 **{
                     "attributes": {
-                        "objectSid": "%s-%s" % (self.domain.upper(), sid),
+                        "objectSid": "%s-%s" % ((self.domain or "").upper(), sid),
                         "objectType": WELLKNOWN_SIDS[sid][1].capitalize(),
                         "name": "%s\\%s" % (self.domain, WELLKNOWN_SIDS[sid][0]),
                     }
@@ -464,6 +491,10 @@ class LDAPConnection:
             "name",
             "objectSid",
         ]
+
+        if self.ldap_conn is None:
+            raise Exception("LDAP connection is not established")
+
         # Only request msDS-GroupMSAMembership when it exists in the schema. Else the ldap3 module will return an LDAPAttributeError error.
         if (
             self.ldap_conn.server.schema

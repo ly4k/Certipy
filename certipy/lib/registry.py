@@ -13,7 +13,7 @@ class RegEntry(LDAPEntry):
     def get_raw(self, key):
         data = self.get(key)
         if isinstance(data, str):
-            return s.encode()
+            return data.encode()
         elif isinstance(data, list):
             return list(map(lambda x: x.encode(), data))
         return data
@@ -26,7 +26,9 @@ class RegConnection:
         self.sids = sids
         self.sid_map = {}
 
-    def get_user_sids(self, username: str, user_sid: str = None, user_dn: str = None):
+    def get_user_sids(
+        self, _username: str, _user_sid: str | None = None, _user_dn: str | None = None
+    ):
         return self.sids
 
     def lookup_sid(self, sid: str) -> RegEntry:

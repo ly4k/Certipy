@@ -78,7 +78,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Create renewal request",
     )
     group.add_argument(
-        "--application-policies",
+        "-application-policies",
         action="store",
         nargs="+",
         metavar="Application Policy",

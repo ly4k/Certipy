@@ -2,11 +2,12 @@ import argparse
 import collections
 import json
 from itertools import groupby
-from typing import Dict
+from typing import Dict, Any
 
 import ldap3
 from ldap3.protocol.microsoft import security_descriptor_control
 from ldap3.utils.conv import escape_filter_chars
+from ldap3.core.results import RESULT_INSUFFICIENT_ACCESS_RIGHTS
 
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import logging
@@ -58,11 +59,11 @@ class Template:
     def __init__(
         self,
         target: "Target",
-        template: str = None,
-        configuration: str = None,
+        template: str | None = None,
+        configuration: str | None = None,
         save_old: bool = False,
         scheme: str = "ldaps",
-        connection: LDAPConnection = None,
+        connection: LDAPConnection | None = None,
         **kwargs,
     ):
         self.target = target
@@ -97,7 +98,7 @@ class Template:
 
         return json.dumps(output)
 
-    def get_configuration(self, template) -> LDAPEntry:
+    def get_configuration(self, template) -> LDAPEntry | None:
         escaped_template = escape_filter_chars(template)
 
         results = self.connection.search(
@@ -130,7 +131,7 @@ class Template:
 
         return template
 
-    def json_to_configuration(self, configuration_json: str) -> Dict:
+    def json_to_configuration(self, configuration_json: Dict[Any, Any]) -> Dict:
         output = {}
         for key, value in configuration_json.items():
             if key in PROTECTED_ATTRIBUTES:
@@ -146,6 +147,11 @@ class Template:
     def load_configuration(self, configuration: str) -> Dict:
         with open(configuration, "r") as f:
             configuration_json = json.load(f)
+
+        if not isinstance(configuration_json, dict):
+            raise ValueError(
+                "Expected a JSON object, got %s" % repr(type(configuration_json))
+            )
 
         return self.json_to_configuration(configuration_json)
 
@@ -173,7 +179,7 @@ class Template:
             # Replace slahes with underscores:
             out_file = out_file.replace("\\", "_").replace("/", "_")
             with open(out_file, "w") as f:
-                f.write(old_configuration_json)
+                _ = f.write(old_configuration_json)
 
             logging.info(
                 "Saved old configuration for %s to %s"
@@ -248,7 +254,7 @@ class Template:
         if result["result"] == 0:
             logging.info("Successfully updated %s" % repr(old_configuration.get("cn")))
             return True
-        elif result["result"] == ldap3.core.results.RESULT_INSUFFICIENT_ACCESS_RIGHTS:
+        elif result["result"] == RESULT_INSUFFICIENT_ACCESS_RIGHTS:
             logging.error(
                 "User %s doesn't have permission to update these attributes on %s"
                 % (repr(self.target.username), repr(old_configuration.get("cn")))
@@ -256,10 +262,13 @@ class Template:
         else:
             logging.error("Got error: %s" % result["message"])
 
+        return False
+
 
 def entry(options: argparse.Namespace) -> None:
     target = Target.from_options(options, dc_as_target=True)
-    del options.target
+
+    options.__delattr__("target")
 
     template = Template(target=target, **vars(options))
-    template.set_configuration()
+    _ = template.set_configuration()

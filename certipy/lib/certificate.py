@@ -12,7 +12,15 @@ from asn1crypto import csr as asn1csr
 from asn1crypto import x509 as asn1x509
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric import (
+    padding,
+    rsa,
+    dsa,
+    ec,
+    ed25519,
+    ed448,
+)
+from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.padding import PKCS7
 from cryptography.hazmat.primitives.serialization import (
@@ -22,10 +30,10 @@ from cryptography.hazmat.primitives.serialization import (
     PublicFormat,
     pkcs12,
 )
-from cryptography.x509 import SubjectKeyIdentifier
+from cryptography.x509 import SubjectKeyIdentifier, SubjectAlternativeName
 from cryptography.x509.oid import ExtensionOID, NameOID
 from impacket.dcerpc.v5.nrpc import checkNullString
-from pyasn1.codec.der import decoder, encoder
+from pyasn1.codec.der import decoder
 from pyasn1.type.char import UTF8String
 
 from certipy.lib.logger import logging
@@ -73,6 +81,16 @@ szOID_ENCRYPTED_KEY_HASH = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.21.21")
 szOID_CMC_ADD_ATTRIBUTES = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.10.10.1")
 szOID_NTDS_CA_SECURITY_EXT = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.25.2")
 szOID_NTDS_OBJECTSID = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.25.2.1")
+
+# https://learn.microsoft.com/en-us/windows/win32/api/certenroll/nn-certenroll-ix509extensionsmimecapabilities
+SMIME_MAP = {
+    "des": "1.3.14.3.2.7",
+    "rc4": "1.2.840.113549.3.4",
+    "3des": "1.2.840.113549.1.9.16.3.6",
+    "aes128": "2.16.840.1.101.3.4.1.5",
+    "aes192": "2.16.840.1.101.3.4.1.25",
+    "aes256": "2.16.840.1.101.3.4.1.45",
+}
 
 
 class TaggedCertificationRequest(asn1core.Sequence):
@@ -146,7 +164,9 @@ class EnrollmentNameValuePairs(asn1core.SetOf):
     _child_spec = EnrollmentNameValuePair
 
 
-def cert_id_to_parts(identifications: List[Tuple[str, str]]) -> Tuple[str, str]:
+def cert_id_to_parts(
+    identifications: List[Tuple[str | None, str | None]],
+) -> Tuple[str | None, str | None]:
     usernames = []
     domains = []
 
@@ -154,6 +174,9 @@ def cert_id_to_parts(identifications: List[Tuple[str, str]]) -> Tuple[str, str]:
         return (None, None)
 
     for id_type, identification in identifications:
+        if id_type is None or identification is None:
+            continue
+
         if id_type != "DNS Host Name" and id_type != "UPN":
             continue
 
@@ -184,7 +207,6 @@ def csr_to_der(csr: x509.CertificateSigningRequest) -> bytes:
 
 
 def csr_to_pem(csr: x509.CertificateSigningRequest) -> bytes:
-    pem = csr.public_bytes(Encoding.PEM)
     return csr.public_bytes(Encoding.PEM)
 
 
@@ -196,19 +218,19 @@ def cert_to_der(cert: x509.Certificate) -> bytes:
     return cert.public_bytes(Encoding.DER)
 
 
-def key_to_pem(key: rsa.RSAPrivateKey) -> bytes:
+def key_to_pem(key: PrivateKeyTypes) -> bytes:
     return key.private_bytes(
         Encoding.PEM, PrivateFormat.PKCS8, encryption_algorithm=NoEncryption()
     )
 
 
-def key_to_der(key: rsa.RSAPrivateKey) -> bytes:
+def key_to_der(key: PrivateKeyTypes) -> bytes:
     return key.private_bytes(
         Encoding.DER, PrivateFormat.PKCS8, encryption_algorithm=NoEncryption()
     )
 
 
-def der_to_pem(der: bytes, pem_type: str) -> bytes:
+def der_to_pem(der: bytes, pem_type: str) -> str:
     pem_type = pem_type.upper()
     b64_data = base64.b64encode(der).decode()
     return "-----BEGIN %s-----\n%s\n-----END %s-----\n" % (
@@ -222,11 +244,11 @@ def der_to_csr(csr: bytes) -> x509.CertificateSigningRequest:
     return x509.load_der_x509_csr(csr)
 
 
-def der_to_key(key: bytes) -> rsa.RSAPrivateKey:
+def der_to_key(key: bytes) -> PrivateKeyTypes:
     return serialization.load_der_private_key(key, None)
 
 
-def pem_to_key(key: bytes) -> rsa.RSAPrivateKey:
+def pem_to_key(key: bytes) -> PrivateKeyTypes:
     return serialization.load_pem_private_key(key, None)
 
 
@@ -268,12 +290,15 @@ def private_key_to_ms_blob(private_key: rsa.RSAPrivateKey):
 
 def get_identifications_from_certificate(
     certificate: x509.Certificate,
-) -> Tuple[str, str]:
+) -> List[Tuple[str, str]]:
     identifications = []
     try:
         san = certificate.extensions.get_extension_for_oid(
             ExtensionOID.SUBJECT_ALTERNATIVE_NAME
         )
+
+        if not isinstance(san.value, SubjectAlternativeName):
+            raise ValueError("Invalid SAN value")
 
         for name in san.value.get_values_for_type(x509.OtherName):
             if name.type_id == PRINCIPAL_NAME:
@@ -294,9 +319,14 @@ def get_identifications_from_certificate(
 
 def get_object_sid_from_certificate(
     certificate: x509.Certificate,
-) -> str:
+) -> str | None:
     try:
         object_sid = certificate.extensions.get_extension_for_oid(NTDS_CA_SECURITY_EXT)
+
+        if not isinstance(object_sid.value, x509.UnrecognizedExtension):
+            raise ValueError(
+                "Expected UnrecognizedExtension, got %s" % type(object_sid.value)
+            )
 
         sid = object_sid.value.value
         return sid[sid.find(b"S-1-5") :].decode()
@@ -306,7 +336,31 @@ def get_object_sid_from_certificate(
     return None
 
 
-def create_pfx(key: rsa.RSAPrivateKey, cert: x509.Certificate, password=None) -> bytes:
+def create_pfx(key: PrivateKeyTypes, cert: x509.Certificate, password=None) -> bytes:
+    if (
+        not isinstance(key, rsa.RSAPrivateKey)
+        and not isinstance(key, dsa.DSAPrivateKey)
+        and not isinstance(key, ec.EllipticCurvePrivateKey)
+        and not isinstance(key, ed25519.Ed25519PrivateKey)
+        and not isinstance(key, ed448.Ed448PrivateKey)
+    ):
+        # Edge cases. Should never happen, but just in case
+        logging.error(
+            "Private key must be an instance of RSAPrivateKey, DSAPrivateKey, EllipticCurvePrivateKey, Ed25519PrivateKey or Ed448PrivateKey. Received %s"
+            % key
+        )
+        logging.error("Dumping private key to PEM format")
+        logging.error(
+            key.private_bytes(
+                Encoding.PEM, PrivateFormat.PKCS8, encryption_algorithm=NoEncryption()
+            )
+        )
+        logging.error("Dumping certificate to PEM format")
+        logging.error(cert.public_bytes(Encoding.PEM))
+        raise TypeError(
+            "Private key must be an instance of RSAPrivateKey, DSAPrivateKey, EllipticCurvePrivateKey, Ed25519PrivateKey or Ed448PrivateKey"
+        )
+
     encryption = NoEncryption()
     if password != None:
         encryption = (
@@ -327,8 +381,8 @@ def create_pfx(key: rsa.RSAPrivateKey, cert: x509.Certificate, password=None) ->
 
 
 def load_pfx(
-    pfx: bytes, password: bytes = None
-) -> Tuple[rsa.RSAPrivateKey, x509.Certificate, None]:
+    pfx: bytes, password: bytes | None = None
+) -> Tuple[PrivateKeyTypes | None, x509.Certificate | None]:
     return pkcs12.load_key_and_certificates(pfx, password)[:-1]
 
 
@@ -338,15 +392,15 @@ def generate_rsa_key(key_size: int = 2048) -> rsa.RSAPrivateKey:
 
 def create_csr(
     username: str,
-    alt_dns: bytes = None,
-    alt_upn: bytes = None,
-    alt_sid: bytes = None,
-    key: rsa.RSAPrivateKey = None,
+    alt_dns: bytes | str | None = None,
+    alt_upn: bytes | str | None = None,
+    alt_sid: bytes | str | None = None,
+    key: rsa.RSAPrivateKey | None = None,
     key_size: int = 2048,
-    subject: str = None,
-    renewal_cert: x509.Certificate = None,
-    application_policies: List[str] = None,  # Application policies parameter
-    smime: str = None,
+    subject: str | None = None,
+    renewal_cert: x509.Certificate | None = None,
+    application_policies: List[str] | None = None,  # Application policies parameter
+    smime: str | None = None,
 ) -> Tuple[x509.CertificateSigningRequest, rsa.RSAPrivateKey]:
     if key is None:
         logging.debug("Generating RSA key")
@@ -431,7 +485,7 @@ def create_csr(
         )
         # https://learn.microsoft.com/en-us/windows/win32/api/certenroll/nn-certenroll-ix509extensionsmimecapabilities
         smime_extension = asn1x509.Extension(
-            {"extn_id": "1.2.840.113549.1.9.15", "extn_value": smimedict[smime]}
+            {"extn_id": "1.2.840.113549.1.9.15", "extn_value": SMIME_MAP[smime]}
         )
 
         set_of_extensions = asn1csr.SetOfExtensions([[smime_extension]])
@@ -533,12 +587,15 @@ def create_csr(
 
 
 def rsa_pkcs1v15_sign(
-    data: bytes, key: rsa.RSAPrivateKey, hash: hashes.HashAlgorithm = hashes.SHA256
+    data: bytes, key: PrivateKeyTypes, hash: type[hashes.HashAlgorithm] = hashes.SHA256
 ):
+    if not isinstance(key, rsa.RSAPrivateKey):
+        raise TypeError("key must be an instance of RSAPrivateKey")
+
     return key.sign(data, padding.PKCS1v15(), hash())
 
 
-def hash_digest(data: bytes, hash: hashes.Hash):
+def hash_digest(data: bytes, hash: type[hashes.HashAlgorithm]):
     digest = hashes.Hash(hash())
     digest.update(data)
     return digest.finalize()
@@ -551,6 +608,9 @@ def create_renewal(
 ):
     x509_cert = asn1x509.Certificate.load(cert_to_der(cert))
     signature_hash_algorithm = cert.signature_hash_algorithm.__class__
+
+    if signature_hash_algorithm is type(None):
+        raise ValueError("Signature hash algorithm is not set in the certificate")
 
     # SignerInfo
 
@@ -640,6 +700,9 @@ def create_on_behalf_of(
     x509_cert = asn1x509.Certificate.load(cert_to_der(cert))
     signature_hash_algorithm = cert.signature_hash_algorithm.__class__
 
+    if signature_hash_algorithm is type(None):
+        raise ValueError("Signature hash algorithm is not set in the certificate")
+
     # SignerInfo
 
     issuer_and_serial = asn1cms.IssuerAndSerialNumber(
@@ -726,12 +789,20 @@ def create_key_archival(
     cax_cert: x509.Certificate,
 ):
     x509_cax_cert = asn1x509.Certificate.load(cert_to_der(cax_cert))
-    x509_csr = asn1csr.CertificationRequest.load(cert_to_der(csr))
+    x509_csr = asn1csr.CertificationRequest.load(csr_to_der(csr))
 
     signature_hash_algorithm = csr.signature_hash_algorithm.__class__
+
+    if signature_hash_algorithm is type(None):
+        raise ValueError("Signature hash algorithm is not set in the CSR")
+
     symmetric_key = os.urandom(32)
     iv = os.urandom(16)
     cax_key = cax_cert.public_key()
+
+    if not isinstance(cax_key, rsa.RSAPublicKey):
+        raise TypeError("cax_key must be an instance of RSAPublicKey")
+
     encrypted_key = cax_key.encrypt(symmetric_key, padding.PKCS1v15())
 
     # EnvelopedData
@@ -827,7 +898,7 @@ def create_key_archival(
                 {
                     "bodyPartID": 1,
                     "certificationRequest": asn1csr.CertificationRequest().load(
-                        cert_to_der(csr)
+                        csr_to_der(csr)
                     ),
                 }
             )
@@ -967,14 +1038,22 @@ def entry(options: argparse.Namespace) -> None:
             key = der_to_key(key)
 
     if options.export:
+        if not key:
+            logging.error("Private key is required for export")
+            return
+
+        if not cert:
+            logging.error("Certificate is required for export")
+            return
+
         pfx = create_pfx(key, cert)
         if options.out:
             logging.info("Writing PFX to %s" % repr(options.out))
 
             with open(options.out, "wb") as f:
-                f.write(pfx)
+                _ = f.write(pfx)
         else:
-            sys.stdout.buffer.write(pfx)
+            _ = sys.stdout.buffer.write(pfx)
     else:
         output = ""
         log_str = ""
@@ -996,7 +1075,7 @@ def entry(options: argparse.Namespace) -> None:
             logging.info("Writing %s to %s" % (log_str, repr(options.out)))
 
             with open(options.out, "w") as f:
-                f.write(output)
+                _ = f.write(output)
         else:
             print(output)
 

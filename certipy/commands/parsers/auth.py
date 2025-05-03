@@ -3,8 +3,6 @@ NAME = "auth"
 import argparse
 from typing import Callable, Tuple
 
-from . import target
-
 
 def entry(options: argparse.Namespace):
     from certipy.commands import auth

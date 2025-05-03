@@ -15,19 +15,23 @@ def get_dcom_connection(target: Target) -> DCOMConnection:
     domain = target.domain
 
     if target.do_kerberos:
+        if target.remote_name is None:
+            logging.warning("Target remote name is not set.")
+
         tgs, cipher, session_key, username, domain = get_TGS(
             target,
-            target_name=target.remote_name,
+            target_name=target.remote_name or "",
         )
         TGS = {"KDC_REP": tgs, "cipher": cipher, "sessionKey": session_key}
 
+    # Types ignored due to the fact that the DCOMConnection class is not type annotated
     dcom = DCOMConnection(
         target.target_ip,
-        username=username,
-        password=target.password,
-        domain=domain,
-        lmhash=target.lmhash,
-        nthash=target.nthash,
+        username=username,  # type: ignore
+        password=target.password,  # type: ignore
+        domain=domain,  # type: ignore
+        lmhash=target.lmhash,  # type: ignore
+        nthash=target.nthash,  # type: ignore
         TGS=TGS,
         doKerberos=target.do_kerberos,
         kdcHost=target.dc_ip,
@@ -40,8 +44,8 @@ def get_dce_rpc_from_string_binding(
     string_binding: str,
     target: Target,
     timeout: int = 5,
-    target_ip: str = None,
-    remote_name: str = None,
+    target_ip: str | None = None,
+    remote_name: str | None = None,
     auth_level: int = rpcrt.RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
 ) -> rpcrt.DCERPC_v5:
     if target_ip is None:
@@ -62,18 +66,22 @@ def get_dce_rpc_from_string_binding(
 
     TGS = None
     if target.do_kerberos:
+        if remote_name is None:
+            logging.warning("Target remote name is not set.")
+
         tgs, cipher, session_key, username, domain = get_TGS(
             target,
-            target_name=remote_name,
+            target_name=remote_name or "",
         )
         TGS = {"KDC_REP": tgs, "cipher": cipher, "sessionKey": session_key}
 
+    # Types ignored due to the fact that the set_credentials method is not type annotated
     rpctransport.set_credentials(
         username,
         target.password,
-        domain,
-        target.lmhash,
-        target.nthash,
+        domain,  # type: ignore
+        target.lmhash,  # type: ignore
+        target.nthash,  # type: ignore
         TGS=TGS,
     )
 
@@ -86,7 +94,7 @@ def get_dce_rpc_from_string_binding(
     return dce
 
 
-def get_dynamic_endpoint(interface: bytes, target: str, timeout: int = 5) -> str:
+def get_dynamic_endpoint(interface: bytes, target: str, timeout: int = 5) -> str | None:
     string_binding = r"ncacn_ip_tcp:%s[135]" % target
     rpctransport = transport.DCERPCTransportFactory(string_binding)
     rpctransport.set_connect_timeout(timeout)
@@ -123,8 +131,8 @@ def get_dce_rpc(
     verbose=False,
     auth_level_np: int = rpcrt.RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
     auth_level_dyn: int = rpcrt.RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
-) -> rpcrt.DCERPC_v5:
-    def _try_binding(string_binding: str, auth_level: int) -> rpcrt.DCERPC_v5:
+) -> rpcrt.DCERPC_v5 | None:
+    def _try_binding(string_binding: str, auth_level: int) -> rpcrt.DCERPC_v5 | None:
         dce = get_dce_rpc_from_string_binding(
             string_binding, target, timeout, auth_level=auth_level
         )
@@ -141,16 +149,20 @@ def get_dce_rpc(
 
         logging.debug("Connected to endpoint: %s" % string_binding)
 
-        dce.bind(interface)
+        _ = dce.bind(interface)
 
         return dce
 
-    def _try_np() -> rpcrt.DCERPC_v5:
+    def _try_np() -> rpcrt.DCERPC_v5 | None:
         # Try named pipe
         string_binding = "ncacn_np:%s[%s]" % (target.target_ip, named_pipe)
         return _try_binding(string_binding, auth_level=auth_level_np)
 
-    def _try_dyn() -> rpcrt.DCERPC_v5:
+    def _try_dyn() -> rpcrt.DCERPC_v5 | None:
+        if target.target_ip is None:
+            logging.error("Target IP is not set")
+            return None
+
         string_binding = get_dynamic_endpoint(interface, target.target_ip, timeout)
         if string_binding is None:
             # Possible errors:

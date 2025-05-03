@@ -7,10 +7,11 @@ import ssl
 import sys
 import tempfile
 from random import getrandbits
-from typing import Tuple, Union
 
 import ldap3
+from ldap3.core.exceptions import LDAPUnavailableResult
 from asn1crypto import cms, core
+from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from impacket.dcerpc.v5.rpcrt import TypeSerialization1
 from impacket.examples.ldap_shell import LdapShell as _LdapShell
 from impacket.krb5 import constants
@@ -104,11 +105,11 @@ def truncate_key(value: bytes, keysize: int) -> bytes:
 class Authenticate:
     def __init__(
         self,
-        target: Target = None,
-        pfx: str = None,
-        password: str = None,
-        cert: x509.Certificate = None,
-        key: rsa.RSAPublicKey = None,
+        target: Target | None = None,
+        pfx: str | None = None,
+        password: str | None = None,
+        cert: x509.Certificate | None = None,
+        key: PrivateKeyTypes | None = None,
         no_save: bool = False,
         no_hash: bool = False,
         ptt: bool = False,
@@ -117,8 +118,8 @@ class Authenticate:
         ldap_shell: bool = False,
         ldap_port: int = 0,
         ldap_scheme: str = "ldaps",
-        ldap_user_dn: str = None,
-        user_dn: str = None,
+        ldap_user_dn: str | None = None,
+        user_dn: str | None = None,
         debug=False,
         **kwargs
     ):
@@ -142,23 +143,38 @@ class Authenticate:
         self.verbose = debug
         self.kwargs = kwargs
 
-        self.nt_hash: str = None
-        self.lm_hash: str = None
+        self.nt_hash: str | None = None
+        self.lm_hash: str | None = None
 
         if self.pfx is not None:
             password = None
             if self.password:
-                password = self.password.encode()
+                pfx_password = self.password.encode()
             with open(self.pfx, "rb") as f:
-                pfx = f.read()
-            self.key, self.cert = load_pfx(pfx, password)
+                pfx_data = f.read()
+            self.key, self.cert = load_pfx(pfx_data, pfx_password)
 
     def authenticate(
-        self, username: str = None, domain: str = None, is_key_credential=False
+        self,
+        username: str | None = None,
+        domain: str | None = None,
+        is_key_credential=False,
     ):
         if username is None:
+            if self.target is None:
+                raise ValueError("Username is not specified and no target was provided")
+            if self.target.username is None:
+                raise ValueError(
+                    "Username is not specified and no username was provided in the target"
+                )
             username = self.target.username
         if domain is None:
+            if self.target is None:
+                raise ValueError("Domain is not specified and no target was provided")
+            if self.target.domain is None:
+                raise ValueError(
+                    "Domain is not specified and no domain was provided in the target"
+                )
             domain = self.target.domain
 
         if self.ldap_shell:
@@ -168,6 +184,8 @@ class Authenticate:
         identification = None
         object_sid = None
         if not is_key_credential:
+            if self.cert is None:
+                raise ValueError("Certificate is not specified and no PFX was provided")
             identifications = get_identifications_from_certificate(self.cert)
 
             if len(identifications) > 1:
@@ -246,15 +264,15 @@ class Authenticate:
             )
             return False
 
-        if not any([len(username), len(domain)]):
+        if not any([len(username or ""), len(domain or "")]):
             logging.error("Username or domain is invalid: %s@%s" % (username, domain))
             return False
 
-        domain = domain.lower()
-        username = username.lower()
+        domain = (domain or "").lower()
+        username = (username or "").lower()
         upn = "%s@%s" % (username, domain)
 
-        if self.target.target_ip is None:
+        if self.target and self.target.resolver and self.target.target_ip is None:
             self.target.target_ip = self.target.resolver.resolve(domain)
 
         logging.info("Using principal: %s" % upn)
@@ -271,14 +289,19 @@ class Authenticate:
 
     def ldap_authentication(
         self,
-        domain: str = None,
-    ) -> Union[str, bool]:
+        domain: str | None = None,
+    ):
+        if self.key is None:
+            raise ValueError("Private key is not specified and no PFX was provided")
+        if self.cert is None:
+            raise ValueError("Certificate is not specified and no PFX was provided")
+
         key_file = tempfile.NamedTemporaryFile(delete=False)
-        key_file.write(key_to_pem(self.key))
+        _ = key_file.write(key_to_pem(self.key))
         key_file.close()
 
         cert_file = tempfile.NamedTemporaryFile(delete=False)
-        cert_file.write(cert_to_pem(self.cert))
+        _ = cert_file.write(cert_to_pem(self.cert))
         cert_file.close()
 
         sasl_credentials = None
@@ -292,9 +315,15 @@ class Authenticate:
             ciphers="ALL:@SECLEVEL=0",
         )
 
+        if self.target is None:
+            raise ValueError("Target is not specified")
+
         host = self.target.target_ip
         if host is None:
             host = domain
+
+        if host is None:
+            raise ValueError("Target IP or domain is not specified")
 
         logging.info(
             "Connecting to %s"
@@ -325,11 +354,11 @@ class Authenticate:
                 receive_timeout=self.target.timeout * 10,
                 **conn_kwargs
             )
-        except ldap3.core.exceptions.LDAPUnavailableResult as e:
+        except LDAPUnavailableResult as e:
             logging.error("LDAP not configured for SSL/TLS connections")
             if self.verbose:
                 raise e
-            return False
+            return
 
         if self.ldap_scheme == "ldaps":
             ldap_conn.open()
@@ -353,15 +382,30 @@ class Authenticate:
 
     def kerberos_authentication(
         self,
-        username: str = None,
-        domain: str = None,
+        username: str,
+        domain: str,
         is_key_credential: bool = False,
-        id_type: str = None,
-        identification: str = None,
-        object_sid: str = None,
-        upn: str = None,
-    ) -> Union[str, bool]:
+        id_type: str | None = None,
+        identification: str | None = None,
+        object_sid: str | None = None,
+        upn: str | None = None,
+    ) -> str | bool | None:
+        if self.key is None:
+            raise ValueError("Private key is not specified and no PFX was provided")
+
+        if self.cert is None:
+            raise ValueError("Certificate is not specified and no PFX was provided")
+
+        if not isinstance(self.key, rsa.RSAPrivateKey):
+            raise ValueError("Currently only RSA private keys are supported.")
+
         as_req, diffie = build_pkinit_as_req(username, domain, self.key, self.cert)
+
+        if self.target is None:
+            raise ValueError("Target is not specified")
+
+        if self.target and self.target.resolver and self.target.target_ip is None:
+            self.target.target_ip = self.target.resolver.resolve(domain)
 
         logging.info("Trying to get TGT...")
 
@@ -504,13 +548,13 @@ class Authenticate:
             # AP_REQ
             ap_req = AP_REQ()
             ap_req["pvno"] = 5
-            ap_req["msg-type"] = int(constants.ApplicationTagNumbers.AP_REQ.value)
+            ap_req["msg-type"] = int(constants.ApplicationTagNumbers.AP_REQ)
 
             opts = []
             ap_req["ap-options"] = constants.encodeFlags(opts)
 
             ticket = Ticket()
-            ticket.from_asn1(as_rep["ticket"])
+            ticket = ticket.from_asn1(as_rep["ticket"])
 
             seq_set(ap_req, "ticket", ticket.to_asn1)
 
@@ -520,11 +564,11 @@ class Authenticate:
             authenticator["crealm"] = bytes(as_rep["crealm"])
 
             client_name = Principal()
-            client_name.from_asn1(as_rep, "crealm", "cname")
+            client_name = client_name.from_asn1(as_rep, "crealm", "cname")
 
             seq_set(authenticator, "cname", client_name.components_to_asn1)
 
-            now = datetime.datetime.utcnow()
+            now = datetime.datetime.now(datetime.timezone.utc)
             authenticator["cusec"] = now.microsecond
             authenticator["ctime"] = KerberosTime.to_asn1(now)
 
@@ -544,29 +588,29 @@ class Authenticate:
             tgs_req = TGS_REQ()
 
             tgs_req["pvno"] = 5
-            tgs_req["msg-type"] = int(constants.ApplicationTagNumbers.TGS_REQ.value)
+            tgs_req["msg-type"] = int(constants.ApplicationTagNumbers.TGS_REQ)
 
             tgs_req["padata"] = noValue
             tgs_req["padata"][0] = noValue
             tgs_req["padata"][0]["padata-type"] = int(
-                constants.PreAuthenticationDataTypes.PA_TGS_REQ.value
+                constants.PreAuthenticationDataTypes.PA_TGS_REQ
             )
             tgs_req["padata"][0]["padata-value"] = encoded_ap_req
 
             req_body = seq_set(tgs_req, "req-body")
 
             opts = []
-            opts.append(constants.KDCOptions.forwardable.value)
-            opts.append(constants.KDCOptions.renewable.value)
-            opts.append(constants.KDCOptions.canonicalize.value)
-            opts.append(constants.KDCOptions.enc_tkt_in_skey.value)
-            opts.append(constants.KDCOptions.forwardable.value)
-            opts.append(constants.KDCOptions.renewable_ok.value)
+            opts.append(constants.KDCOptions.forwardable)
+            opts.append(constants.KDCOptions.renewable)
+            opts.append(constants.KDCOptions.canonicalize)
+            opts.append(constants.KDCOptions.enc_tkt_in_skey)
+            opts.append(constants.KDCOptions.forwardable)
+            opts.append(constants.KDCOptions.renewable_ok)
 
             req_body["kdc-options"] = constants.encodeFlags(opts)
 
             server_name = Principal(
-                username, type=constants.PrincipalNameType.NT_UNKNOWN.value
+                username, type=constants.PrincipalNameType.NT_UNKNOWN
             )
 
             seq_set(req_body, "sname", server_name.components_to_asn1)
@@ -580,7 +624,7 @@ class Authenticate:
             seq_set_iter(
                 req_body,
                 "etype",
-                (int(cipher.enctype), int(constants.EncryptionTypes.rc4_hmac.value)),
+                (int(cipher.enctype), int(constants.EncryptionTypes.rc4_hmac)),
             )
 
             ticket = ticket.to_asn1(TicketAsn1())
@@ -607,7 +651,7 @@ class Authenticate:
             pac_type = PACTYPE(ad_if_relevant[0]["ad-data"].asOctets())
             buff = pac_type["Buffers"]
 
-            nt_hash = None
+            nt_hash: str | None = None
             lm_hash = "aad3b435b51404eeaad3b435b51404ee"
 
             for _ in range(pac_type["cBuffers"]):
@@ -664,4 +708,4 @@ def entry(options: argparse.Namespace) -> None:
     )
 
     authenticate = Authenticate(target=target, **vars(options))
-    authenticate.authenticate()
+    _ = authenticate.authenticate()

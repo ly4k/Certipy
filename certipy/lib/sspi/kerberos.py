@@ -47,9 +47,9 @@ def submit_ticket(ticket_data: bytes):
     return True
 
 
-def get_tgt(target: str) -> CCache:
+def get_tgt(target: str) -> CCache | None:
     ctx = AcquireCredentialsHandle(None, "kerberos", target, SECPKG_CRED.OUTBOUND)
-    res, ctx, data, outputflags, expiry = InitializeSecurityContext(
+    res, ctx, data, _, _ = InitializeSecurityContext(
         ctx,
         target,
         token=None,
@@ -78,7 +78,10 @@ def get_tgt(target: str) -> CCache:
         checksum_data = AuthenticatorChecksum.from_bytes(
             authenticator["cksum"]["checksum"]
         )
-        if ChecksumFlags.GSS_C_DELEG_FLAG not in checksum_data.flags:
+        if (
+            checksum_data.flags is None
+            or ChecksumFlags.GSS_C_DELEG_FLAG not in checksum_data.flags
+        ):
             raise Exception("Delegation flag not set")
 
         cred_orig = KRB_CRED.load(checksum_data.delegation_data).native
@@ -104,7 +107,7 @@ def get_tgt(target: str) -> CCache:
         return ccache
 
 
-def get_tgs(target: str) -> CCache:
+def get_tgs(target: str) -> CCache | None:
     ctx = AcquireCredentialsHandle(None, "kerberos", target, SECPKG_CRED.OUTBOUND)
     res, ctx, data, _, _ = InitializeSecurityContext(
         ctx,
@@ -132,27 +135,3 @@ def get_tgs(target: str) -> CCache:
         ccache.fromKRBCRED(krb_cred.dump())
 
         return ccache
-
-
-"""
-
-kerb = KerberosLive()
-# ap_req, etype, key_value = kerb.get_apreq("ldap/dc.corp.local")
-# ap_req, krb_cred, etype, key_value = kerb.get_apreq("ldap/dc.corp.local")
-krb_cred = kerb.get_apreq("ldap/dc.corp.local")
-
-ccache = CCache()
-ccache.fromKRBCRED(krb_cred)
-ccache.saveFile("check.ccache")
-
-krb_cred = get_tgt("ldap/dc.corp.local")
-ccache = CCache()
-ccache.fromKRBCRED(krb_cred)
-ccache.saveFile("check.ccache")
-
-print(ccache.prettyPrint())
-
-exit()
-"""
-
-# print(get_logon_info())

@@ -7,7 +7,9 @@ import traceback
 import urllib.parse
 from struct import unpack
 from threading import Lock
+from http.client import HTTPConnection
 
+from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from impacket.examples.ntlmrelayx.attacks import ProtocolAttack
 from impacket.examples.ntlmrelayx.clients.httprelayclient import HTTPRelayClient
 from impacket.examples.ntlmrelayx.clients import rpcrelayclient
@@ -26,7 +28,6 @@ from certipy.lib.certificate import (
     create_csr,
     create_pfx,
     csr_to_der,
-    der_to_csr,
     csr_to_pem,
     get_identifications_from_certificate,
     get_object_sid_from_certificate,
@@ -34,7 +35,6 @@ from certipy.lib.certificate import (
     pem_to_cert,
     pem_to_key,
     der_to_cert,
-    rsa,
     x509,
 )
 from certipy.lib.errors import translate_error_code
@@ -42,13 +42,12 @@ from certipy.lib.formatting import print_certificate_identifications
 from certipy.lib.logger import logging
 from certipy.commands.req import MSRPC_UUID_ICPR, RPCRequestInterface
 
-try:
-    from http.client import HTTPConnection
-except ImportError:
-    from httplib import HTTPConnection
-
 
 class ADCSHTTPRelayServer(HTTPRelayClient):
+    def __init__(self, adcs_relay: "Relay", *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.adcs_relay = adcs_relay
+
     def initConnection(self):
         logging.debug("Connecting to %s:%s..." % (self.targetHost, self.targetPort))
         self.session = HTTPConnection(
@@ -95,9 +94,7 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
             domain = response["domain_name"].decode("utf-16le")
             username = response["user_name"].decode("utf-16le")
 
-            self.session.user = "%s\\%s" % (domain, username)
-
-            print(self.session.user)
+            self.session.user = "%s\\%s" % (domain, username)  # type: ignore
 
             auth = base64.b64encode(token).decode("ascii")
             headers = {"Authorization": "%s %s" % (self.authenticationMethod, auth)}
@@ -153,11 +150,11 @@ class ADCSRPCRelayServer(rpcrelayclient.RPCRelayClient, rpcrelayclient.ProtocolC
         else:
             auth_data = authenticateMessageBlob
 
-        self.session.sendBindType3(auth_data)
+        self.session.sendBindType3(auth_data)  # type: ignore
 
         try:
             req = rpcrelayclient.DummyOp()
-            self.session.request(req)
+            self.session.request(req)  # type: ignore
         except rpcrelayclient.DCERPCException as e:
             if "nca_s_op_rng_error" in str(e) or "RPC_E_INVALID_HEADER" in str(e):
                 return None, STATUS_SUCCESS
@@ -178,7 +175,7 @@ class ADCSRPCRelayServer(rpcrelayclient.RPCRelayClient, rpcrelayclient.ProtocolC
     def keepAlive(self):
         try:
             req = rpcrelayclient.DummyOp()
-            self.session.request(req)
+            self.session.request(req)  # type: ignore
         except rpcrelayclient.DCERPCException as e:
             if "nca_s_op_rng_error" not in str(e) or "RPC_E_INVALID_HEADER" not in str(
                 e
@@ -187,6 +184,11 @@ class ADCSRPCRelayServer(rpcrelayclient.RPCRelayClient, rpcrelayclient.ProtocolC
 
 
 class ADCSHTTPAttackClient(ProtocolAttack):
+    def __init__(self, adcs_relay: "Relay", *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.adcs_relay = adcs_relay
+
     def run(self):
         self.adcs_relay.attack_lock.acquire()
         try:
@@ -421,8 +423,8 @@ class ADCSHTTPAttackClient(ProtocolAttack):
     def save_certificate(
         self,
         cert: x509.Certificate,
-        key: rsa.RSAPrivateKey = None,
-        request_id: int = None,
+        key: PrivateKeyTypes | None = None,
+        request_id: int | None = None,
     ):
         identifications = get_identifications_from_certificate(cert)
 
@@ -476,9 +478,10 @@ class ADCSHTTPAttackClient(ProtocolAttack):
 
 
 class ADCSRPCAttackClient(ProtocolAttack):
-    def __init__(self, config, dce, username):
+    def __init__(self, adcs_relay: "Relay", config, dce, username):
         super().__init__(config, dce, username)
 
+        self.adcs_relay = adcs_relay
         self.dce = dce
         self.rpctransport = dce.get_rpc_transport()
         self.stringbinding = self.rpctransport.get_stringbinding()
@@ -695,7 +698,7 @@ class Relay:
         self.dns = dns
         self.sid = sid
         self.archive_key = archive_key
-        self.request_id = int(retrieve)
+        self.request_id = int(retrieve) if retrieve else None
         self.key_size = key_size
         self.out = out
         self.forever = forever
@@ -774,23 +777,19 @@ class Relay:
                 logging.error("Use -debug to print a stacktrace")
 
     def get_relay_http_server(self, *args, **kwargs) -> ADCSHTTPRelayServer:
-        relay_server = ADCSHTTPRelayServer(*args, **kwargs)
-        relay_server.adcs_relay = self
+        relay_server = ADCSHTTPRelayServer(self, *args, **kwargs)
         return relay_server
 
     def get_attack_http_client(self, *args, **kwargs) -> ADCSHTTPAttackClient:
-        attack_client = ADCSHTTPAttackClient(*args, **kwargs)
-        attack_client.adcs_relay = self
+        attack_client = ADCSHTTPAttackClient(self, *args, **kwargs)
         return attack_client
 
     def get_relay_rpc_server(self, *args, **kwargs) -> ADCSRPCRelayServer:
         relay_server = ADCSRPCRelayServer(*args, **kwargs)
-        relay_server.adcs_relay = self
         return relay_server
 
     def get_attack_rpc_client(self, *args, **kwargs) -> ADCSRPCAttackClient:
-        attack_client = ADCSRPCAttackClient(*args, **kwargs)
-        attack_client.adcs_relay = self
+        attack_client = ADCSRPCAttackClient(self, *args, **kwargs)
         return attack_client
 
     def shutdown(self):

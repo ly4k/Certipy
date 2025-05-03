@@ -1,17 +1,20 @@
 import os
 import platform
 import socket
-from typing import Literal
+import argparse
 
 from certipy.lib.logger import logging
 from dns.resolver import Resolver
 from impacket.krb5.ccache import CCache
 
 
-def is_ip(hostname: str) -> bool:
+def is_ip(hostname: str | None) -> bool:
+    if hostname is None:
+        return False
+
     try:
         # Check if hostname is an IP
-        socket.inet_aton(hostname)
+        _ = socket.inet_aton(hostname)
         return True
     except Exception:
         pass
@@ -44,14 +47,14 @@ class DnsResolver:
 
     @staticmethod
     def create(
-        target: "Target" = None, ns: str = None, dns_tcp: bool = False
+        target: "Target | None" = None, ns: "str | None" = None, dns_tcp: bool = False
     ) -> "DnsResolver":
         self = DnsResolver()
 
         # We can't put all possible nameservers in the list of nameservers, since
         # the resolver will fail if one of them fails
         nameserver = ns
-        if nameserver is None:
+        if nameserver is None and target is not None:
             nameserver = target.dc_ip
 
         if nameserver is not None:
@@ -85,7 +88,7 @@ class DnsResolver:
             if len(answers) == 0:
                 raise Exception()
 
-            ip_addr = answers[0].to_text()
+            ip_addr = str(answers[0])
         except Exception:
             pass
 
@@ -107,9 +110,7 @@ def get_logon_session():
     if platform.system().lower() != "windows":
         raise Exception("Cannot use SSPI on non-Windows platform")
 
-    from winacl.functions.highlevel import get_logon_info
-
-    from certipy.lib.sspi import get_tgt
+    from winacl.functions.highlevel import get_logon_info  # type: ignore
 
     info = get_logon_info()
 
@@ -134,6 +135,15 @@ def get_kerberos_principal():
     if ccache is None:
         return None
     # retrieve domain information from CCache file if needed
+
+    if ccache.principal is None:
+        logging.error("No principal found in CCache file")
+        return None
+
+    if ccache.principal.realm is None:
+        logging.error("No realm/domain found in CCache file")
+        return None
+
     domain = ccache.principal.realm["data"].decode("utf-8")
     logging.debug("Domain retrieved from CCache: %s" % domain)
 
@@ -146,27 +156,28 @@ def get_kerberos_principal():
 
 class Target:
     def __init__(self):
-        self.domain: str = None
-        self.username: str = None
-        self.password: str = None
-        self.remote_name: str = None
-        self.hashes: str = None
-        self.lmhash: str = None
-        self.nthash: str = None
+        self.domain: str | None = None
+        self.username: str | None = None
+        self.password: str | None = None
+        self.remote_name: str | None = None
+        self.hashes: str | None = None
+        self.lmhash: str | None = None
+        self.nthash: str | None = None
         self.do_kerberos: bool = False
         self.do_simple: bool = False
         self.use_sspi: bool = False
-        self.aes: str = None
-        self.dc_ip: str = None
-        self.target_ip: str = None
+        self.aes: str | None = None
+        self.dc_ip: str | None = None
+        self.dc_host: str | None = None
+        self.target_ip: str | None = None
         self.timeout: int = 5
-        self.resolver: Resolver = None
+        self.resolver: DnsResolver | None = None
         self.ldap_channel_binding = None
-        self.ldap_port: int = 0
+        self.ldap_port: int | None = None
 
     @staticmethod
     def from_options(
-        options, dc_as_target: bool = False, ptt: bool = False
+        options: argparse.Namespace, dc_as_target: bool = False, ptt: bool = False
     ) -> "Target":
         self = Target()
 
@@ -184,7 +195,7 @@ class Target:
             username = ""
 
         dc_ip = options.dc_ip
-        dc_host = None
+        dc_host: str | None = None
 
         if options.do_kerberos:
             principal = get_kerberos_principal()
@@ -303,23 +314,23 @@ class Target:
 
     @staticmethod
     def create(
-        domain: str = None,
-        username: str = None,
-        password: str = None,
-        hashes: str = None,
-        target_ip: str = None,
-        remote_name: str = None,
+        domain: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
+        hashes: str | None = None,
+        target_ip: str | None = None,
+        remote_name: str | None = None,
         no_pass: bool = False,
         do_kerberos: bool = False,
         do_simple: bool = False,
         use_sspi: bool = False,
-        aes: str = None,
-        dc_ip: str = None,
-        ns: str = None,
+        aes: str | None = None,
+        dc_ip: str | None = None,
+        ns: str | None = None,
         dns_tcp: bool = False,
         timeout: int = 5,
         ldap_channel_binding: bool = False,
-        ldap_port: int = 0,
+        ldap_port: int | None = None,
     ) -> "Target":
 
         self = Target()
@@ -352,12 +363,12 @@ class Target:
             password = getpass("Password:")
 
         if hashes is not None:
-            hashes = hashes.split(":")
-            if len(hashes) == 1:
-                (nthash,) = hashes
+            sub_hashes = hashes.split(":")
+            if len(sub_hashes) == 1:
+                (nthash,) = sub_hashes
                 lmhash = nthash = nthash
             else:
-                lmhash, nthash = hashes
+                lmhash, nthash = sub_hashes
                 if len(lmhash) == 0:
                     lmhash = nthash
         else:

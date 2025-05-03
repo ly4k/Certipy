@@ -1,6 +1,6 @@
 import argparse
 import re
-from typing import List
+from typing import List, Tuple
 
 from impacket.dcerpc.v5 import rpcrt
 from impacket.dcerpc.v5.dtypes import DWORD, LPWSTR, NULL, PBYTE, ULONG
@@ -8,7 +8,7 @@ from impacket.dcerpc.v5.ndr import NDRCALL, NDRSTRUCT
 from impacket.dcerpc.v5.nrpc import checkNullString
 from impacket.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_PRIVACY
 from impacket.dcerpc.v5.dcom.oaut import string_to_bin
-from impacket.dcerpc.v5.dcomrt import DCOMCALL, DCOMANSWER
+from impacket.dcerpc.v5.dcomrt import DCOMCALL, DCOMANSWER, DCOMConnection
 from impacket.uuid import uuidtup_to_bin
 import httpx
 from httpx_ntlm import HttpNtlmAuth
@@ -68,7 +68,7 @@ class DCERPCSessionError(rpcrt.DCERPCException):
         rpcrt.DCERPCException.__init__(self, error_string, error_code, packet)
 
     def __str__(self) -> str:
-        self.error_code &= 0xFFFFFFFF
+        self.error_code &= 0xFFFFFFFF  # type: ignore
         error_msg = translate_error_code(self.error_code)
         return "RequestSessionError: %s" % error_msg
 
@@ -149,10 +149,10 @@ class DCOMRequestInterface(RequestInterface):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._dcom = None
+        self._dcom: DCOMConnection | None = None
 
     @property
-    def dcom(self) -> rpcrt.DCERPC_v5:
+    def dcom(self) -> DCOMConnection:
         """
         Establish a DCOM connection to the target using certipy's get_dcom_connection
         function.
@@ -160,10 +160,13 @@ class DCOMRequestInterface(RequestInterface):
         if self._dcom is not None:
             return self._dcom
 
+        if self.parent.target is None:
+            raise Exception("Target is not set")
+
         self._dcom = get_dcom_connection(self.parent.target)
         return self._dcom
 
-    def retrieve(self, request_id: int) -> x509.Certificate:
+    def retrieve(self, request_id: int) -> x509.Certificate | None:
         """
         Retrieve an already requested certificate via request_id. Only the first
         few lines until the cert_req_d.request were modified. The rest is the
@@ -183,7 +186,7 @@ class DCOMRequestInterface(RequestInterface):
         logging.info(f"Rerieving certificate with ID {request_id}")
 
         i_cert_req = self.dcom.CoCreateInstanceEx(CLSID_ICertRequest, IID_ICertRequestD)
-        i_cert_req.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
+        i_cert_req.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)  # type: ignore
 
         cert_req_d = ICertRequestD(i_cert_req)
         response = cert_req_d.request(request)
@@ -212,19 +215,21 @@ class DCOMRequestInterface(RequestInterface):
                         "Got error while trying to retrieve certificate: %s" % error_msg
                     )
 
-            return False
+            return None
 
         cert = der_to_cert(b"".join(response["pctbEncodedCert"]["pb"]))
 
         return cert
 
-    def request(self, csr: bytes, attributes: List[str]) -> x509.Certificate:
+    def request(
+        self, csr: bytes, attributes_list: List[str]
+    ) -> x509.Certificate | None:
         """
         Request a new certificate via CSR. Only the first few lines until the
         cert_req_d.request were modified. The rest is the same code as for the
         RPC interface.
         """
-        attributes = checkNullString("\n".join(attributes))
+        attributes = checkNullString("\n".join(attributes_list))
 
         pctb_request = CERTTRANSBLOB()
         pctb_request["cb"] = len(csr)
@@ -240,7 +245,7 @@ class DCOMRequestInterface(RequestInterface):
         logging.info("Requesting certificate via DCOM")
 
         i_cert_req = self.dcom.CoCreateInstanceEx(CLSID_ICertRequest, IID_ICertRequestD)
-        i_cert_req.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)
+        i_cert_req.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)  # type: ignore
 
         cert_req_d = ICertRequestD(i_cert_req)
         response = cert_req_d.request(request)
@@ -283,11 +288,15 @@ class DCOMRequestInterface(RequestInterface):
                     self.parent.out if self.parent.out is not None else str(request_id)
                 )
                 with open("%s.key" % out, "wb") as f:
-                    f.write(key_to_pem(self.parent.key))
+                    if self.parent.key is None:
+                        logging.error("No private key found")
+                        return None
+
+                    _ = f.write(key_to_pem(self.parent.key))
 
                 logging.info("Saved private key to %s.key" % out)
 
-            return False
+            return None
 
         cert = der_to_cert(b"".join(response["pctbEncodedCert"]["pb"]))
 
@@ -301,9 +310,16 @@ class RPCRequestInterface(RequestInterface):
         self._dce = None
 
     @property
-    def dce(self) -> rpcrt.DCERPC_v5:
+    def dce(self) -> rpcrt.DCERPC_v5 | None:
         if self._dce is not None:
             return self._dce
+
+        if MSRPC_UUID_ICPR is None:
+            # Should never happen
+            raise Exception("Failed to get MSRPC UUID for ICertRequest")
+
+        if self.parent.target is None:
+            raise Exception("Target is not set")
 
         self._dce = get_dce_rpc(
             MSRPC_UUID_ICPR,
@@ -330,6 +346,9 @@ class RPCRequestInterface(RequestInterface):
         request["pctbRequest"] = empty
 
         logging.info("Retrieving certificate with ID %d" % request_id)
+
+        if self.dce is None:
+            raise Exception("Failed to get DCE RPC connection")
 
         response = self.dce.request(request, checkError=False)
 
@@ -366,9 +385,9 @@ class RPCRequestInterface(RequestInterface):
     def request(
         self,
         csr: bytes,
-        attributes: List[str],
+        attributes_list: List[str],
     ) -> x509.Certificate:
-        attributes = checkNullString("\n".join(attributes)).encode("utf-16le")
+        attributes = checkNullString("\n".join(attributes_list)).encode("utf-16le")
         pctb_attribs = CERTTRANSBLOB()
         pctb_attribs["cb"] = len(attributes)
         pctb_attribs["pb"] = attributes
@@ -385,6 +404,9 @@ class RPCRequestInterface(RequestInterface):
         request["pctbRequest"] = pctb_request
 
         logging.info("Requesting certificate via RPC")
+
+        if self.dce is None:
+            raise Exception("Failed to get DCE RPC connection")
 
         response = self.dce.request(request)
 
@@ -446,9 +468,12 @@ class WebRequestInterface(RequestInterface):
         self.base_url = ""
 
     @property
-    def session(self) -> httpx.Client:
+    def session(self) -> httpx.Client | None:
         if self._session is not None:
             return self._session
+
+        if self.target is None:
+            raise Exception("Target is not set")
 
         # Create a session with httpx
         if self.target.do_kerberos:
@@ -475,10 +500,16 @@ class WebRequestInterface(RequestInterface):
         logging.info("Checking for Web Enrollment on %s" % repr(base_url))
 
         success = False
+
+        headers = {}
+        host_value = self.target.remote_name or self.target.target_ip
+        if host_value:
+            headers = {"Host": host_value}
+
         try:
             res = session.get(
                 "%s/certsrv/" % base_url,
-                headers={"Host": self.target.remote_name},
+                headers=headers,
                 timeout=self.target.timeout,
                 follow_redirects=False,
             )
@@ -508,7 +539,7 @@ class WebRequestInterface(RequestInterface):
             try:
                 res = session.get(
                     "%s/certsrv/" % base_url,
-                    headers={"Host": self.target.remote_name},
+                    headers=headers,
                     timeout=self.target.timeout,
                     follow_redirects=False,
                 )
@@ -537,8 +568,12 @@ class WebRequestInterface(RequestInterface):
         self._session = session
         return self._session
 
-    def retrieve(self, request_id: int) -> x509.Certificate:
+    def retrieve(self, request_id: int) -> x509.Certificate | None:
         logging.info("Retrieving certificate for request ID: %d" % request_id)
+
+        if self.session is None:
+            raise Exception("Failed to get HTTP session")
+
         res = self.session.get(
             "%s/certsrv/certnew.cer" % self.base_url, params={"ReqID": request_id}
         )
@@ -551,7 +586,7 @@ class WebRequestInterface(RequestInterface):
                 logging.error(
                     "Got error while trying to retrieve certificate. Use -debug to print the response"
                 )
-            return False
+            return None
 
         if b"BEGIN CERTIFICATE" in res.content:
             cert = pem_to_cert(res.content)
@@ -576,22 +611,21 @@ class WebRequestInterface(RequestInterface):
                             "Got unknown error from AD CS. Use -debug to print the response"
                         )
 
-            return False
+            return None
 
         return cert
 
     def request(
         self,
-        csr: bytes,
-        attributes: List[str],
-    ) -> x509.Certificate:
-        session = self.session
-        if not session:
-            return False
+        csr_bytes: bytes,
+        attributes_list: List[str],
+    ) -> x509.Certificate | None:
+        if self.session is None:
+            raise Exception("Failed to get HTTP session")
 
-        csr = der_to_pem(csr, "CERTIFICATE REQUEST")
+        csr = der_to_pem(csr_bytes, "CERTIFICATE REQUEST")
 
-        attributes = "\n".join(attributes)
+        attributes = "\n".join(attributes_list)
 
         params = {
             "Mode": "newreq",
@@ -604,7 +638,7 @@ class WebRequestInterface(RequestInterface):
 
         logging.info("Requesting certificate via Web Enrollment")
 
-        res = session.post("%s/certsrv/certfnsh.asp" % self.base_url, data=params)
+        res = self.session.post("%s/certsrv/certfnsh.asp" % self.base_url, data=params)
         content = res.text
 
         if res.status_code != 200:
@@ -613,7 +647,7 @@ class WebRequestInterface(RequestInterface):
                 print(content)
             else:
                 logging.warning("Use -debug to print the response")
-            return False
+            return None
 
         request_id = re.findall(r"certnew.cer\?ReqID=([0-9]+)&", content)
         if not request_id:
@@ -621,7 +655,7 @@ class WebRequestInterface(RequestInterface):
                 logging.error(
                     "Template %s is not supported by AD CS" % repr(self.parent.template)
                 )
-                return False
+                return None
             else:
                 request_id = re.findall(r"Your Request Id is ([0-9]+)", content)
                 if len(request_id) != 1:
@@ -641,7 +675,7 @@ class WebRequestInterface(RequestInterface):
                     )
                     try:
                         error_codes = re.findall(
-                            "(0x[a-zA-Z0-9]+) \([-]?[0-9]+ ",
+                            r"(0x[a-zA-Z0-9]+) \([-]?[0-9]+ ",
                             res.text,
                             flags=re.MULTILINE,
                         )
@@ -673,7 +707,7 @@ class WebRequestInterface(RequestInterface):
                             logging.warning("Use -debug to print the response")
 
             if request_id is None:
-                return False
+                return None
 
             should_save = input(
                 "Would you like to save the private key? (y/N) "
@@ -684,15 +718,18 @@ class WebRequestInterface(RequestInterface):
                     self.parent.out if self.parent.out is not None else str(request_id)
                 )
                 with open("%s.key" % out, "wb") as f:
-                    f.write(key_to_pem(self.parent.key))
+                    if self.parent.key is None:
+                        logging.error("No private key found")
+                        return None
+                    _ = f.write(key_to_pem(self.parent.key))
 
                 logging.info("Saved private key to %s.key" % out)
 
-            return False
+            return None
 
         if len(request_id) == 0:
             logging.error("Failed to get request id from response")
-            return False
+            return None
 
         request_id = int(request_id[0])
 
@@ -704,31 +741,31 @@ class WebRequestInterface(RequestInterface):
 class Request:
     def __init__(
         self,
-        target: Target = None,
-        ca: str = None,
-        template: str = None,
-        upn: str = None,
-        dns: str = None,
-        sid: str = None,
-        subject: str = None,
-        retrieve: int = 0,
-        on_behalf_of: str = None,
-        pfx: str = None,
-        pfx_password: str = None,
-        key_size: int = None,
+        target: Target | None = None,
+        ca: str | None = None,
+        template: str | None = None,
+        upn: str | None = None,
+        dns: str | None = None,
+        sid: str | None = None,
+        subject: str | None = None,
+        retrieve: int | None = None,
+        on_behalf_of: str | None = None,
+        pfx: str | None = None,
+        pfx_password: str | None = None,
+        key_size: int = 2048,
         archive_key: bool = False,
         cax_cert: bool = False,
         renew: bool = False,
-        out: str = None,
-        key: rsa.RSAPrivateKey = None,
+        out: str | None = None,
+        key: rsa.RSAPrivateKey | None = None,
         web: bool = False,
         dcom: bool = False,
-        port: int = None,
-        scheme: str = None,
+        port: int | None = None,
+        scheme: str | None = None,
         dynamic_endpoint: bool = False,
         debug=False,
-        application_policies: List[str] = None,
-        smime: str = None,
+        application_policies: List[str] | None = None,
+        smime: str | None = None,
         **kwargs,
     ):
         self.target = target
@@ -738,7 +775,7 @@ class Request:
         self.alt_dns = dns
         self.alt_sid = sid
         self.subject = subject
-        self.request_id = int(retrieve)
+        self.request_id = int(retrieve) if retrieve else None
         self.on_behalf_of = on_behalf_of
         self.pfx = pfx
         self.pfx_password = pfx_password
@@ -790,6 +827,10 @@ class Request:
         return self._interface
 
     def retrieve(self) -> bool:
+        if self.request_id is None:
+            logging.error("No request ID specified")
+            return False
+
         request_id = int(self.request_id)
 
         cert = self.interface.retrieve(request_id)
@@ -809,42 +850,53 @@ class Request:
 
         out = self.out
         if out is None:
-            out, _ = cert_id_to_parts(identifications)
+            out, _ = cert_id_to_parts(identifications)  # type: ignore
             if out is None:
-                out = self.target.username
+                if not self.target is None and not self.target.username is None:
+                    out = self.target.username
+                else:
+                    out = "%d" % request_id
 
             out = out.rstrip("$").lower()
 
         try:
             with open("%d.key" % request_id, "rb") as f:
                 key = pem_to_key(f.read())
-        except Exception as e:
+        except Exception:
             logging.warning(
                 "Could not find matching private key. Saving certificate as PEM"
             )
             with open("%s.crt" % out, "wb") as f:
-                f.write(cert_to_pem(cert))
+                _ = f.write(cert_to_pem(cert))
 
             logging.info("Saved certificate to %s" % repr("%s.crt" % out))
         else:
             logging.info("Loaded private key from %s" % repr("%d.key" % request_id))
             pfx = create_pfx(key, cert, self.pfx_password)
             with open("%s.pfx" % out, "wb") as f:
-                f.write(pfx)
+                _ = f.write(pfx)
             logging.info(
                 "Saved certificate and private key to %s" % repr("%s.pfx" % out)
             )
 
         return True
 
-    def request(self) -> bool:
+    def request(self) -> bool | Tuple[bytes, str]:
+        if self.target is None:
+            logging.error("No target specified")
+            return False
+
+        if self.target.username is None:
+            logging.error("No username specified")
+            return False
+
         username = self.target.username
 
         if sum(map(bool, [self.archive_key, self.on_behalf_of, self.renew])) > 1:
             logging.error(
                 "Combinations of -renew, -on-behalf-of, and -archive-key are currently not supported"
             )
-            return None
+            return False
 
         if self.on_behalf_of:
             username = self.on_behalf_of
@@ -901,9 +953,22 @@ class Request:
             cax_cert = ca.get_exchange_certificate()
             logging.info("Retrieved CAX certificate")
 
+            if not isinstance(self.key, rsa.RSAPrivateKey):
+                logging.error("Currently only RSA keys are supported for key archival")
+                return False
+
             csr = create_key_archival(der_to_csr(csr), self.key, cax_cert)
 
         if self.renew:
+            if renewal_cert is None or renewal_key is None:
+                logging.error(
+                    "A certificate and private key (-pfx) is required in order for renewal"
+                )
+                return False
+            if not isinstance(renewal_key, rsa.RSAPrivateKey):
+                logging.error("Currently only RSA keys are supported for key archival")
+                return False
+
             csr = create_renewal(csr, renewal_cert, renewal_key)
 
         if self.on_behalf_of:
@@ -915,6 +980,18 @@ class Request:
 
             with open(self.pfx, "rb") as f:
                 agent_key, agent_cert = load_pfx(f.read())
+
+            if agent_key is None or agent_cert is None:
+                logging.error(
+                    "Failed to load certificate and private key from %s" % self.pfx
+                )
+                return False
+
+            if not isinstance(agent_key, rsa.RSAPrivateKey):
+                logging.error(
+                    "Currently only RSA keys are supported for on-behalf-of requests"
+                )
+                return False
 
             csr = create_on_behalf_of(csr, self.on_behalf_of, agent_cert, agent_key)
 
@@ -956,7 +1033,7 @@ class Request:
 
         out = self.out
         if out is None:
-            out, _ = cert_id_to_parts(identifications)
+            out, _ = cert_id_to_parts(identifications)  # type: ignore
             if out is None:
                 out = self.target.username
 
@@ -967,14 +1044,16 @@ class Request:
         outfile = "%s.pfx" % out
 
         with open(outfile, "wb") as f:
-            f.write(pfx)
+            _ = f.write(pfx)
 
         logging.info("Saved certificate and private key to %s" % repr(outfile))
 
         return pfx, outfile
 
-    def getCAX(self) -> bool:
-        username = self.target.username
+    def getCAX(self) -> bool | bytes:
+        if self.target is None:
+            logging.error("No target specified")
+            return False
 
         ca = CA(self.target, self.ca)
         logging.info("Trying to retrieve CAX certificate")
@@ -987,7 +1066,8 @@ class Request:
 
 def entry(options: argparse.Namespace) -> None:
     target = Target.from_options(options)
-    del options.target
+
+    options.__delattr__("target")
 
     request = Request(target=target, **vars(options))
 
@@ -997,12 +1077,13 @@ def entry(options: argparse.Namespace) -> None:
             return
 
         cax = request.getCAX()
-        with open(options.out, "wb") as f:
-            f.write(cax)
-        logging.info("CAX certificate save to %s" % options.out)
+        if isinstance(cax, bytes):
+            with open(options.out, "wb") as f:
+                _ = f.write(cax)
+            logging.info("CAX certificate save to %s" % options.out)
         return
 
     if options.retrieve:
-        request.retrieve()
+        _ = request.retrieve()
     else:
-        request.request()
+        _ = request.request()

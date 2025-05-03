@@ -84,7 +84,7 @@ def add_argument_group(
         "-simple-auth",
         action="store_true",
         dest="do_simple",
-        help="Use SIMPLE authentication instead of NTLM",
+        help="Use SIMPLE LDAP authentication instead of NTLM",
     )
     group.add_argument(
         "-sspi",

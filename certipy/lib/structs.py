@@ -1099,20 +1099,22 @@ class ChecksumFlags(enum.IntFlag):
 # https://tools.ietf.org/html/rfc4121#section-4.1.1
 class AuthenticatorChecksum:
     def __init__(self):
-        self.length_of_binding = None
-        self.channel_binding = None  # MD5 hash of gss_channel_bindings_struct
-        self.flags = None  # ChecksumFlags
-        self.delegation = None
+        self.length_of_binding: int | None = None
+        self.channel_binding: bytes | None = (
+            None  # MD5 hash of gss_channel_bindings_struct
+        )
+        self.flags: ChecksumFlags | None = None  # ChecksumFlags
+        self.delegation: bool | None = None
         self.delegation_length = None
-        self.delegation_data = None
-        self.extensions = None
+        self.delegation_data: bytes | None = None
+        self.extensions: bytes | None = None
 
     @staticmethod
     def from_bytes(data):
         return AuthenticatorChecksum.from_buffer(io.BytesIO(data))
 
     @staticmethod
-    def from_buffer(buffer):
+    def from_buffer(buffer: io.BytesIO):
         ac = AuthenticatorChecksum()
         ac.length_of_binding = int.from_bytes(
             buffer.read(4), byteorder="little", signed=False
@@ -1135,15 +1137,25 @@ class AuthenticatorChecksum:
         return ac
 
     def to_bytes(self):
+        if self.channel_binding is None:
+            raise ValueError("channel_binding is None")
+
+        if self.flags is None:
+            raise ValueError("flags is None")
+
+        if self.delegation is None:
+            raise ValueError("delegation is None")
+
+        if self.delegation_data is None:
+            raise ValueError("delegation_data is None")
+
         t = len(self.channel_binding).to_bytes(4, byteorder="little", signed=False)
         t += self.channel_binding
         t += self.flags.to_bytes(4, byteorder="little", signed=False)
         if self.flags & ChecksumFlags.GSS_C_DELEG_FLAG:
             t += int(self.delegation).to_bytes(2, byteorder="little", signed=False)
-            t += len(self.delegation_data.to_bytes()).to_bytes(
-                2, byteorder="little", signed=False
-            )
-            t += self.delegation_data.to_bytes()
+            t += len(self.delegation_data).to_bytes(2, byteorder="little", signed=False)
+            t += self.delegation_data
         if self.extensions:
-            t += self.extensions.to_bytes()
+            t += self.extensions
         return t

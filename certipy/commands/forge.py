@@ -1,13 +1,18 @@
 import argparse
 import datetime
-from typing import Callable, Tuple
+from typing import Union
 
+from pyasn1.codec.der import encoder
+from cryptography.hazmat.primitives.asymmetric.types import (
+    CertificateIssuerPrivateKeyTypes,
+    CertificateIssuerPublicKeyTypes,
+)
+from cryptography.hazmat.primitives import hashes
 from certipy.lib.certificate import (
     PRINCIPAL_NAME,
     UTF8String,
     cert_id_to_parts,
     create_pfx,
-    encoder,
     generate_rsa_key,
     get_subject_from_str,
     load_pfx,
@@ -22,17 +27,17 @@ from certipy.lib.logger import logging
 class Forge:
     def __init__(
         self,
-        ca_pfx: str = None,
-        upn: str = None,
-        dns: str = None,
-        sid: str = None,
-        template: str = None,
-        subject: str = None,
-        issuer: str = None,
-        crl: str = None,
-        serial: str = None,
+        ca_pfx: str | None = None,
+        upn: str | None = None,
+        dns: str | None = None,
+        sid: str | None = None,
+        template: str | None = None,
+        subject: str | None = None,
+        issuer: str | None = None,
+        crl: str | None = None,
+        serial: str | None = None,
         key_size: int = 2048,
-        out: str = None,
+        out: str | None = None,
         **kwargs
     ):
         self.ca_pfx = ca_pfx
@@ -56,7 +61,7 @@ class Forge:
             serial_number = int(serial_number.replace(":", ""), 16)
         return serial_number
 
-    def get_crl(self, crl: str = None) -> x509.CRLDistributionPoints:
+    def get_crl(self, crl: str | None = None) -> x509.CRLDistributionPoints | None:
         if crl is None:
             crl = self.crl
         if crl:
@@ -73,9 +78,22 @@ class Forge:
         return None
 
     def forge(self):
+        if self.ca_pfx is None:
+            raise ValueError("CA PFX file is required")
+
         with open(self.ca_pfx, "rb") as f:
             ca_pfx = f.read()
         ca_key, ca_cert = load_pfx(ca_pfx)
+
+        if ca_cert is None:
+            raise Exception("Failed to load CA certificate")
+
+        if ca_key is None:
+            raise Exception("Failed to load CA private key")
+
+        # TODO: Don't type ignore. Make sure ca_public_key is CertificateIssuerPublicKeyTypes
+        ca_private_key: CertificateIssuerPrivateKeyTypes = ca_key  # type: ignore
+        ca_public_key: CertificateIssuerPublicKeyTypes = ca_key.public_key()  # type: ignore
 
         if self.alt_upn:
             id_type, id_value = "UPN", self.alt_upn
@@ -86,6 +104,12 @@ class Forge:
             with open(self.template, "rb") as f:
                 tmp_pfx = f.read()
             key, tmp_cert = load_pfx(tmp_pfx)
+
+            if key is None:
+                raise Exception("Failed to load template private key")
+
+            if tmp_cert is None:
+                raise Exception("Failed to load template certificate")
 
             subject = self.subject
             if subject is None:
@@ -111,7 +135,7 @@ class Forge:
             cert = cert.not_valid_after(tmp_cert.not_valid_after_utc)
 
             cert = cert.add_extension(
-                x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),
+                x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_public_key),
                 False,
             )
 
@@ -160,14 +184,16 @@ class Forge:
             cert = cert.public_key(key.public_key())
             cert = cert.serial_number(serial_number)
             cert = cert.not_valid_before(
-                datetime.datetime.utcnow() - datetime.timedelta(days=1)
+                datetime.datetime.now(datetime.timezone.utc)
+                - datetime.timedelta(days=1)
             )
             cert = cert.not_valid_after(
-                datetime.datetime.utcnow() + datetime.timedelta(days=365)
+                datetime.datetime.now(datetime.timezone.utc)
+                + datetime.timedelta(days=365)
             )
 
             cert = cert.add_extension(
-                x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),
+                x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_public_key),
                 False,
             )
 
@@ -232,13 +258,47 @@ class Forge:
                 False,
             )
 
-        cert = cert.sign(ca_key, signature_hash_algorithm())
+        signature_hash_alg = (
+            hashes.SHA256()
+            if (
+                signature_hash_algorithm is None
+                or signature_hash_algorithm is type(None)
+            )
+            else signature_hash_algorithm()
+        )
+
+        AllowedHashTypes = Union[
+            hashes.SHA224,
+            hashes.SHA256,
+            hashes.SHA384,
+            hashes.SHA512,
+            hashes.SHA3_224,
+            hashes.SHA3_256,
+            hashes.SHA3_384,
+            hashes.SHA3_512,
+        ]
+
+        if not type(signature_hash_alg) in AllowedHashTypes.__args__:
+            logging.warning(
+                "Signature hash algorithm is not one of the allowed types. Using SHA256."
+            )
+            signature_hash_alg = hashes.SHA256()
+
+        # TODO: Properly check
+        signature_hash_alg: AllowedHashTypes = signature_hash_alg  # type: ignore
+
+        cert = cert.sign(ca_private_key, signature_hash_alg)
 
         pfx = create_pfx(key, cert)
 
         out = self.out
         if not out:
             out, _ = cert_id_to_parts([(id_type, id_value)])
+            if out is None:
+                logging.warning(
+                    "Failed to generate output filename from certificate ID. Using current timestamp."
+                )
+                out = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
             out = "%s_forged.pfx" % out.rstrip("$").lower()
 
         with open(out, "wb") as f:

@@ -20,14 +20,14 @@ from certipy.lib.target import Target
 
 def get_TGS(
     target: Target,
-    target_name,
+    target_name: str,
     service: str = "host",
 ) -> Tuple[bytes, type, Key, str, str]:
     # Modified version of impacket.krb5.kerberosv5.getKerberosType1 to just return the tgs
 
-    username = target.username
+    username = target.username or ""
     password = target.password
-    domain = target.domain
+    domain = target.domain or ""
     lmhash = target.lmhash
     nthash = target.nthash
     aes_key = target.aes
@@ -70,6 +70,12 @@ def get_TGS(
             pass
         if ccache:
             # retrieve domain information from CCache file if needed
+            if ccache.principal is None:
+                raise Exception("No principal found in CCache file")
+
+            if ccache.principal.realm is None:
+                raise Exception("No realm/domain found in CCache file")
+
             ccache_domain = ccache.principal.realm["data"].decode("utf-8")
 
             if domain == "":
@@ -122,7 +128,7 @@ def get_TGS(
                 )
 
     # First of all, we need to get a TGT for the user
-    username = Principal(username, type=constants.PrincipalNameType.NT_PRINCIPAL.value)
+    username = Principal(username, type=constants.PrincipalNameType.NT_PRINCIPAL)
     while True:
         if TGT is None:
             if TGS is None:
@@ -131,14 +137,11 @@ def get_TGS(
                         "Getting TGT for %s" % repr("%s@%s" % (username, domain))
                     )
                     tgt, cipher, _, session_key = getKerberosTGT(
-                        username, password, domain, lmhash, nthash, aes_key, kdc_host
+                        username, password, domain, lmhash, nthash, aes_key, kdc_host  # type: ignore
                     )
                     logging.debug("Got TGT for %s" % repr("%s@%s" % (username, domain)))
                 except KerberosError as e:
-                    if (
-                        e.getErrorCode()
-                        == constants.ErrorCodes.KDC_ERR_ETYPE_NOSUPP.value
-                    ):
+                    if e.getErrorCode() == constants.ErrorCodes.KDC_ERR_ETYPE_NOSUPP:
                         # We might face this if the target does not support AES
                         # So, if that's the case we'll force using RC4 by converting
                         # the password to lm/nt hashes and hope for the best. If that's already
@@ -171,7 +174,7 @@ def get_TGS(
         if TGS is None:
             server_name = Principal(
                 "%s/%s" % (service, target_name),
-                type=constants.PrincipalNameType.NT_SRV_INST.value,
+                type=constants.PrincipalNameType.NT_SRV_INST,
             )
             try:
                 logging.debug(
@@ -183,7 +186,7 @@ def get_TGS(
 
                 logging.debug("Got TGS for %s" % repr("%s/%s" % (service, target_name)))
             except KerberosError as e:
-                if e.getErrorCode() == constants.ErrorCodes.KDC_ERR_ETYPE_NOSUPP.value:
+                if e.getErrorCode() == constants.ErrorCodes.KDC_ERR_ETYPE_NOSUPP:
                     # We might face this if the target does not support AES
                     # So, if that's the case we'll force using RC4 by converting
                     # the password to lm/nt hashes and hope for the best. If that's already
@@ -215,10 +218,10 @@ def get_TGS(
     ticket = decoder.decode(tgs, asn1Spec=TGS_REP())[0]
 
     client_name = Principal()
-    client_name.from_asn1(ticket, "crealm", "cname")
+    client_name = client_name.from_asn1(ticket, "crealm", "cname")
 
     username = "@".join(str(client_name).split("@")[:-1])
-    domain = client_name.realm
+    domain = client_name.realm or ""
 
     return tgs, cipher, session_key, username, domain
 
@@ -227,22 +230,22 @@ def get_kerberos_type1(
     target: Target,
     target_name: str = "",
     service: str = "host",
-) -> Tuple[type, Key, bytes]:
+) -> Tuple[type, Key, bytes, str]:
     tgs, cipher, session_key, username, domain = get_TGS(target, target_name, service)
 
-    principal = Principal(username, type=constants.PrincipalNameType.NT_PRINCIPAL.value)
+    principal = Principal(username, type=constants.PrincipalNameType.NT_PRINCIPAL)
 
     blob = SPNEGO_NegTokenInit()
 
     blob["MechTypes"] = [TypesMech["MS KRB5 - Microsoft Kerberos 5"]]
 
-    tgs = decoder.decode(tgs, asn1Spec=TGS_REP())[0]
+    tgs_rep: TGS_REP = decoder.decode(tgs, asn1Spec=TGS_REP())[0]
     ticket = Ticket()
-    ticket.from_asn1(tgs["ticket"])
+    _ = ticket.from_asn1(tgs_rep["ticket"])
 
     ap_req = AP_REQ()
     ap_req["pvno"] = 5
-    ap_req["msg-type"] = int(constants.ApplicationTagNumbers.AP_REQ.value)
+    ap_req["msg-type"] = int(constants.ApplicationTagNumbers.AP_REQ)
 
     opts = []
     ap_req["ap-options"] = constants.encodeFlags(opts)
@@ -252,7 +255,7 @@ def get_kerberos_type1(
     authenticator["authenticator-vno"] = 5
     authenticator["crealm"] = domain
     seq_set(authenticator, "cname", principal.components_to_asn1)
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
 
     authenticator["cusec"] = now.microsecond
     authenticator["ctime"] = KerberosTime.to_asn1(now)
