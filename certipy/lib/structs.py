@@ -9,7 +9,7 @@ It also provides enhanced Enum types with better string representation.
 import enum
 from typing import List
 
-from asn1crypto import core
+from asn1crypto import core, keys, x509
 
 from certipy.lib.formatting import to_pascal_case
 
@@ -367,4 +367,166 @@ class PA_PAC_REQUEST(core.Sequence):
 
     _fields = [
         ("include-pac", core.Boolean, {"tag_type": TAG, "tag": 0}),
+    ]
+
+
+#
+# Kerberos Types and Enumerations
+#
+
+
+class NAME_TYPE:
+    """Kerberos name types from RFC 4120."""
+
+    UNKNOWN = 0  # Name type not known
+    PRINCIPAL = 1  # Just the name of the principal
+    SRV_INST = 2  # Service and other unique instance (krbtgt)
+    SRV_HST = 3  # Service with host name as instance
+    SRV_XHST = 4  # Service with host as remaining components
+    UID = 5  # Unique ID
+    X500_PRINCIPAL = 6  # PKINIT
+    SMTP_NAME = 7  # Name in form of SMTP email name
+    ENTERPRISE_PRINCIPAL = 10  # Windows 2000 UPN
+    WELLKNOWN = 11  # Wellknown
+    ENT_PRINCIPAL_AND_ID = -130  # Windows 2000 UPN and SID
+    MS_PRINCIPAL = -128  # NT 4 style name
+    MS_PRINCIPAL_AND_ID = -129  # NT style name and SID
+    NTLM = -1200  # NTLM name, realm is domain
+
+
+class Enctype(enum.IntEnum):
+    """Kerberos encryption types."""
+
+    DES_CRC = 1
+    DES_MD4 = 2
+    DES_MD5 = 3
+    DES3 = 16
+    AES128 = 17
+    AES256 = 18
+    RC4 = 23
+
+
+class AlgorithmIdentifiers(core.SequenceOf):
+    """Sequence of algorithm identifiers."""
+
+    _child_spec = x509.AlgorithmIdentifier
+
+
+class ExternalPrincipalIdentifier(core.Sequence):
+    """External principal identifier for PKINIT."""
+
+    _fields = [
+        (
+            "subjectName",
+            core.OctetString,
+            {"tag_type": "implicit", "tag": 0, "optional": True},
+        ),
+        (
+            "issuerAndSerialNumber",
+            core.OctetString,
+            {"tag_type": "implicit", "tag": 1, "optional": True},
+        ),
+        (
+            "subjectKeyIdentifier",
+            core.OctetString,
+            {"tag_type": "implicit", "tag": 2, "optional": True},
+        ),
+    ]
+
+
+class KDCDHKeyInfo(core.Sequence):
+    """KDC-generated DH key information."""
+
+    _fields = [
+        ("subjectPublicKey", core.BitString, {"tag_type": "explicit", "tag": 0}),
+        ("nonce", core.Integer, {"tag_type": "explicit", "tag": 1}),
+        (
+            "dhKeyExpiration",
+            core.GeneralizedTime,
+            {"tag_type": "explicit", "tag": 2, "optional": True},
+        ),
+    ]
+
+
+class ExternalPrincipalIdentifiers(core.SequenceOf):
+    """Sequence of external principal identifiers."""
+
+    _child_spec = ExternalPrincipalIdentifier
+
+
+class DHRepInfo(core.Sequence):
+    """DH reply information."""
+
+    _fields = [
+        ("dhSignedData", core.OctetString, {"tag_type": "implicit", "tag": 0}),
+        (
+            "serverDHNonce",
+            core.OctetString,
+            {"tag_type": "explicit", "tag": 1, "optional": True},
+        ),
+    ]
+
+
+class PA_PK_AS_REQ(core.Sequence):
+    """PKINIT request structure."""
+
+    _fields = [
+        ("signedAuthPack", core.OctetString, {"tag_type": "implicit", "tag": 0}),
+        (
+            "trustedCertifiers",
+            ExternalPrincipalIdentifiers,
+            {"tag_type": "explicit", "tag": 1, "optional": True},
+        ),
+        (
+            "kdcPkId",
+            core.OctetString,
+            {"tag_type": "implicit", "tag": 2, "optional": True},
+        ),
+    ]
+
+
+class PA_PK_AS_REP(core.Choice):
+    """PKINIT response structure."""
+
+    _alternatives = [
+        ("dhInfo", DHRepInfo, {"explicit": (2, 0)}),
+        ("encKeyPack", core.OctetString, {"implicit": (2, 1)}),
+    ]
+
+
+class PKAuthenticator(core.Sequence):
+    """PKINIT authenticator structure."""
+
+    _fields = [
+        ("cusec", core.Integer, {"tag_type": "explicit", "tag": 0}),
+        ("ctime", core.GeneralizedTime, {"tag_type": "explicit", "tag": 1}),
+        ("nonce", core.Integer, {"tag_type": "explicit", "tag": 2}),
+        (
+            "paChecksum",
+            core.OctetString,
+            {"tag_type": "explicit", "tag": 3, "optional": True},
+        ),
+    ]
+
+
+class AuthPack(core.Sequence):
+    """PKINIT authentication pack."""
+
+    _fields = [
+        ("pkAuthenticator", PKAuthenticator, {"tag_type": "explicit", "tag": 0}),
+        (
+            "clientPublicValue",
+            keys.PublicKeyInfo,
+            {"tag_type": "explicit", "tag": 1, "optional": True},
+        ),
+        (
+            "supportedCMSTypes",
+            AlgorithmIdentifiers,
+            {"tag_type": "explicit", "tag": 2, "optional": True},
+        ),
+        (
+            "clientDHNonce",
+            core.OctetString,
+            {"tag_type": "explicit", "tag": 3, "optional": True},
+        ),
     ]

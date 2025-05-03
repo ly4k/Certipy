@@ -15,14 +15,12 @@ References:
 """
 
 import datetime
-import enum
 import os
 from random import getrandbits
 from typing import Dict, Tuple, Union
 
 from asn1crypto import algos as asn1algos
 from asn1crypto import cms as asn1cms
-from asn1crypto import core as asn1core
 from asn1crypto import keys as asn1keys
 from asn1crypto import x509 as asn1x509
 from impacket.krb5 import constants
@@ -38,8 +36,13 @@ from certipy.lib.certificate import (
 from certipy.lib.structs import (
     AS_REQ,
     KDC_REQ_BODY,
+    NAME_TYPE,
     PA_PAC_REQUEST,
+    PA_PK_AS_REQ,
+    AuthPack,
+    Enctype,
     KDCOptions,
+    PKAuthenticator,
     PrincipalName,
 )
 
@@ -66,185 +69,6 @@ DH_PARAMS = {
 PKINIT_OID = "1.3.6.1.5.2.3.1"
 CMS_SIGNED_DATA_OID = "1.2.840.113549.1.7.2"
 DH_KEY_AGREEMENT_OID = "1.2.840.10046.2.1"
-
-
-#
-# Kerberos Types and Enumerations
-#
-
-
-class NAME_TYPE(enum.Enum):
-    """Kerberos name types from RFC 4120."""
-
-    UNKNOWN = 0  # Name type not known
-    PRINCIPAL = 1  # Just the name of the principal
-    SRV_INST = 2  # Service and other unique instance (krbtgt)
-    SRV_HST = 3  # Service with host name as instance
-    SRV_XHST = 4  # Service with host as remaining components
-    UID = 5  # Unique ID
-    X500_PRINCIPAL = 6  # PKINIT
-    SMTP_NAME = 7  # Name in form of SMTP email name
-    ENTERPRISE_PRINCIPAL = 10  # Windows 2000 UPN
-    WELLKNOWN = 11  # Wellknown
-    ENT_PRINCIPAL_AND_ID = -130  # Windows 2000 UPN and SID
-    MS_PRINCIPAL = -128  # NT 4 style name
-    MS_PRINCIPAL_AND_ID = -129  # NT style name and SID
-    NTLM = -1200  # NTLM name, realm is domain
-
-
-class Enctype(enum.IntEnum):
-    """Kerberos encryption types."""
-
-    DES_CRC = 1
-    DES_MD4 = 2
-    DES_MD5 = 3
-    DES3 = 16
-    AES128 = 17
-    AES256 = 18
-    RC4 = 23
-
-
-#
-# ASN.1 Structure Definitions
-#
-
-
-class DHNonce(asn1core.OctetString):
-    """Diffie-Hellman nonce for PKINIT."""
-
-    pass
-
-
-class AlgorithmIdentifiers(asn1core.SequenceOf):
-    """Sequence of algorithm identifiers."""
-
-    _child_spec = asn1x509.AlgorithmIdentifier
-
-
-class Asn1KerberosTime(asn1core.GeneralizedTime):
-    """KerberosTime ::= GeneralizedTime"""
-
-    pass
-
-
-class ExternalPrincipalIdentifier(asn1core.Sequence):
-    """External principal identifier for PKINIT."""
-
-    _fields = [
-        (
-            "subjectName",
-            asn1core.OctetString,
-            {"tag_type": "implicit", "tag": 0, "optional": True},
-        ),
-        (
-            "issuerAndSerialNumber",
-            asn1core.OctetString,
-            {"tag_type": "implicit", "tag": 1, "optional": True},
-        ),
-        (
-            "subjectKeyIdentifier",
-            asn1core.OctetString,
-            {"tag_type": "implicit", "tag": 2, "optional": True},
-        ),
-    ]
-
-
-class KDCDHKeyInfo(asn1core.Sequence):
-    """KDC-generated DH key information."""
-
-    _fields = [
-        ("subjectPublicKey", asn1core.BitString, {"tag_type": "explicit", "tag": 0}),
-        ("nonce", asn1core.Integer, {"tag_type": "explicit", "tag": 1}),
-        (
-            "dhKeyExpiration",
-            Asn1KerberosTime,
-            {"tag_type": "explicit", "tag": 2, "optional": True},
-        ),
-    ]
-
-
-class ExternalPrincipalIdentifiers(asn1core.SequenceOf):
-    """Sequence of external principal identifiers."""
-
-    _child_spec = ExternalPrincipalIdentifier
-
-
-class DHRepInfo(asn1core.Sequence):
-    """DH reply information."""
-
-    _fields = [
-        ("dhSignedData", asn1core.OctetString, {"tag_type": "implicit", "tag": 0}),
-        (
-            "serverDHNonce",
-            DHNonce,
-            {"tag_type": "explicit", "tag": 1, "optional": True},
-        ),
-    ]
-
-
-class PA_PK_AS_REQ(asn1core.Sequence):
-    """PKINIT request structure."""
-
-    _fields = [
-        ("signedAuthPack", asn1core.OctetString, {"tag_type": "implicit", "tag": 0}),
-        (
-            "trustedCertifiers",
-            ExternalPrincipalIdentifiers,
-            {"tag_type": "explicit", "tag": 1, "optional": True},
-        ),
-        (
-            "kdcPkId",
-            asn1core.OctetString,
-            {"tag_type": "implicit", "tag": 2, "optional": True},
-        ),
-    ]
-
-
-class PA_PK_AS_REP(asn1core.Choice):
-    """PKINIT response structure."""
-
-    _alternatives = [
-        ("dhInfo", DHRepInfo, {"explicit": (2, 0)}),
-        ("encKeyPack", asn1core.OctetString, {"implicit": (2, 1)}),
-    ]
-
-
-class PKAuthenticator(asn1core.Sequence):
-    """PKINIT authenticator structure."""
-
-    _fields = [
-        ("cusec", asn1core.Integer, {"tag_type": "explicit", "tag": 0}),
-        ("ctime", Asn1KerberosTime, {"tag_type": "explicit", "tag": 1}),
-        ("nonce", asn1core.Integer, {"tag_type": "explicit", "tag": 2}),
-        (
-            "paChecksum",
-            asn1core.OctetString,
-            {"tag_type": "explicit", "tag": 3, "optional": True},
-        ),
-    ]
-
-
-class AuthPack(asn1core.Sequence):
-    """PKINIT authentication pack."""
-
-    _fields = [
-        ("pkAuthenticator", PKAuthenticator, {"tag_type": "explicit", "tag": 0}),
-        (
-            "clientPublicValue",
-            asn1keys.PublicKeyInfo,
-            {"tag_type": "explicit", "tag": 1, "optional": True},
-        ),
-        (
-            "supportedCMSTypes",
-            AlgorithmIdentifiers,
-            {"tag_type": "explicit", "tag": 2, "optional": True},
-        ),
-        (
-            "clientDHNonce",
-            DHNonce,
-            {"tag_type": "explicit", "tag": 3, "optional": True},
-        ),
-    ]
 
 
 #
@@ -423,12 +247,12 @@ def build_pkinit_as_req(
     kdc_req_body_data = {
         "kdc-options": KDCOptions({"forwardable", "renewable", "renewable-ok"}),
         "cname": PrincipalName(
-            {"name-type": NAME_TYPE.PRINCIPAL.value, "name-string": [username]}
+            {"name-type": NAME_TYPE.PRINCIPAL, "name-string": [username]}
         ),
         "realm": domain.upper(),
         "sname": PrincipalName(
             {
-                "name-type": NAME_TYPE.SRV_INST.value,
+                "name-type": NAME_TYPE.SRV_INST,
                 "name-string": ["krbtgt", domain.upper()],
             }
         ),
