@@ -240,7 +240,7 @@ class CA:
 
         target = copy.copy(self.target)
 
-        if target.do_kerberos or target.use_sspi:
+        if target.do_kerberos:
             if self.dc_host is None:
                 raise Exception(
                     "Kerberos auth requires DNS name of the target DC. Use -dc-host."

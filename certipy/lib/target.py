@@ -7,7 +7,6 @@ that represent authentication endpoints. It handles:
 - Authentication parameters (username, password, hashes, Kerberos tickets)
 - Target name resolution (DNS, local resolution, IP address validation)
 - Connection settings (timeouts, ports, protocol options)
-- Windows-specific authentication methods (SSPI)
 - Domain controller discovery
 - Kerberos ticket cache integration
 
@@ -19,6 +18,7 @@ Usage:
     target = Target.from_options(options)  # Create from command-line arguments
     target = Target.create(username="user@domain.com", password="secret")  # Create programmatically
 """
+
 import argparse
 import os
 import platform
@@ -37,7 +37,7 @@ class Target:
     """
 
     def __init__(
-        self, 
+        self,
         domain: str = "",
         username: str = "",
         password: Optional[str] = None,
@@ -47,7 +47,6 @@ class Target:
         nthash: str = "",
         do_kerberos: bool = False,
         do_simple: bool = False,
-        use_sspi: bool = False,
         aes: Optional[str] = None,
         dc_ip: Optional[str] = None,
         dc_host: Optional[str] = None,
@@ -58,7 +57,7 @@ class Target:
     ) -> None:
         """
         Initialize a Target with the specified connection parameters.
-        
+
         Args:
             domain: Domain name (empty string if not specified)
             username: Username (empty string if not specified)
@@ -69,7 +68,6 @@ class Target:
             nthash: NT hash
             do_kerberos: Use Kerberos authentication
             do_simple: Use simple authentication
-            use_sspi: Use SSPI authentication (Windows only)
             aes: AES key for Kerberos authentication
             dc_ip: Domain controller IP
             dc_host: Domain controller hostname
@@ -87,7 +85,6 @@ class Target:
         self.nthash: str = nthash
         self.do_kerberos: bool = do_kerberos
         self.do_simple: bool = do_simple
-        self.use_sspi: bool = use_sspi
         self.aes: Optional[str] = aes
         self.dc_ip: Optional[str] = dc_ip
         self.dc_host: Optional[str] = dc_host
@@ -99,7 +96,7 @@ class Target:
 
     @staticmethod
     def from_options(
-        options: argparse.Namespace, dc_as_target: bool = False, ptt: bool = False
+        options: argparse.Namespace, dc_as_target: bool = False
     ) -> "Target":
         """
         Create a Target from command line options.
@@ -107,7 +104,6 @@ class Target:
         Args:
             options: Command line options
             dc_as_target: Whether to use DC as target
-            ptt: Pass-the-ticket mode
 
         Returns:
             Target: Configured target object
@@ -119,7 +115,7 @@ class Target:
         principal = options.username
         domain = ""
         username = ""
-        
+
         if principal is not None:
             parts = principal.split("@")
             if len(parts) == 1:
@@ -136,12 +132,6 @@ class Target:
             principal = get_kerberos_principal()
             if principal:
                 username, domain = principal
-
-        # Handle SSPI authentication (Windows only)
-        if options.use_sspi:
-            options.do_kerberos = True
-            username, domain, dc_ip, dc_host = get_logon_session()
-            logging.debug(f"SSPI Context: {username}@{domain} on {dc_host} ({dc_ip})")
 
         # Normalize domain and username
         domain = domain.upper()
@@ -161,6 +151,7 @@ class Target:
             and options.do_kerberos is not True
         ):
             from getpass import getpass
+
             password = getpass("Password:")
 
         # Parse hashes if provided
@@ -183,14 +174,9 @@ class Target:
 
         # Determine remote target name
         remote_name = options.target or ""
-        if (
-            (options.do_kerberos or options.use_sspi)
-            and not remote_name
-            and not ptt
-            and not dc_as_target
-        ):
+        if options.do_kerberos and not remote_name and not dc_as_target:
             logging.warning(
-                "Target name (-target) not specified and Kerberos or SSPI authentication is used. This might fail"
+                "Target name (-target) not specified and Kerberos authentication is used. This might fail"
             )
 
         if not remote_name:
@@ -207,7 +193,11 @@ class Target:
 
         # Configure LDAP port
         ldap_port = options.ldap_port if hasattr(options, "ldap_port") else None
-        ldap_channel_binding = options.ldap_channel_binding if hasattr(options, "ldap_channel_binding") else False
+        ldap_channel_binding = (
+            options.ldap_channel_binding
+            if hasattr(options, "ldap_channel_binding")
+            else False
+        )
 
         # Create target instance
         target = Target(
@@ -221,7 +211,6 @@ class Target:
             aes=options.aes,
             do_kerberos=options.do_kerberos,
             do_simple=options.do_simple,
-            use_sspi=options.use_sspi,
             dc_ip=dc_ip,
             dc_host=dc_host,
             timeout=options.timeout,
@@ -265,7 +254,6 @@ class Target:
         no_pass: bool = False,
         do_kerberos: bool = False,
         do_simple: bool = False,
-        use_sspi: bool = False,
         aes: Optional[str] = None,
         dc_ip: Optional[str] = None,
         ns: Optional[str] = None,
@@ -280,13 +268,7 @@ class Target:
         Returns:
             Target: Configured target object
         """
-        # Handle SSPI authentication (Windows only)
-        if use_sspi:
-            do_kerberos = True
-            username, domain, dc_ip, dc_host = get_logon_session()
-            logging.debug(f"SSPI Context: {username}@{domain} on {dc_host} ({dc_ip})")
-        else:
-            dc_host = None
+        dc_host = None
 
         # Normalize domain and username
         domain = domain.upper() if domain else ""
@@ -301,6 +283,7 @@ class Target:
             and no_pass is not True
         ):
             from getpass import getpass
+
             password = getpass("Password:")
 
         # Parse hashes if provided
@@ -341,7 +324,6 @@ class Target:
             aes=aes,
             do_kerberos=do_kerberos,
             do_simple=do_simple,
-            use_sspi=use_sspi,
             dc_ip=dc_ip,
             dc_host=dc_host,
             target_ip=target_ip,
@@ -367,16 +349,16 @@ class Target:
     def resolve_hostname(self, hostname: str) -> str:
         """
         Resolve a hostname to IP address using the configured resolver.
-        
+
         Args:
             hostname: The hostname to resolve
-            
+
         Returns:
             The resolved IP address or the original hostname if resolution fails
         """
         if self.resolver is None:
             self.resolver = DnsResolver.create(self)
-            
+
         return self.resolver.resolve(hostname)
 
     def __repr__(self) -> str:
@@ -524,35 +506,6 @@ def is_ip(hostname: Optional[str]) -> bool:
         return True
     except Exception:
         return False
-
-
-def get_logon_session() -> Tuple[str, str, str, str]:
-    """
-    Get Windows logon session information using SSPI.
-
-    Returns:
-        Tuple containing (username, domain, dc_ip, dc_host)
-
-    Raises:
-        Exception: If not running on a Windows platform
-    """
-    if platform.system().lower() != "windows":
-        raise Exception("Cannot use SSPI on non-Windows platform")
-
-    from winacl.functions.highlevel import get_logon_info  # type: ignore
-
-    info = get_logon_info()
-
-    logonserver = info["logonserver"]
-    username = info["username"]
-    domain = info["domain"]
-    dnsdomainname = info["dnsdomainname"]
-
-    dns_resolver = DnsResolver()
-    dc_ip = dns_resolver.resolve(logonserver)
-    dc_host = f"{logonserver}.{dnsdomainname}"
-
-    return username, domain, dc_ip, dc_host
 
 
 def get_kerberos_principal() -> Optional[Tuple[str, str]]:

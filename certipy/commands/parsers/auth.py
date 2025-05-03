@@ -32,11 +32,6 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         "-no-hash", action="store_true", help="Don't request NT hash"
     )
     subparser.add_argument(
-        "-ptt",
-        action="store_true",
-        help="Submit TGT for current logon session (Windows only)",
-    )
-    subparser.add_argument(
         "-print",
         action="store_true",
         help="Print TGT in Kirbi format",

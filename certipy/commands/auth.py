@@ -2,7 +2,6 @@ import argparse
 import base64
 import datetime
 import os
-import platform
 import ssl
 import sys
 import tempfile
@@ -112,7 +111,6 @@ class Authenticate:
         key: PrivateKeyTypes | None = None,
         no_save: bool = False,
         no_hash: bool = False,
-        ptt: bool = False,
         print: bool = False,
         kirbi: bool = False,
         ldap_shell: bool = False,
@@ -130,7 +128,6 @@ class Authenticate:
         self.key = key
         self.no_save = no_save
         self.no_hash = no_hash
-        self.ptt = ptt
         self.print = print
         self.kirbi = kirbi
         self.ldap_shell = ldap_shell
@@ -509,36 +506,15 @@ class Authenticate:
             logging.info("Ticket:")
             print(base64.b64encode(krb_cred).decode())
 
-        if not self.no_save or self.ptt:
-            if not self.no_save:
-                if self.kirbi:
-                    kirbi_name = "%s.kirbi" % username.rstrip("$")
-                    ccache.saveKirbiFile(kirbi_name)
-                    logging.info("Saved Kirbi file to %s" % repr(kirbi_name))
-                else:
-                    self.ccache_name = "%s.ccache" % username.rstrip("$")
-                    ccache.saveFile(self.ccache_name)
-                    logging.info(
-                        "Saved credential cache to %s" % repr(self.ccache_name)
-                    )
-
-            if self.ptt:
-                krb_cred = ccache.toKRBCRED()
-                logging.info("Trying to inject ticket into session")
-
-                if platform.system().lower() != "windows":
-                    logging.error("Not running on Windows platform. Aborting")
-                else:
-                    try:
-                        from certipy.lib import sspi
-
-                        res = sspi.submit_ticket(krb_cred)
-                        if res:
-                            logging.info("Successfully injected ticket into session")
-                    except Exception as e:
-                        logging.error(
-                            "Failed to inject ticket into session: %s" % str(e)
-                        )
+        if not self.no_save:
+            if self.kirbi:
+                kirbi_name = "%s.kirbi" % username.rstrip("$")
+                ccache.saveKirbiFile(kirbi_name)
+                logging.info("Saved Kirbi file to %s" % repr(kirbi_name))
+            else:
+                self.ccache_name = "%s.ccache" % username.rstrip("$")
+                ccache.saveFile(self.ccache_name)
+                logging.info("Saved credential cache to %s" % repr(self.ccache_name))
 
         if not self.no_hash:
             logging.info("Trying to retrieve NT hash for %s" % repr(username))

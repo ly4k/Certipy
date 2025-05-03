@@ -218,7 +218,7 @@ class LDAPConnection:
         )
 
         # Authentication based on method
-        if self.target.do_kerberos or self.target.use_sspi:
+        if self.target.do_kerberos:
             # Kerberos authentication
             ldap_conn = ldap3.Connection(
                 ldap_server,

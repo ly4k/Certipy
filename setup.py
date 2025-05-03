@@ -25,16 +25,12 @@ _ = setup(
         "bs4~=0.0.2",
         "httpx~=0.28.1",
         "httpx-ntlm~=1.4.0",
-        'winacl~=0.1.9; platform_system=="Windows"',
-        'wmi~=1.4.9; platform_system=="Windows"',
-        'unicrypto~=0.0.10; platform_system=="Windows"',
     ],
     packages=[
         "certipy",
         "certipy.commands",
         "certipy.commands.parsers",
         "certipy.lib",
-        "certipy.lib.sspi",
     ],
     entry_points={
         "console_scripts": ["certipy=certipy.entry:main"],

@@ -5,7 +5,6 @@ This module provides functionality to obtain Kerberos tickets and authenticate t
 using Kerberos. It supports:
 - Obtaining TGT (Ticket Granting Ticket) and TGS (Ticket Granting Service) tickets
 - Kerberos authentication for HTTP requests
-- SSPI integration for Windows systems
 """
 
 import base64
@@ -56,9 +55,8 @@ def get_TGS(
     Get a Ticket Granting Service (TGS) ticket for accessing a specific service.
 
     This function tries multiple strategies to obtain a TGS:
-    1. Using SSPI if configured
-    2. Using an existing Kerberos ticket cache
-    3. Requesting a new TGT and then a TGS
+    1. Using an existing Kerberos ticket cache
+    2. Requesting a new TGT and then a TGS
 
     Args:
         target: Target object containing authentication details
@@ -88,90 +86,74 @@ def get_TGS(
     TGT: Optional[dict] = None
     TGS: Optional[dict] = None
 
-    # Try to get TGS using SSPI (Windows only)
-    if target.use_sspi:
-        from certipy.lib.sspi import get_tgt
+    # Try to use existing ticket cache
+    try:
+        ccache = CCache.loadFile(os.getenv("KRB5CCNAME"))
+    except Exception:
+        ccache = None
 
-        server_name = f"{service}/{target_name}"
-        logging.debug(f"Trying to get TGS for {server_name!r} via SSPI")
-        ccache = get_tgt(server_name)
+    if ccache:
+        # Validate cache data
+        if ccache.principal is None:
+            raise Exception("No principal found in CCache file")
+        if ccache.principal.realm is None:
+            raise Exception("No realm/domain found in CCache file")
 
-        if ccache is None:
-            raise Exception("Failed to get TGT via SSPI")
+        # Extract domain from cache if needed
+        # TODO: Support unicode domain names
+        ccache_domain = ccache.principal.realm["data"].decode("utf-8")
+        if not domain:
+            domain = ccache_domain
+            logging.debug(f"Domain retrieved from CCache: {domain}")
 
-        if len(ccache.credentials) == 0:
-            raise Exception("No credentials found in SSPI TGT")
+        # Extract username from cache
+        ccache_username = "/".join(
+            map(lambda x: x["data"].decode(), ccache.principal.components)
+        )
 
-        TGT = ccache.credentials[0].toTGT()
-    else:
-        # Try to use existing ticket cache
-        try:
-            ccache = CCache.loadFile(os.getenv("KRB5CCNAME"))
-        except Exception:
-            ccache = None
+        logging.debug(f"Using Kerberos Cache: {os.getenv('KRB5CCNAME')}")
 
-        if ccache:
-            # Validate cache data
-            if ccache.principal is None:
-                raise Exception("No principal found in CCache file")
-            if ccache.principal.realm is None:
-                raise Exception("No realm/domain found in CCache file")
+        # Try to find appropriate credentials in cache
+        principal = f"{service}/{target_name.upper()}@{domain.upper()}"
+        creds = ccache.getCredential(principal)
 
-            # Extract domain from cache if needed
-            # TODO: Support unicode domain names
-            ccache_domain = ccache.principal.realm["data"].decode("utf-8")
-            if not domain:
-                domain = ccache_domain
-                logging.debug(f"Domain retrieved from CCache: {domain}")
-
-            # Extract username from cache
-            ccache_username = "/".join(
-                map(lambda x: x["data"].decode(), ccache.principal.components)
-            )
-
-            logging.debug(f"Using Kerberos Cache: {os.getenv('KRB5CCNAME')}")
-
-            # Try to find appropriate credentials in cache
-            principal = f"{service}/{target_name.upper()}@{domain.upper()}"
+        if creds is None:
+            # Look for TGT if service ticket not found
+            principal = f"krbtgt/{domain.upper()}@{domain.upper()}"
             creds = ccache.getCredential(principal)
-
-            if creds is None:
-                # Look for TGT if service ticket not found
-                principal = f"krbtgt/{domain.upper()}@{domain.upper()}"
-                creds = ccache.getCredential(principal)
-                if creds is not None:
-                    TGT = creds.toTGT()
-                    logging.debug("Using TGT from cache")
-                else:
-                    logging.debug("No valid credentials found in cache.")
-            else:
-                TGS = creds.toTGS(principal)
-
-            # Validate user information
             if creds is not None:
-                ccache_username = (
-                    creds["client"].prettyPrint().split(b"@")[0].decode("utf-8")
-                )
-                logging.debug(f"Username retrieved from CCache: {ccache_username}")
-            elif ccache.principal.components:
-                ccache_username = ccache.principal.components[0]["data"].decode("utf-8")
-                logging.debug(f"Username retrieved from CCache: {ccache_username}")
-
-            # Validate username in cache against requested username
-            if ccache_username.lower() != username.lower() and username:
-                logging.warning(
-                    f"Username {username!r} does not match username in CCache {ccache_username!r}"
-                )
-                TGT = None
-                TGS = None
+                TGT = creds.toTGT()
+                logging.debug("Using TGT from cache")
             else:
-                username = ccache_username
+                logging.debug("No valid credentials found in cache.")
+        else:
+            TGS = creds.toTGS(principal)
 
-            # Validate domain
-            if ccache_domain.lower() != domain.lower() and domain:
-                logging.warning(
-                    f"Domain {domain!r} does not match domain in CCache {ccache_domain!r}"
-                )
+        # Validate user information
+        if creds is not None:
+            ccache_username = (
+                creds["client"].prettyPrint().split(b"@")[0].decode("utf-8")
+            )
+            logging.debug(f"Username retrieved from CCache: {ccache_username}")
+        elif ccache.principal.components:
+            ccache_username = ccache.principal.components[0]["data"].decode("utf-8")
+            logging.debug(f"Username retrieved from CCache: {ccache_username}")
+
+        # Validate username in cache against requested username
+        if ccache_username.lower() != username.lower() and username:
+            logging.warning(
+                f"Username {username!r} does not match username in CCache {ccache_username!r}"
+            )
+            TGT = None
+            TGS = None
+        else:
+            username = ccache_username
+
+        # Validate domain
+        if ccache_domain.lower() != domain.lower() and domain:
+            logging.warning(
+                f"Domain {domain!r} does not match domain in CCache {ccache_domain!r}"
+            )
 
     # Create principal object for the user
     user_principal = Principal(username, type=constants.PrincipalNameType.NT_PRINCIPAL)
