@@ -70,24 +70,28 @@ class LDAPEntry(dict):
     to LDAP attributes and raw attribute values.
     """
 
-    def get(self, key: str) -> Any:
+    def get(self, key: str, default=None) -> Any:
         """
-        Get an attribute value from the LDAP entry.
+        Get an attribute value from the LDAP entry with support for default values.
+
+        This method provides convenient access to LDAP attributes and handles several
+        special cases, including missing attributes and empty lists.
 
         Args:
             key: Attribute name to retrieve
+            default: Value to return if attribute is missing or empty (default: None)
 
         Returns:
-            Attribute value or None if not present
+            Attribute value if present and not empty, otherwise the default value
         """
         if key not in self.__getitem__("attributes").keys():
-            return None
+            return default
 
         item = self.__getitem__("attributes").__getitem__(key)
 
-        # Return None for empty lists
+        # Return default for empty lists
         if isinstance(item, list) and len(item) == 0:
-            return None
+            return default
 
         return item
 
@@ -551,7 +555,7 @@ class LDAPConnection:
         user = _get_user(username, *args, **kwargs)
 
         # Try with $ suffix (for computer accounts)
-        if user is None:
+        if user is None and not username.endswith("$"):
             user = _get_user(f"{username}$", *args, **kwargs)
 
         # Log error if user not found and silent mode is not enabled
