@@ -65,9 +65,9 @@ from certipy.lib.structs import (
     TaggedRequest,
 )
 
-#
+# =========================================================================
 # Constants and mappings
-#
+# =========================================================================
 
 # Map common DN attribute names to cryptography OIDs
 DN_MAP = {
@@ -127,9 +127,9 @@ SMIME_MAP = {
 }
 
 
-#
+# =========================================================================
 # Certificate identification and parsing functions
-#
+# =========================================================================
 
 
 def cert_id_to_parts(
@@ -254,9 +254,9 @@ def get_object_sid_from_certificate(
     return None
 
 
-#
+# =========================================================================
 # Format conversion utilities
-#
+# =========================================================================
 
 
 def csr_to_der(csr: x509.CertificateSigningRequest) -> bytes:
@@ -354,9 +354,9 @@ def pem_to_cert(certificate: bytes) -> x509.Certificate:
     return x509.load_pem_x509_certificate(certificate)
 
 
-#
+# =========================================================================
 # Key and certificate operations
-#
+# =========================================================================
 
 
 def generate_rsa_key(key_size: int = 2048) -> rsa.RSAPrivateKey:
@@ -533,9 +533,9 @@ def hash_digest(data: bytes, hash_algorithm: type[hashes.HashAlgorithm]) -> byte
     return digest.finalize()
 
 
-#
+# =========================================================================
 # Subject handling functions
-#
+# =========================================================================
 
 
 def dn_to_components(dn: str) -> List[Tuple[str, str]]:
@@ -588,9 +588,9 @@ def get_subject_from_str(subject: str) -> x509.Name:
     return x509.Name(x509.Name.from_rfc4514_string(subject).rdns[::-1])
 
 
-#
+# =========================================================================
 # Certificate Signing Request (CSR) functions
-#
+# =========================================================================
 
 
 def create_csr(
@@ -821,9 +821,9 @@ def create_csr(
     return (der_to_csr(csr.dump()), key)
 
 
-#
+# =========================================================================
 # Advanced certificate operations
-#
+# =========================================================================
 
 
 def create_renewal(
@@ -1295,9 +1295,9 @@ def create_key_archival(
     return cmc.dump()
 
 
-#
+# =========================================================================
 # Command-line interface function
-#
+# =========================================================================
 
 
 def entry(options: argparse.Namespace) -> None:

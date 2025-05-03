@@ -26,6 +26,7 @@ import httpx
 import requests
 from asn1crypto import x509
 from impacket.dcerpc.v5 import rrp
+from impacket.dcerpc.v5 import rpcrt
 
 from certipy.lib.constants import (
     ACTIVE_DIRECTORY_RIGHTS,
@@ -207,7 +208,7 @@ class Find:
 
         return self._user_sids
 
-    def open_remote_registry(self, target_ip: str, dns_host_name: str):
+    def open_remote_registry(self, target_ip: str, dns_host_name: str) -> Optional[rpcrt.DCERPC_v5]:
         """
         Open a connection to the remote registry service.
 
@@ -332,7 +333,7 @@ class Find:
     # Main Discovery Method
     # =========================================================================
 
-    def find(self):
+    def find(self) -> None:
         """
         Discover and analyze AD CS components and detect vulnerabilities.
 
@@ -504,7 +505,7 @@ class Find:
 
         return enabled_oids_count
 
-    def _process_ca_properties(self, cas: List[LDAPEntry]):
+    def _process_ca_properties(self, cas: List[LDAPEntry]) -> None:
         """
         Process certificate authority properties and security settings.
 

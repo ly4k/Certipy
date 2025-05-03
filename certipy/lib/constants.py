@@ -15,17 +15,17 @@ certificate services, and security descriptors.
 
 from certipy.lib.structs import IntFlag
 
-#
+# =========================================================================
 # User Agent
-#
+# =========================================================================
 
 LATEST_EDGE_VERSION = "136.0.3240.50"
 
 USER_AGENT = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{LATEST_EDGE_VERSION.split('.')[0]}.0.0.0 Safari/537.36 Edg/{LATEST_EDGE_VERSION}"
 
-#
+# =========================================================================
 # Security Identifiers (SIDs) and Relative Identifiers (RIDs)
-#
+# =========================================================================
 
 # Well-known SIDs mapping to (name, object type)
 # Source: https://github.com/fox-it/BloodHound.py/blob/d665959c58d881900378040e6670fa12f801ccd4/bloodhound/ad/utils.py#L36
@@ -127,9 +127,9 @@ WELLKNOWN_RIDS = {
     "553": ("RAS and IAS Servers", "GROUP"),
 }
 
-#
+# =========================================================================
 # PKI Certificate Flags
-#
+# =========================================================================
 
 
 # Certificate name flags
@@ -225,9 +225,9 @@ class MS_PKI_CERTIFICATE_AUTHORITY_FLAG(IntFlag):
     CA_SERVERTYPE_ADVANCED = 0x00000008
 
 
-#
+# =========================================================================
 # Access Control and Rights
-#
+# =========================================================================
 
 
 # Access control types
@@ -306,9 +306,9 @@ class CERTIFICATION_AUTHORITY_RIGHTS(IntFlag):
     ENROLL = 512
 
 
-#
+# =========================================================================
 # Object Identifier (OID) Mappings
-#
+# =========================================================================
 
 # OID mappings to human-readable names
 # Source: https://www.pkisolutions.com/object-identifiers-oid-in-pki/
@@ -381,9 +381,9 @@ OID_TO_STR_MAP = {
 }
 
 
-#
+# =========================================================================
 # Extended Rights Mapping
-#
+# =========================================================================
 
 # Extended rights mapping from UUID to name
 # Retrieved from Windows 2022 server via LDAP (CN=Extended-Rights,CN=Configuration,DC=...)

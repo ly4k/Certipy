@@ -45,9 +45,9 @@ from certipy.lib.structs import (
     PrincipalName,
 )
 
-#
+# =========================================================================
 # Constants and Defaults
-#
+# =========================================================================
 
 # Well-Known Group 2: A 1024-bit prime
 # Source: https://datatracker.ietf.org/doc/html/rfc2412#appendix-E.2
@@ -70,9 +70,9 @@ CMS_SIGNED_DATA_OID = "1.2.840.113549.1.7.2"
 DH_KEY_AGREEMENT_OID = "1.2.840.10046.2.1"
 
 
-#
+# =========================================================================
 # Diffie-Hellman Implementation
-#
+# =========================================================================
 
 
 class DirtyDH:
@@ -142,9 +142,9 @@ class DirtyDH:
         return shared_key
 
 
-#
+# =========================================================================
 # PKINIT Functions
-#
+# =========================================================================
 
 
 def sign_authpack(

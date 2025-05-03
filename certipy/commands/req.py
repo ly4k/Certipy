@@ -62,9 +62,9 @@ from certipy.lib.logger import logging
 from certipy.lib.rpc import get_dce_rpc, get_dcom_connection
 from certipy.lib.target import Target
 
-#
+# =========================================================================
 # Constants and protocol UUIDs
-#
+# =========================================================================
 
 # MS-ICPR protocol UUID
 MSRPC_UUID_ICPR = uuidtup_to_bin(("91ae6020-9e3c-11cf-8d7c-00aa00c091be", "0.0"))
@@ -77,9 +77,9 @@ IID_ICertRequestD = uuidtup_to_bin(("D99E6E70-FC88-11D0-B498-00A0C90312F3", "0.0
 DISPOSITION_SUCCESS = 3
 DISPOSITION_PENDING = 5
 
-#
+# =========================================================================
 # Protocol Structures for MS-WCCE and MS-ICPR
-#
+# =========================================================================
 
 
 class CERTTRANSBLOB(NDRSTRUCT):
@@ -186,9 +186,9 @@ class DCERPCSessionError(rpcrt.DCERPCException):
         return f"RequestSessionError: {error_msg}"
 
 
-#
+# =========================================================================
 # Request Interface Protocol
-#
+# =========================================================================
 
 
 class RequestInterface(Protocol):
@@ -237,9 +237,9 @@ class RequestInterface(Protocol):
         ...
 
 
-#
+# =========================================================================
 # Request Interface Implementations
-#
+# =========================================================================
 
 
 class DCOMRequestInterface:
@@ -990,9 +990,9 @@ class WebRequestInterface:
                 logging.error(f"Failed to save private key: {str(e)}")
 
 
-#
+# =========================================================================
 # Main Request class
-#
+# =========================================================================
 
 
 class Request:
@@ -1414,9 +1414,9 @@ class Request:
         return cax_cert_der
 
 
-#
+# =========================================================================
 # Command-line entry point
-#
+# =========================================================================
 
 
 def entry(options: argparse.Namespace) -> None:

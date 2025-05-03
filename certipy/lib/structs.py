@@ -147,9 +147,9 @@ class Flag(enum.Flag):
         return str(self)
 
 
-#
+# =========================================================================
 # Basic ASN.1 structures
-#
+# =========================================================================
 
 
 class SequenceOfEnctype(core.SequenceOf):
@@ -370,9 +370,9 @@ class PA_PAC_REQUEST(core.Sequence):
     ]
 
 
-#
+# =========================================================================
 # Kerberos Types and Enumerations
-#
+# =========================================================================
 
 
 class NAME_TYPE:
@@ -532,9 +532,9 @@ class AuthPack(core.Sequence):
     ]
 
 
-#
+# =========================================================================
 # ASN.1 structures for Microsoft certificate operations
-#
+# =========================================================================
 
 
 class TaggedCertificationRequest(core.Sequence):
