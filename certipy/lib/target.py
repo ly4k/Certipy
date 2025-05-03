@@ -2,7 +2,7 @@ import argparse
 import os
 import platform
 import socket
-from typing import Optional, Tuple, Dict
+from typing import Dict, Optional, Tuple
 
 from dns.resolver import Resolver
 from impacket.krb5.ccache import CCache
@@ -15,26 +15,66 @@ class Target:
     Class representing an authentication target with all necessary connection details.
     """
 
-    def __init__(self) -> None:
-        """Initialize a Target with default values."""
-        self.domain: Optional[str] = None
-        self.username: Optional[str] = None
-        self.password: Optional[str] = None
-        self.remote_name: Optional[str] = None
-        self.hashes: Optional[str] = None
-        self.lmhash: Optional[str] = None
-        self.nthash: Optional[str] = None
-        self.do_kerberos: bool = False
-        self.do_simple: bool = False
-        self.use_sspi: bool = False
-        self.aes: Optional[str] = None
-        self.dc_ip: Optional[str] = None
-        self.dc_host: Optional[str] = None
-        self.target_ip: Optional[str] = None
-        self.timeout: int = 5
+    def __init__(
+        self, 
+        domain: str = "",
+        username: str = "",
+        password: Optional[str] = None,
+        remote_name: str = "",
+        hashes: Optional[str] = None,
+        lmhash: str = "",
+        nthash: str = "",
+        do_kerberos: bool = False,
+        do_simple: bool = False,
+        use_sspi: bool = False,
+        aes: Optional[str] = None,
+        dc_ip: Optional[str] = None,
+        dc_host: Optional[str] = None,
+        target_ip: Optional[str] = None,
+        timeout: int = 5,
+        ldap_channel_binding: bool = False,
+        ldap_port: Optional[int] = None,
+    ) -> None:
+        """
+        Initialize a Target with the specified connection parameters.
+        
+        Args:
+            domain: Domain name (empty string if not specified)
+            username: Username (empty string if not specified)
+            password: Password (None if not specified)
+            remote_name: Remote target name (empty string if not specified)
+            hashes: NTLM hashes in format LM:NT
+            lmhash: LM hash
+            nthash: NT hash
+            do_kerberos: Use Kerberos authentication
+            do_simple: Use simple authentication
+            use_sspi: Use SSPI authentication (Windows only)
+            aes: AES key for Kerberos authentication
+            dc_ip: Domain controller IP
+            dc_host: Domain controller hostname
+            target_ip: Target IP address
+            timeout: Connection timeout in seconds
+            ldap_channel_binding: Use LDAP channel binding
+            ldap_port: LDAP port to use
+        """
+        self.domain: str = domain
+        self.username: str = username
+        self.password: Optional[str] = password
+        self.remote_name: str = remote_name
+        self.hashes: Optional[str] = hashes
+        self.lmhash: str = lmhash
+        self.nthash: str = nthash
+        self.do_kerberos: bool = do_kerberos
+        self.do_simple: bool = do_simple
+        self.use_sspi: bool = use_sspi
+        self.aes: Optional[str] = aes
+        self.dc_ip: Optional[str] = dc_ip
+        self.dc_host: Optional[str] = dc_host
+        self.target_ip: Optional[str] = target_ip
+        self.timeout: int = timeout
+        self.ldap_channel_binding: bool = ldap_channel_binding
+        self.ldap_port: Optional[int] = ldap_port
         self.resolver: Optional[DnsResolver] = None
-        self.ldap_channel_binding: Optional[bool] = None
-        self.ldap_port: Optional[int] = None
 
     @staticmethod
     def from_options(
@@ -54,11 +94,11 @@ class Target:
         Raises:
             Exception: If no target can be determined
         """
-        self = Target()
-
         # Parse username and domain from principal format (user@DOMAIN)
         principal = options.username
         domain = ""
+        username = ""
+        
         if principal is not None:
             parts = principal.split("@")
             if len(parts) == 1:
@@ -66,8 +106,6 @@ class Target:
             else:
                 username = "@".join(parts[:-1])
                 domain = parts[-1]
-        else:
-            username = ""
 
         dc_ip = options.dc_ip
         dc_host = None
@@ -85,8 +123,6 @@ class Target:
             logging.debug(f"SSPI Context: {username}@{domain} on {dc_host} ({dc_ip})")
 
         # Normalize domain and username
-        if domain is None:
-            domain = ""
         domain = domain.upper()
         username = username.upper()
 
@@ -104,29 +140,28 @@ class Target:
             and options.do_kerberos is not True
         ):
             from getpass import getpass
-
             password = getpass("Password:")
 
         # Parse hashes if provided
-        lmhash = nthash = ""
-        if options.hashes is not None:
-            hashes = options.hashes.split(":")
-            if len(hashes) == 1:
-                nthash = hashes[0]
+        lmhash = ""
+        nthash = ""
+        hashes = options.hashes
+        if hashes is not None:
+            hash_parts = hashes.split(":")
+            if len(hash_parts) == 1:
+                nthash = hash_parts[0]
                 lmhash = nthash
             else:
-                lmhash, nthash = hashes
+                lmhash, nthash = hash_parts
                 if len(lmhash) == 0:
                     lmhash = nthash
-        else:
-            hashes = None
 
         # AES key implies Kerberos
         if options.aes is not None:
             options.do_kerberos = True
 
         # Determine remote target name
-        remote_name = options.target
+        remote_name = options.target or ""
         if (
             (options.do_kerberos or options.use_sspi)
             and not remote_name
@@ -137,7 +172,7 @@ class Target:
                 "Target name (-target) not specified and Kerberos or SSPI authentication is used. This might fail"
             )
 
-        if remote_name is None:
+        if not remote_name:
             if options.target_ip:
                 remote_name = options.target_ip
             elif dc_host:
@@ -151,31 +186,34 @@ class Target:
 
         # Configure LDAP port
         ldap_port = options.ldap_port if hasattr(options, "ldap_port") else None
+        ldap_channel_binding = options.ldap_channel_binding if hasattr(options, "ldap_channel_binding") else False
 
-        # Set object properties
-        self.domain = domain
-        self.username = username
-        self.password = password
-        self.remote_name = remote_name
-        self.hashes = hashes
-        self.lmhash = lmhash
-        self.nthash = nthash
-        self.aes = options.aes
-        self.do_kerberos = options.do_kerberos
-        self.do_simple = options.do_simple
-        self.use_sspi = options.use_sspi
-        self.dc_ip = dc_ip
-        self.dc_host = dc_host
-        self.timeout = options.timeout
-        self.ldap_channel_binding = options.ldap_channel_binding
-        self.ldap_port = ldap_port
+        # Create target instance
+        target = Target(
+            domain=domain,
+            username=username,
+            password=password,
+            remote_name=remote_name,
+            hashes=hashes,
+            lmhash=lmhash,
+            nthash=nthash,
+            aes=options.aes,
+            do_kerberos=options.do_kerberos,
+            do_simple=options.do_simple,
+            use_sspi=options.use_sspi,
+            dc_ip=dc_ip,
+            dc_host=dc_host,
+            timeout=options.timeout,
+            ldap_channel_binding=ldap_channel_binding,
+            ldap_port=ldap_port,
+        )
 
         # Adjust DC IP if needed
         if dc_as_target and options.dc_ip is None and is_ip(remote_name):
-            self.dc_ip = remote_name
+            target.dc_ip = remote_name
 
         # Set up DNS resolver
-        ns = options.ns if hasattr(options, "ns") else self.dc_ip
+        ns = options.ns if hasattr(options, "ns") else target.dc_ip
         dns_tcp = options.dns_tcp if hasattr(options, "dns_tcp") else False
 
         # Handle target IP
@@ -183,22 +221,22 @@ class Target:
         if is_ip(remote_name):
             target_ip = remote_name
 
-        self.resolver = DnsResolver.create(self, ns=ns, dns_tcp=dns_tcp)
+        target.resolver = DnsResolver.create(target, ns=ns, dns_tcp=dns_tcp)
 
-        self.target_ip = target_ip
-        if self.target_ip is None and remote_name is not None:
-            self.target_ip = self.resolver.resolve(remote_name)
+        target.target_ip = target_ip
+        if target.target_ip is None:
+            target.target_ip = target.resolver.resolve(remote_name)
 
         # Ensure DC IP is resolved
-        if self.dc_ip is None and domain:
-            self.dc_ip = self.resolver.resolve(domain)
+        if target.dc_ip is None and domain:
+            target.dc_ip = target.resolver.resolve(domain)
 
-        return self
+        return target
 
     @staticmethod
     def create(
-        domain: Optional[str] = None,
-        username: Optional[str] = None,
+        domain: str = "",
+        username: str = "",
         password: Optional[str] = None,
         hashes: Optional[str] = None,
         target_ip: Optional[str] = None,
@@ -221,22 +259,17 @@ class Target:
         Returns:
             Target: Configured target object
         """
-        self = Target()
-
         # Handle SSPI authentication (Windows only)
         if use_sspi:
             do_kerberos = True
             username, domain, dc_ip, dc_host = get_logon_session()
             logging.debug(f"SSPI Context: {username}@{domain} on {dc_host} ({dc_ip})")
+        else:
+            dc_host = None
 
         # Normalize domain and username
-        if domain is None:
-            domain = ""
-        if username is None:
-            username = ""
-
-        domain = domain.upper()
-        username = username.upper()
+        domain = domain.upper() if domain else ""
+        username = username.upper() if username else ""
 
         # Handle password input
         if (
@@ -247,18 +280,18 @@ class Target:
             and no_pass is not True
         ):
             from getpass import getpass
-
             password = getpass("Password:")
 
         # Parse hashes if provided
-        lmhash = nthash = ""
+        lmhash = ""
+        nthash = ""
         if hashes is not None:
-            sub_hashes = hashes.split(":")
-            if len(sub_hashes) == 1:
-                nthash = sub_hashes[0]
+            hash_parts = hashes.split(":")
+            if len(hash_parts) == 1:
+                nthash = hash_parts[0]
                 lmhash = nthash
             else:
-                lmhash, nthash = sub_hashes
+                lmhash, nthash = hash_parts
                 if len(lmhash) == 0:
                     lmhash = nthash
 
@@ -266,37 +299,64 @@ class Target:
         if aes is not None:
             do_kerberos = True
 
-        # Set object properties
-        self.domain = domain
-        self.username = username
-        self.password = password
-        self.remote_name = remote_name
-        self.hashes = hashes
-        self.lmhash = lmhash
-        self.nthash = nthash
-        self.aes = aes
-        self.do_kerberos = do_kerberos
-        self.do_simple = do_simple
-        self.use_sspi = use_sspi
-        self.dc_ip = dc_ip
-        self.timeout = timeout
-        self.ldap_channel_binding = ldap_channel_binding
-        self.ldap_port = ldap_port
+        # Ensure remote_name has a value
+        if remote_name is None:
+            if target_ip:
+                remote_name = target_ip
+            elif domain:
+                remote_name = domain
+            else:
+                remote_name = ""
+
+        # Create target instance
+        target = Target(
+            domain=domain,
+            username=username,
+            password=password,
+            remote_name=remote_name,
+            hashes=hashes,
+            lmhash=lmhash,
+            nthash=nthash,
+            aes=aes,
+            do_kerberos=do_kerberos,
+            do_simple=do_simple,
+            use_sspi=use_sspi,
+            dc_ip=dc_ip,
+            dc_host=dc_host,
+            target_ip=target_ip,
+            timeout=timeout,
+            ldap_channel_binding=ldap_channel_binding,
+            ldap_port=ldap_port,
+        )
 
         # Handle DNS and target IP configuration
         if ns is None:
             ns = dc_ip
 
         if is_ip(remote_name):
-            target_ip = remote_name
+            target.target_ip = remote_name
 
-        self.resolver = DnsResolver.create(self, ns=ns, dns_tcp=dns_tcp)
+        target.resolver = DnsResolver.create(target, ns=ns, dns_tcp=dns_tcp)
 
-        self.target_ip = target_ip
-        if self.target_ip is None and remote_name is not None:
-            self.target_ip = self.resolver.resolve(remote_name)
+        if target.target_ip is None:
+            target.target_ip = target.resolver.resolve(remote_name)
 
-        return self
+        return target
+
+    def resolve_hostname(self, hostname: str) -> str:
+        """
+        Resolve a hostname to IP address using the configured resolver.
+        
+        Args:
+            hostname: The hostname to resolve
+            
+        Returns:
+            The resolved IP address or the original hostname if resolution fails
+        """
+        if self.resolver is None:
+            self.resolver = DnsResolver.create(self)
+            
+        return self.resolver.resolve(hostname)
 
     def __repr__(self) -> str:
         """String representation of the Target object."""
@@ -309,6 +369,7 @@ class DnsResolver:
     """
 
     def __init__(self) -> None:
+        """Initialize a new DNS resolver with default settings."""
         self.resolver: Resolver = Resolver()
         self.use_tcp: bool = False
         self.mappings: Dict[str, str] = {}
@@ -325,7 +386,7 @@ class DnsResolver:
         Returns:
             DnsResolver: A configured DNS resolver
         """
-        self = DnsResolver()
+        resolver = DnsResolver()
 
         # We can't put all possible nameservers in the list of nameservers, since
         # the resolver will fail if one of them fails
@@ -334,11 +395,11 @@ class DnsResolver:
             nameserver = target.dc_ip
 
         if nameserver is not None:
-            self.resolver.nameservers = [nameserver]
+            resolver.resolver.nameservers = [nameserver]
 
-        self.use_tcp = options.dns_tcp
+        resolver.use_tcp = options.dns_tcp
 
-        return self
+        return resolver
 
     @staticmethod
     def create(
@@ -357,7 +418,7 @@ class DnsResolver:
         Returns:
             DnsResolver: A configured DNS resolver
         """
-        self = DnsResolver()
+        resolver = DnsResolver()
 
         # We can't put all possible nameservers in the list of nameservers, since
         # the resolver will fail if one of them fails
@@ -366,11 +427,11 @@ class DnsResolver:
             nameserver = target.dc_ip
 
         if nameserver is not None:
-            self.resolver.nameservers = [nameserver]
+            resolver.resolver.nameservers = [nameserver]
 
-        self.use_tcp = dns_tcp
+        resolver.use_tcp = dns_tcp
 
-        return self
+        return resolver
 
     def resolve(self, hostname: str) -> str:
         """
