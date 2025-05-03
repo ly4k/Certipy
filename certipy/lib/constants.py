@@ -26,12 +26,10 @@ WELLKNOWN_SIDS = {
     "S-1-0-0": ("Nobody", "USER"),
     "S-1-1": ("World Authority", "USER"),
     "S-1-1-0": ("Everyone", "GROUP"),
-    
     # Local Authority
     "S-1-2": ("Local Authority", "USER"),
     "S-1-2-0": ("Local", "GROUP"),
     "S-1-2-1": ("Console Logon", "GROUP"),
-    
     # Creator Authority
     "S-1-3": ("Creator Authority", "USER"),
     "S-1-3-0": ("Creator Owner", "USER"),
@@ -39,7 +37,6 @@ WELLKNOWN_SIDS = {
     "S-1-3-2": ("Creator Owner Server", "COMPUTER"),
     "S-1-3-3": ("Creator Group Server", "COMPUTER"),
     "S-1-3-4": ("Owner Rights", "GROUP"),
-    
     # Non-unique and NT Authority
     "S-1-4": ("Non-unique Authority", "USER"),
     "S-1-5": ("NT Authority", "USER"),
@@ -62,7 +59,6 @@ WELLKNOWN_SIDS = {
     "S-1-5-19": ("NT Authority", "USER"),
     "S-1-5-20": ("Network Service", "USER"),
     "S-1-5-80-0": ("All Services", "GROUP"),
-    
     # Built-in local groups
     "S-1-5-32-544": ("Administrators", "GROUP"),
     "S-1-5-32-545": ("Users", "GROUP"),
@@ -101,7 +97,6 @@ WELLKNOWN_RIDS = {
     "500": ("Administrator", "USER"),
     "501": ("Guest", "USER"),
     "502": ("KRBTGT", "USER"),
-    
     # Domain groups
     "512": ("Domain Admins", "GROUP"),
     "513": ("Domain Users", "GROUP"),
@@ -109,17 +104,14 @@ WELLKNOWN_RIDS = {
     "515": ("Domain Computers", "GROUP"),
     "516": ("Domain Controllers", "GROUP"),
     "517": ("Cert Publishers", "GROUP"),
-    
     # Administrative groups
     "518": ("Schema Admins", "GROUP"),
     "519": ("Enterprise Admins", "GROUP"),
     "520": ("Group Policy Creator Owners", "GROUP"),
-    
     # Special controllers
     "521": ("Read-only Domain Controllers", "GROUP"),
     "522": ("Cloneable Domain Controllers", "GROUP"),
     "498": ("Enterprise Read-only Domain Controllers", "GROUP"),
-    
     # Special purpose groups
     "526": ("Key Admins", "GROUP"),
     "527": ("Enterprise Key Admins", "GROUP"),
@@ -130,10 +122,12 @@ WELLKNOWN_RIDS = {
 # PKI Certificate Flags
 #
 
+
 # Certificate name flags
 # Source: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-crtd/1192823c-d839-4bc3-9b6b-fa8c53507ae1
 class MS_PKI_CERTIFICATE_NAME_FLAG(IntFlag):
     """Flags controlling certificate subject creation."""
+
     NONE = 0x00000000
     ENROLLEE_SUPPLIES_SUBJECT = 0x00000001
     ADD_EMAIL = 0x00000002
@@ -157,6 +151,7 @@ class MS_PKI_CERTIFICATE_NAME_FLAG(IntFlag):
 # Source: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-crtd/ec71fd43-61c2-407b-83c9-b52272dec8a1
 class MS_PKI_ENROLLMENT_FLAG(IntFlag):
     """Flags controlling certificate enrollment behavior."""
+
     NONE = 0x00000000
     INCLUDE_SYMMETRIC_ALGORITHMS = 0x00000001
     PEND_ALL_REQUESTS = 0x00000002
@@ -184,27 +179,28 @@ class MS_PKI_ENROLLMENT_FLAG(IntFlag):
 # Source: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-crtd/f6122d87-b999-4b92-bff8-f465e8949667
 class MS_PKI_PRIVATE_KEY_FLAG(IntFlag):
     """Flags controlling certificate private key behavior."""
+
     # Key archival and export settings
     REQUIRE_PRIVATE_KEY_ARCHIVAL = 0x00000001
     EXPORTABLE_KEY = 0x00000010
     STRONG_KEY_PROTECTION_REQUIRED = 0x00000020
-    
+
     # Key algorithm settings
     REQUIRE_ALTERNATE_SIGNATURE_ALGORITHM = 0x00000040
     REQUIRE_SAME_KEY_RENEWAL = 0x00000080
     USE_LEGACY_PROVIDER = 0x00000100
-    
+
     # Key attestation flags
     ATTEST_NONE = 0x00000000
     ATTEST_REQUIRED = 0x00002000
     ATTEST_PREFERRED = 0x00001000
     ATTESTATION_WITHOUT_POLICY = 0x00004000
-    
+
     # Endorsement key options
     EK_TRUST_ON_USE = 0x00000200
     EK_VALIDATE_CERT = 0x00000400
     EK_VALIDATE_KEY = 0x00000800
-    
+
     # Special key types
     HELLO_LOGON_KEY = 0x00200000
 
@@ -213,6 +209,7 @@ class MS_PKI_PRIVATE_KEY_FLAG(IntFlag):
 # Source: https://github.com/GhostPack/Certify/blob/2b1530309c0c5eaf41b2505dfd5a68c83403d031/Certify/Domain/CertificateAuthority.cs#L23
 class MS_PKI_CERTIFICATE_AUTHORITY_FLAG(IntFlag):
     """Flags defining certificate authority capabilities."""
+
     NO_TEMPLATE_SUPPORT = 0x00000001
     SUPPORTS_NT_AUTHENTICATION = 0x00000002
     CA_SUPPORTS_MANUAL_AUTHENTICATION = 0x00000004
@@ -223,10 +220,12 @@ class MS_PKI_CERTIFICATE_AUTHORITY_FLAG(IntFlag):
 # Access Control and Rights
 #
 
+
 # Access control types
 # Source: https://docs.microsoft.com/en-us/dotnet/api/system.security.accesscontrol.accesscontroltype?view=net-5.0
 class ACCESS_CONTROL_TYPE(IntFlag):
     """Access control types for access control entries."""
+
     ALLOW = 0
     DENY = 1
 
@@ -235,6 +234,7 @@ class ACCESS_CONTROL_TYPE(IntFlag):
 # Source: https://docs.microsoft.com/en-us/dotnet/api/system.directoryservices.activedirectoryrights?view=net-5.0
 class ACTIVE_DIRECTORY_RIGHTS(IntFlag):
     """Rights applicable to Active Directory objects."""
+
     # Object-level rights
     CREATE_CHILD = 1
     DELETE_CHILD = 2
@@ -245,7 +245,7 @@ class ACTIVE_DIRECTORY_RIGHTS(IntFlag):
     DELETE_TREE = 64
     LIST_OBJECT = 128
     EXTENDED_RIGHT = 256
-    
+
     # Standard rights
     DELETE = 65536
     READ_CONTROL = 131072
@@ -253,7 +253,7 @@ class ACTIVE_DIRECTORY_RIGHTS(IntFlag):
     WRITE_OWNER = 524288
     SYNCHRONIZE = 1048576
     ACCESS_SYSTEM_SECURITY = 16777216
-    
+
     # Generic rights
     GENERIC_READ = 131220
     GENERIC_WRITE = 131112
@@ -264,6 +264,7 @@ class ACTIVE_DIRECTORY_RIGHTS(IntFlag):
 # Certificate rights
 class CERTIFICATE_RIGHTS(IntFlag):
     """Rights applicable to certificate templates and related objects."""
+
     WRITE_PROPERTY = 32
     EXTENDED_RIGHT = 256
     WRITE_DACL = 262144
@@ -275,6 +276,7 @@ class CERTIFICATE_RIGHTS(IntFlag):
 # Certificate issuance policy rights
 class ISSUANCE_POLICY_RIGHTS(IntFlag):
     """Rights applicable to certificate issuance policies."""
+
     WRITE_PROPERTY = 32
     WRITE_DACL = 262144
     WRITE_OWNER = 524288
@@ -286,6 +288,7 @@ class ISSUANCE_POLICY_RIGHTS(IntFlag):
 # Source: https://github.com/GhostPack/Certify/blob/2b1530309c0c5eaf41b2505dfd5a68c83403d031/Certify/Domain/CertificateAuthority.cs#L11
 class CERTIFICATION_AUTHORITY_RIGHTS(IntFlag):
     """Rights applicable to certification authorities."""
+
     MANAGE_CA = 1
     MANAGE_CERTIFICATES = 2
     AUDITOR = 4
@@ -344,7 +347,6 @@ OID_TO_STR_MAP = {
     "1.3.6.1.4.1.311.10.3.1": "Microsoft Trust List Signing",
     "1.3.6.1.4.1.311.10.3.2": "Microsoft Time Stamping",
     "1.3.6.1.4.1.311.76.8.1": "Microsoft Publisher",
-    
     # Standard certificate usages
     "1.3.6.1.5.5.7.3.1": "Server Authentication",
     "1.3.6.1.5.5.7.3.2": "Client Authentication",
@@ -356,16 +358,13 @@ OID_TO_STR_MAP = {
     "1.3.6.1.5.5.7.3.8": "Time Stamping",
     "1.3.6.1.5.5.7.3.9": "OCSP Signing",
     "1.3.6.1.5.5.8.2.2": "IP security IKE intermediate",
-    
     # Attestation and Platform Trust
     "2.23.133.8.1": "Endorsement Key Certificate",
     "2.23.133.8.2": "Platform Certificate",
     "2.23.133.8.3": "Attestation Identity Key Certificate",
-    
     # Kerberos
     "1.3.6.1.5.2.3.4": "PKINIT Client Authentication",
     "1.3.6.1.5.2.3.5": "KDC Authentication",
-    
     # Special purpose
     "1.3.6.1.4.1.311.10.3.13": "Lifetime Signing",
     "2.5.29.37.0": "Any Purpose",
@@ -390,7 +389,6 @@ EXTENDED_RIGHTS_MAP = {
     "e45795b3-9455-11d1-aebd-0000f80367c1": "Web-Information",
     "91e647de-d96f-4b70-9557-d63ff4f3ccd8": "Private-Information",
     "037088f8-0ae1-11d2-b422-00a0c968f939": "RAS-Information",
-    
     # Password and authentication rights
     "ab721a53-1e2f-11d0-9819-00aa0040529b": "User-Change-Password",
     "00299570-246d-11d0-a768-00aa006e0529": "User-Force-Change-Password",
@@ -398,7 +396,6 @@ EXTENDED_RIGHTS_MAP = {
     "ccc2dc7d-a6ad-4a7a-8846-c04e3cc53501": "Unexpire-Password",
     "280f369c-67c7-438e-ae98-1d46f3c6f541": "Update-Password-Not-Required-Bit",
     "05c74c5e-4deb-43b4-bd9f-86664c2a7fd5": "Enable-Per-User-Reversibly-Encrypted-Password",
-    
     # Replication and directory service rights
     "1131f6aa-9c07-11d1-f79f-00c04fc2dcd2": "DS-Replication-Get-Changes",
     "1131f6ab-9c07-11d1-f79f-00c04fc2dcd2": "DS-Replication-Synchronize",
@@ -414,7 +411,6 @@ EXTENDED_RIGHTS_MAP = {
     "4ecc03fe-ffc0-4947-b630-eb672a8a9dbc": "DS-Query-Self-Quota",
     "88a9933e-e5c8-4f2a-9dd7-2527416b8092": "DS-Bypass-Quota",
     "9b026da6-0d3c-465c-8bee-5199d7165cba": "DS-Validated-Write-Computer",
-    
     # Infrastructure roles and operations
     "e12b56b6-0a95-11d1-adbb-00c04fd8d5cd": "Change-Schema-Master",
     "d58d5f36-0a98-11d1-adbb-00c04fd8d5cd": "Change-Rid-Master",
@@ -429,7 +425,6 @@ EXTENDED_RIGHTS_MAP = {
     "69ae6200-7f46-11d2-b9ad-00c04f79f805": "DS-Check-Stale-Phantoms",
     "440820ad-65b4-11d1-a3da-0000f875ae0d": "Add-GUID",
     "2f16c4a5-b98e-432c-952a-cb388ba33f2e": "DS-Execute-Intentions-Script",
-    
     # Email and messaging related
     "ab721a54-1e2f-11d0-9819-00aa0040529b": "Send-As",
     "ab721a56-1e2f-11d0-9819-00aa0040529b": "Receive-As",
@@ -443,7 +438,6 @@ EXTENDED_RIGHTS_MAP = {
     "06bd3202-df3e-11d1-9c86-006008764d0e": "msmq-Send",
     "06bd3203-df3e-11d1-9c86-006008764d0e": "msmq-Receive-journal",
     "b4e60130-df3f-11d1-9c86-006008764d0e": "msmq-Open-Connector",
-    
     # Authentication and access
     "5f202010-79a5-11d0-9020-00c04fc2d4cf": "User-Logon",
     "bc0ac240-79a9-11d0-9020-00c04fc2d4cf": "Membership",
@@ -458,24 +452,21 @@ EXTENDED_RIGHTS_MAP = {
     "d31a8757-2447-4545-8081-3bb610cacbf2": "Validated-MS-DS-Behavior-Version",
     "80863791-dbe9-4eb8-837e-7f0ab55d9ac7": "Validated-MS-DS-Additional-DNS-Host-Name",
     "3e0f7e18-2c7a-4c10-ba82-4d926db99a3e": "DS-Clone-Domain-Controller",
-    
     # Policy and system management
     "edacfd8f-ffb3-11d1-b41d-00a0c968f939": "Apply-Group-Policy",
     "b7b1b3dd-ab09-4242-9e30-9980e5d322f7": "Generate-RSoP-Planning",
     "b7b1b3de-ab09-4242-9e30-9980e5d322f7": "Generate-RSoP-Logging",
     "9432c620-033c-4db7-8b58-14ef6d0bf477": "Refresh-Group-Cache",
-    "b8119fd0-04f6-4762-ab7a-4986c76b3f9a": "Domain-Other-Parameters", 
+    "b8119fd0-04f6-4762-ab7a-4986c76b3f9a": "Domain-Other-Parameters",
     "e2a36dc9-ae17-47c3-b58b-be34c55ba633": "Create-Inbound-Forest-Trust",
     "7726b9d5-a4b4-4288-a6b2-dce952e80a7f": "Run-Protect-Admin-Groups-Task",
     "7c0e2a7c-a419-48e4-a995-10180aad54dd": "Manage-Optional-Features",
-    
     # Certificate and cryptography
     "0e10c968-78fb-11d2-90d4-00c04f79dc55": "Enroll",
     "a05b8cc2-17bc-4802-a710-e7c15ab866a2": "AutoEnroll",
     "1a60ea8d-58a6-4b20-bcdc-fb71eb8a9ff8": "Reload-SSL-Certificate",
     "5805bc62-bdc9-4428-a5e2-856a0f4c185e": "Terminal-Server-License-Server",
     "ffa6f046-ca4b-4feb-b40d-04dfee722543": "MS-TS-GatewayAccess",
-    
     # Special rights
     "00000000-0000-0000-0000-000000000000": "All-Extended-Rights",
 }
