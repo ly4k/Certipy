@@ -13,8 +13,7 @@ from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from impacket.dcerpc.v5 import epm
 from impacket.examples.ntlmrelayx.attacks import ProtocolAttack
 from impacket.examples.ntlmrelayx.clients import rpcrelayclient
-from impacket.examples.ntlmrelayx.clients.httprelayclient import \
-    HTTPRelayClient
+from impacket.examples.ntlmrelayx.clients.httprelayclient import HTTPRelayClient
 from impacket.examples.ntlmrelayx.servers import SMBRelayServer
 from impacket.examples.ntlmrelayx.utils.config import NTLMRelayxConfig
 from impacket.examples.ntlmrelayx.utils.targetsutils import TargetsProcessor
@@ -23,12 +22,22 @@ from impacket.ntlm import NTLMAuthChallengeResponse
 from impacket.spnego import SPNEGO_NegTokenResp
 
 from certipy.commands.req import MSRPC_UUID_ICPR, RPCRequestInterface
-from certipy.lib.certificate import (cert_id_to_parts, cert_to_pem, create_csr,
-                                     create_key_archival, create_pfx,
-                                     csr_to_der, csr_to_pem, der_to_cert,
-                                     get_identifications_from_certificate,
-                                     get_object_sid_from_certificate,
-                                     key_to_pem, pem_to_cert, pem_to_key, x509)
+from certipy.lib.certificate import (
+    cert_id_to_parts,
+    cert_to_pem,
+    create_csr,
+    create_key_archival,
+    create_pfx,
+    csr_to_der,
+    csr_to_pem,
+    der_to_cert,
+    get_identifications_from_certificate,
+    get_object_sid_from_certificate,
+    key_to_pem,
+    pem_to_cert,
+    pem_to_key,
+    x509,
+)
 from certipy.lib.errors import translate_error_code
 from certipy.lib.formatting import print_certificate_identifications
 from certipy.lib.logger import logging

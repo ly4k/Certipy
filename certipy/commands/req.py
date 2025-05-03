@@ -14,15 +14,28 @@ from impacket.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_PRIVACY
 from impacket.uuid import uuidtup_to_bin
 
 from certipy.commands.ca import ICertCustom
-from certipy.lib.certificate import (cert_id_to_parts, cert_to_der,
-                                     cert_to_pem, create_csr,
-                                     create_key_archival, create_on_behalf_of,
-                                     create_pfx, create_renewal, csr_to_der,
-                                     der_to_cert, der_to_csr, der_to_pem,
-                                     get_identifications_from_certificate,
-                                     get_object_sid_from_certificate,
-                                     key_to_pem, load_pfx, pem_to_cert,
-                                     pem_to_key, rsa, x509)
+from certipy.lib.certificate import (
+    cert_id_to_parts,
+    cert_to_der,
+    cert_to_pem,
+    create_csr,
+    create_key_archival,
+    create_on_behalf_of,
+    create_pfx,
+    create_renewal,
+    csr_to_der,
+    der_to_cert,
+    der_to_csr,
+    der_to_pem,
+    get_identifications_from_certificate,
+    get_object_sid_from_certificate,
+    key_to_pem,
+    load_pfx,
+    pem_to_cert,
+    pem_to_key,
+    rsa,
+    x509,
+)
 from certipy.lib.constants import OID_TO_STR_MAP
 from certipy.lib.errors import translate_error_code
 from certipy.lib.formatting import print_certificate_identifications

@@ -3,8 +3,10 @@ import random
 import string
 
 import ldap3
-from ldap3.core.results import (RESULT_INSUFFICIENT_ACCESS_RIGHTS,
-                                RESULT_UNWILLING_TO_PERFORM)
+from ldap3.core.results import (
+    RESULT_INSUFFICIENT_ACCESS_RIGHTS,
+    RESULT_UNWILLING_TO_PERFORM,
+)
 
 from certipy.lib.formatting import pretty_print
 from certipy.lib.ldap import LDAPConnection

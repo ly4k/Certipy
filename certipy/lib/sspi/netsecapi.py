@@ -1,9 +1,29 @@
 import enum
 import io
-from ctypes import (POINTER, Structure, WinError, addressof, byref, c_byte,
-                    c_char, c_char_p, c_int16, c_int32, c_longlong, c_ubyte,
-                    c_uint16, c_uint32, c_void_p, c_wchar_p, cast,
-                    create_string_buffer, pointer, sizeof, string_at, windll)
+from ctypes import (
+    POINTER,
+    Structure,
+    WinError,
+    addressof,
+    byref,
+    c_byte,
+    c_char,
+    c_char_p,
+    c_int16,
+    c_int32,
+    c_longlong,
+    c_ubyte,
+    c_uint16,
+    c_uint32,
+    c_void_p,
+    c_wchar_p,
+    cast,
+    create_string_buffer,
+    pointer,
+    sizeof,
+    string_at,
+    windll,
+)
 
 BYTE = c_ubyte
 UCHAR = BYTE
@@ -1297,8 +1317,7 @@ if __name__ == "__main__":
     # 		import traceback
     # 		traceback.print_exc()
     # 		print(e)
-    from pypykatz.commons.readers.local.common.privileges import \
-        RtlAdjustPrivilege
+    from pypykatz.commons.readers.local.common.privileges import RtlAdjustPrivilege
     from pypykatz.commons.winapi.processmanipulator import ProcessManipulator
 
     pm = ProcessManipulator()

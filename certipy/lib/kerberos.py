@@ -8,8 +8,7 @@ from impacket.krb5 import constants
 from impacket.krb5.asn1 import AP_REQ, TGS_REP, Authenticator, seq_set
 from impacket.krb5.ccache import CCache
 from impacket.krb5.crypto import Key
-from impacket.krb5.kerberosv5 import (KerberosError, getKerberosTGS,
-                                      getKerberosTGT)
+from impacket.krb5.kerberosv5 import KerberosError, getKerberosTGS, getKerberosTGT
 from impacket.krb5.types import KerberosTime, Principal, Ticket
 from impacket.spnego import SPNEGO_NegTokenInit, TypesMech
 from pyasn1.codec.ber import decoder, encoder
@@ -154,8 +153,7 @@ def get_TGS(
                             and TGT is None
                             and TGS is None
                         ):
-                            from impacket.ntlm import (compute_lmhash,
-                                                       compute_nthash)
+                            from impacket.ntlm import compute_lmhash, compute_nthash
 
                             logging.debug("Got KDC_ERR_ETYPE_NOSUPP, fallback to RC4")
                             lmhash = compute_lmhash(password)
@@ -200,8 +198,7 @@ def get_TGS(
                         and TGT is None
                         and TGS is None
                     ):
-                        from impacket.ntlm import (compute_lmhash,
-                                                   compute_nthash)
+                        from impacket.ntlm import compute_lmhash, compute_nthash
 
                         logging.debug("Got KDC_ERR_ETYPE_NOSUPP, fallback to RC4")
                         lmhash = compute_lmhash(password)

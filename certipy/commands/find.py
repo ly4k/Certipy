@@ -22,20 +22,28 @@ from impacket.dcerpc.v5 import rrp
 from impacket.ntlm import getNTLMSSPType1, getNTLMSSPType3
 from impacket.spnego import SPNEGO_NegTokenResp
 
-from certipy.lib.constants import (ACTIVE_DIRECTORY_RIGHTS, CERTIFICATE_RIGHTS,
-                                   CERTIFICATION_AUTHORITY_RIGHTS,
-                                   EXTENDED_RIGHTS_MAP,
-                                   EXTENDED_RIGHTS_NAME_MAP,
-                                   ISSUANCE_POLICY_RIGHTS,
-                                   MS_PKI_CERTIFICATE_NAME_FLAG,
-                                   MS_PKI_ENROLLMENT_FLAG,
-                                   MS_PKI_PRIVATE_KEY_FLAG, OID_TO_STR_MAP)
+from certipy.lib.constants import (
+    ACTIVE_DIRECTORY_RIGHTS,
+    CERTIFICATE_RIGHTS,
+    CERTIFICATION_AUTHORITY_RIGHTS,
+    EXTENDED_RIGHTS_MAP,
+    EXTENDED_RIGHTS_NAME_MAP,
+    ISSUANCE_POLICY_RIGHTS,
+    MS_PKI_CERTIFICATE_NAME_FLAG,
+    MS_PKI_ENROLLMENT_FLAG,
+    MS_PKI_PRIVATE_KEY_FLAG,
+    OID_TO_STR_MAP,
+)
 from certipy.lib.formatting import pretty_print
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import logging
 from certipy.lib.rpc import get_dce_rpc_from_string_binding
-from certipy.lib.security import (ActiveDirectorySecurity, CertifcateSecurity,
-                                  IssuancePolicySecurity, is_admin_sid)
+from certipy.lib.security import (
+    ActiveDirectorySecurity,
+    CertifcateSecurity,
+    IssuancePolicySecurity,
+    is_admin_sid,
+)
 from certipy.lib.target import Target
 
 from .ca import CA

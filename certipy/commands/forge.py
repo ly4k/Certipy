@@ -4,14 +4,24 @@ from typing import Union
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric.types import (
-    CertificateIssuerPrivateKeyTypes, CertificateIssuerPublicKeyTypes)
+    CertificateIssuerPrivateKeyTypes,
+    CertificateIssuerPublicKeyTypes,
+)
 from pyasn1.codec.der import encoder
 
-from certipy.lib.certificate import (NTDS_CA_SECURITY_EXT, PRINCIPAL_NAME,
-                                     UTF8String, asn1x509, cert_id_to_parts,
-                                     create_pfx, generate_rsa_key,
-                                     get_subject_from_str, load_pfx,
-                                     szOID_NTDS_OBJECTSID, x509)
+from certipy.lib.certificate import (
+    NTDS_CA_SECURITY_EXT,
+    PRINCIPAL_NAME,
+    UTF8String,
+    asn1x509,
+    cert_id_to_parts,
+    create_pfx,
+    generate_rsa_key,
+    get_subject_from_str,
+    load_pfx,
+    szOID_NTDS_OBJECTSID,
+    x509,
+)
 from certipy.lib.logger import logging
 
 

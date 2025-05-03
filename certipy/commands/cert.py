@@ -1,9 +1,16 @@
 import argparse
 import sys
 
-from certipy.lib.certificate import (cert_to_pem, create_pfx, der_to_cert,
-                                     der_to_key, key_to_pem, load_pfx,
-                                     pem_to_cert, pem_to_key)
+from certipy.lib.certificate import (
+    cert_to_pem,
+    create_pfx,
+    der_to_cert,
+    der_to_key,
+    key_to_pem,
+    load_pfx,
+    pem_to_cert,
+    pem_to_key,
+)
 from certipy.lib.logger import logging
 
 

@@ -1,4 +1,4 @@
-from certipy.lib.structs import IntFlag, _decompose
+from certipy.lib.structs import IntFlag
 
 # https://github.com/fox-it/BloodHound.py/blob/d665959c58d881900378040e6670fa12f801ccd4/bloodhound/ad/utils.py#L36
 WELLKNOWN_SIDS = {
@@ -255,21 +255,6 @@ class ACTIVE_DIRECTORY_RIGHTS(IntFlag):
     DELETE_CHILD = 2
     CREATE_CHILD = 1
 
-    def to_list(self):
-        cls = self.__class__
-        members, _ = _decompose(cls, self._value_)
-        filtered_members = []
-        for member in members:
-            found = False
-            for n in members:
-                if n & member and n != member:
-                    found = True
-
-            if not found:
-                filtered_members.append(member)
-        return members
-
-
 class CERTIFICATE_RIGHTS(IntFlag):
     GENERIC_ALL = 983551
     WRITE_OWNER = 524288
@@ -277,21 +262,6 @@ class CERTIFICATE_RIGHTS(IntFlag):
     EXTENDED_RIGHT = 256
     GENERIC_WRITE = 131112
     WRITE_PROPERTY = 32
-
-    def to_list(self):
-        cls = self.__class__
-
-        if self._value_ == self.GENERIC_ALL:
-            return [CERTIFICATE_RIGHTS(self.GENERIC_ALL)]
-
-        members, _ = _decompose(cls, self._value_)
-        filtered_members = []
-        for member in members:
-            if str(member) == str(member.value):
-                continue
-            filtered_members.append(member)
-        return filtered_members
-
 
 class ISSUANCE_POLICY_RIGHTS(IntFlag):
     GENERIC_READ = 131220

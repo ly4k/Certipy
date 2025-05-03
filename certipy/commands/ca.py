@@ -11,21 +11,22 @@ from impacket.dcerpc.v5.dcomrt import DCOMANSWER, DCOMCALL, IRemUnknown
 from impacket.dcerpc.v5.dtypes import DWORD, LONG, LPWSTR, PBYTE, ULONG, WSTR
 from impacket.dcerpc.v5.ndr import NDRSTRUCT
 from impacket.dcerpc.v5.nrpc import checkNullString
-from impacket.dcerpc.v5.rpcrt import (RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
-                                      DCERPCException)
+from impacket.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException
 from impacket.ldap import ldaptypes
 from impacket.smbconnection import SMBConnection
 from impacket.uuid import string_to_bin, uuidtup_to_bin
 
-from certipy.lib.certificate import (NameOID, create_pfx, der_to_cert,
-                                     load_pfx, x509)
+from certipy.lib.certificate import NameOID, create_pfx, der_to_cert, load_pfx, x509
 from certipy.lib.constants import CERTIFICATION_AUTHORITY_RIGHTS
 from certipy.lib.errors import translate_error_code
 from certipy.lib.kerberos import get_TGS
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import logging
-from certipy.lib.rpc import (get_dce_rpc, get_dce_rpc_from_string_binding,
-                             get_dcom_connection)
+from certipy.lib.rpc import (
+    get_dce_rpc,
+    get_dce_rpc_from_string_binding,
+    get_dcom_connection,
+)
 from certipy.lib.security import CASecurity
 from certipy.lib.target import Target
 
