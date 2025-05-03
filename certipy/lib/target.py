@@ -1,3 +1,24 @@
+"""
+Target management module for Certipy.
+
+This module provides functionality for creating and managing target objects
+that represent authentication endpoints. It handles:
+
+- Authentication parameters (username, password, hashes, Kerberos tickets)
+- Target name resolution (DNS, local resolution, IP address validation)
+- Connection settings (timeouts, ports, protocol options)
+- Windows-specific authentication methods (SSPI)
+- Domain controller discovery
+- Kerberos ticket cache integration
+
+The primary class is Target, which encapsulates all connection parameters
+needed to authenticate to and interact with Windows/Active Directory services.
+Helper classes like DnsResolver provide supporting functionality.
+
+Usage:
+    target = Target.from_options(options)  # Create from command-line arguments
+    target = Target.create(username="user@domain.com", password="secret")  # Create programmatically
+"""
 import argparse
 import os
 import platform
