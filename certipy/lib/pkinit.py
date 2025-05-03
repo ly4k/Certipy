@@ -195,7 +195,7 @@ def sign_authpack(
     signer_info["signature"] = rsa_pkcs1v15_sign(
         asn1cms.CMSAttributes(signer_info["signed_attrs"]).dump(),
         key,
-        hash=hashes.SHA1,
+        hash_algorithm=hashes.SHA1,
     )
 
     # Create encapsulated content info

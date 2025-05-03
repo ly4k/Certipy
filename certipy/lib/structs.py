@@ -9,7 +9,7 @@ It also provides enhanced Enum types with better string representation.
 import enum
 from typing import List
 
-from asn1crypto import core, keys, x509
+from asn1crypto import cms, core, csr, keys, x509
 
 from certipy.lib.formatting import to_pascal_case
 
@@ -530,3 +530,103 @@ class AuthPack(core.Sequence):
             {"tag_type": "explicit", "tag": 3, "optional": True},
         ),
     ]
+
+
+#
+# ASN.1 structures for Microsoft certificate operations
+#
+
+
+class TaggedCertificationRequest(core.Sequence):
+    """ASN.1 structure for a tagged certification request."""
+
+    _fields = [
+        ("bodyPartID", core.Integer),
+        ("certificationRequest", csr.CertificationRequest),
+    ]
+
+
+class TaggedRequest(core.Choice):
+    """ASN.1 structure for PKI request types."""
+
+    _alternatives = [
+        ("tcr", TaggedCertificationRequest, {"implicit": 0}),
+        ("crm", core.Any, {"implicit": 1}),
+        ("orm", core.Any, {"implicit": 2}),
+    ]
+
+
+class TaggedAttribute(core.Sequence):
+    """ASN.1 structure for a tagged attribute."""
+
+    _fields = [
+        ("bodyPartID", core.Integer),
+        ("attrType", core.ObjectIdentifier),
+        ("attrValues", cms.SetOfAny),
+    ]
+
+
+class TaggedAttributes(core.SequenceOf):
+    """Sequence of TaggedAttribute objects."""
+
+    _child_spec = TaggedAttribute
+
+
+class TaggedRequests(core.SequenceOf):
+    """Sequence of TaggedRequest objects."""
+
+    _child_spec = TaggedRequest
+
+
+class TaggedContentInfos(core.SequenceOf):
+    """Sequence of ContentInfo objects."""
+
+    _child_spec = core.Any  # not implemented
+
+
+class OtherMsgs(core.SequenceOf):
+    """Sequence of other message types."""
+
+    _child_spec = core.Any  # not implemented
+
+
+class PKIData(core.Sequence):
+    """ASN.1 structure for PKI data container."""
+
+    _fields = [
+        ("controlSequence", TaggedAttributes),
+        ("reqSequence", TaggedRequests),
+        ("cmsSequence", TaggedContentInfos),
+        ("otherMsgSequence", OtherMsgs),
+    ]
+
+
+class CertReference(core.SequenceOf):
+    """Reference to certificates by ID."""
+
+    _child_spec = core.Integer
+
+
+class CMCAddAttributesInfo(core.Sequence):
+    """ASN.1 structure for CMC AddAttributesInfo."""
+
+    _fields = [
+        ("data_reference", core.Integer),
+        ("cert_reference", CertReference),
+        ("attributes", csr.SetOfAttributes),
+    ]
+
+
+class EnrollmentNameValuePair(core.Sequence):
+    """ASN.1 structure for name-value pairs in enrollment requests."""
+
+    _fields = [
+        ("name", core.BMPString),
+        ("value", core.BMPString),
+    ]
+
+
+class EnrollmentNameValuePairs(core.SetOf):
+    """Set of EnrollmentNameValuePair objects."""
+
+    _child_spec = EnrollmentNameValuePair
