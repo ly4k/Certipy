@@ -4,7 +4,6 @@ PKINIT implementation for Kerberos authentication.
 This module provides functionality for Public Key Cryptography for Initial Authentication
 in Kerberos (PKINIT), allowing certificate-based authentication to Kerberos services.
 It implements:
-- ASN.1 structures required for PKINIT
 - Certificate signing and verification
 - Diffie-Hellman key exchange
 - Authentication request generation
