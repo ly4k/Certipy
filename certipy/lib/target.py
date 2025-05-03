@@ -21,7 +21,6 @@ Usage:
 
 import argparse
 import os
-import platform
 import socket
 from typing import Dict, Optional, Tuple
 
