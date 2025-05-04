@@ -17,8 +17,6 @@ body:
       label: 🔢 Certipy Version
       description: What version of Certipy are you using? (Output of `certipy -v`)
       placeholder: e.g., 5.0.0
-    validations:
-      required: true
 
   - type: input
     id: platform
@@ -26,8 +24,6 @@ body:
       label: 🖥️ Operating System
       description: What platform or environment are you using Certipy on?
       placeholder: e.g., Kali Linux, Windows 11, Ubuntu 22.04
-    validations:
-      required: true
 
   - type: textarea
     id: question_summary

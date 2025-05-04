@@ -130,7 +130,7 @@ Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
 
 Thanks to these generous sponsors for supporting the development of this project. Your contributions help sustain ongoing work and improvements.
 
-<!-- sponsors-readme -->
+<!-- sponsors --><!-- sponsors -->
 
 ---
 

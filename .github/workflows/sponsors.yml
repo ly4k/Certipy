@@ -1,15 +1,20 @@
 name: Update Sponsors
+
 on:
-  schedule:
-    - cron: '0 0 * * *'  # runs daily at midnight UTC
   workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *" # runs daily at midnight UTC
+
+permissions:
+  contents: write
 
 jobs:
   update-sponsors:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
-      - uses: readme/sponsors-readme@v1
+      - uses: actions/checkout@v4
+      - uses: JamesIves/github-sponsors-readme-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           template: "README.md"
