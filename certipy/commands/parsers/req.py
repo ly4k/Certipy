@@ -14,7 +14,6 @@ def entry(options: argparse.Namespace):
 
 def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:
     subparser = subparsers.add_parser(NAME, help="Request certificates")
-    subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
 
     subparser.add_argument(
         "-ca", action="store", metavar="certificate authority name", required=True

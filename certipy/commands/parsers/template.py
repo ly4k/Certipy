@@ -18,7 +18,6 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     subparser.add_argument(
         "-template", action="store", metavar="template name", required=True
     )
-    subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
 
     group = subparser.add_argument_group("configuration options")
     group.add_argument(

@@ -41,7 +41,6 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         action="store_true",
         help="Save TGT in Kirbi format",
     )
-    subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
 
     group = subparser.add_argument_group("connection options")
 

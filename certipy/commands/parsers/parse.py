@@ -15,19 +15,8 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         NAME, help="Offline enumerate AD CS based on registry data"
     )
     subparser.add_argument("file", help="file to parse")
-    subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
 
     group = subparser.add_argument_group("output options")
-    group.add_argument(
-        "-bloodhound",
-        action="store_true",
-        help="Output result as BloodHound data for the custom-built BloodHound version from @ly4k with PKI support",
-    )
-    group.add_argument(
-        "-old-bloodhound",
-        action="store_true",
-        help="Output result as BloodHound data for the original BloodHound version from @BloodHoundAD without PKI support",
-    )
     group.add_argument(
         "-text",
         action="store_true",
@@ -42,6 +31,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         "-json",
         action="store_true",
         help="Output result as JSON",
+    )
+    group.add_argument(
+        "-csv",
+        action="store_true",
+        help="Output result as CSV",
     )
     group.add_argument(
         "-output",
@@ -83,17 +77,17 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     group.add_argument(
         "-enabled",
         action="store_true",
-        help="Show only enabled certificate templates. Does not affect BloodHound output",
+        help="Show only enabled certificate templates",
     )
     group.add_argument(
         "-vulnerable",
         action="store_true",
-        help="Show only vulnerable certificate templates based on nested group memberships. Does not affect BloodHound output",
+        help="Show only vulnerable certificate templates based on nested group memberships",
     )
     group.add_argument(
         "-hide-admins",
         action="store_true",
-        help="Don't show administrator permissions for -text, -stdout, and -json. Does not affect BloodHound output",
+        help="Don't show administrator permissions for -text, -stdout, and -json",
     )
 
     return NAME, entry

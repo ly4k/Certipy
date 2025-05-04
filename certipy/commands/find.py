@@ -131,9 +131,6 @@ class Find:
         target: Target,
         json: bool = False,
         csv: bool = False,
-        bloodhound: bool = False,
-        old_bloodhound: bool = False,
-        esc14: bool = False,
         text: bool = False,
         stdout: bool = False,
         output: Optional[str] = None,
@@ -153,11 +150,8 @@ class Find:
         self.target = target
         self.json = json
         self.csv = csv
-        self.bloodhound = bloodhound or old_bloodhound
-        self.old_bloodhound = old_bloodhound
         self.text = text or stdout
         self.stdout = stdout
-        self.esc14 = esc14
         self.output = output
         self.trailing_output = trailing_output
         self.enabled = enabled
@@ -922,7 +916,7 @@ class Find:
             prefix: Output file prefix
         """
         # Determine if default output format should be used
-        not_specified = not any([self.json, self.bloodhound, self.text])
+        not_specified = not any([self.json, self.text, self.csv])
 
         # Generate output for text/JSON formats
         if self.text or self.json or not_specified:

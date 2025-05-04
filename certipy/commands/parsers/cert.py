@@ -45,6 +45,4 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         "-nokey", action="store_true", help="Don't output private key"
     )
 
-    subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
-
     return NAME, entry

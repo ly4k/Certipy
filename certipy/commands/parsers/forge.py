@@ -56,7 +56,6 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         default=2048,
         type=int,
     )
-    subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
 
     group = subparser.add_argument_group("output options")
     group.add_argument("-out", action="store", metavar="output file name")

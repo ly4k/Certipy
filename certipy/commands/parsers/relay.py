@@ -20,7 +20,6 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         required=True,
         help="protocol://IP address or hostname of certificate authority. Example: http://ca.corp.local for ESC8 or rpc://ca.corp.local for ESC11",
     )
-    subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
 
     group = subparser.add_argument_group("certificate request options")
     group.add_argument(

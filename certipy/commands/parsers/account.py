@@ -15,8 +15,6 @@ def entry(options: argparse.Namespace):
 def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:
     subparser = subparsers.add_parser(NAME, help="Manage user and machine accounts")
 
-    subparser.add_argument("-debug", action="store_true", help="Turn debug output on")
-
     subparser.add_argument(
         "account_action",
         choices=["create", "read", "update", "delete"],
