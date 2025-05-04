@@ -25,6 +25,7 @@ from pyasn1.type.univ import noValue
 
 from certipy.lib.logger import logging
 from certipy.lib.target import Target
+from certipy.lib.structs import e2i
 
 
 def _convert_to_binary(data: Optional[str]) -> Optional[bytes]:
@@ -156,7 +157,7 @@ def get_TGS(
             )
 
     # Create principal object for the user
-    user_principal = Principal(username, type=constants.PrincipalNameType.NT_PRINCIPAL)
+    user_principal = Principal(username, type=e2i(constants.PrincipalNameType.NT_PRINCIPAL))
 
     while True:
         if TGT is None:
@@ -200,7 +201,7 @@ def get_TGS(
         if TGS is None:
             server_principal = Principal(
                 f"{service}/{target_name}",
-                type=constants.PrincipalNameType.NT_SRV_INST,
+                type=e2i(constants.PrincipalNameType.NT_SRV_INST),
             )
             try:
                 logging.debug(f"Getting TGS for {service}/{target_name!r}")
@@ -276,7 +277,7 @@ def get_kerberos_type1(
     tgs, cipher, session_key, username, domain = get_TGS(target, target_name, service)
 
     # Create principal for the client
-    principal = Principal(username, type=constants.PrincipalNameType.NT_PRINCIPAL)
+    principal = Principal(username, type=e2i(constants.PrincipalNameType.NT_PRINCIPAL))
 
     # Build SPNEGO init token
     blob = SPNEGO_NegTokenInit()
@@ -290,7 +291,7 @@ def get_kerberos_type1(
     # Build AP_REQ message
     ap_req = AP_REQ()
     ap_req["pvno"] = 5
-    ap_req["msg-type"] = int(constants.ApplicationTagNumbers.AP_REQ)
+    ap_req["msg-type"] = e2i(constants.ApplicationTagNumbers.AP_REQ)
     ap_req["ap-options"] = constants.encodeFlags([])  # No options
     seq_set(ap_req, "ticket", ticket.to_asn1)
 

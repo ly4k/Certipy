@@ -8,7 +8,6 @@ It also provides enhanced Enum types with better string representation.
 
 import enum
 from typing import List
-
 from asn1crypto import cms, core, csr, keys, x509
 
 from certipy.lib.formatting import to_pascal_case
@@ -630,3 +629,19 @@ class EnrollmentNameValuePairs(core.SetOf):
     """Set of EnrollmentNameValuePair objects."""
 
     _child_spec = EnrollmentNameValuePair
+
+
+def e2i(enum: int) -> int:
+    """
+    Convert an Impacket enum member to its integer value.
+
+    Static type analysis is confused by the fact that Impacket enums are
+    not standard Python enums. This function provides a workaround.
+
+    Args:
+        enum: The enum member to convert.
+
+    Returns:
+        The integer value of the enum member.
+    """
+    return enum.value # type: ignore

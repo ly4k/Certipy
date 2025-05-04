@@ -677,6 +677,8 @@ class LDAPConnection:
             sids.add(f"{self.domain_sid}-513")  # Domain Users
             sids.add(f"{self.domain_sid}-515")  # Domain Computers
 
+        print("SIDs:", sids)
+
         # Collect DNs to search for group membership
         dns = [user.get("distinguishedName")]
         for sid in sids:

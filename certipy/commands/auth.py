@@ -68,7 +68,7 @@ from certipy.lib.certificate import (
 from certipy.lib.errors import KRB5_ERROR_MESSAGES
 from certipy.lib.logger import logging
 from certipy.lib.pkinit import build_pkinit_as_req
-from certipy.lib.structs import PA_PK_AS_REP, Enctype, KDCDHKeyInfo
+from certipy.lib.structs import PA_PK_AS_REP, Enctype, KDCDHKeyInfo, e2i
 from certipy.lib.target import Target
 
 
@@ -579,6 +579,7 @@ class Authenticate:
             self.target.target_ip = self.target.resolver.resolve(domain)
 
         logging.info("Trying to get TGT...")
+        logging.debug(f"Sending AS-REQ to KDC {domain} ({self.target.target_ip})")
 
         try:
             # Send Kerberos AS-REQ
@@ -703,7 +704,7 @@ class Authenticate:
                 # Create AP-REQ for User-to-User (U2U) authentication
                 ap_req = AP_REQ()
                 ap_req["pvno"] = 5
-                ap_req["msg-type"] = int(constants.ApplicationTagNumbers.AP_REQ)
+                ap_req["msg-type"] = e2i(constants.ApplicationTagNumbers.AP_REQ)
                 ap_req["ap-options"] = constants.encodeFlags([])
 
                 # Use received ticket
@@ -740,38 +741,37 @@ class Authenticate:
                 # Create TGS-REQ with U2U flag
                 tgs_req = TGS_REQ()
                 tgs_req["pvno"] = 5
-                tgs_req["msg-type"] = int(constants.ApplicationTagNumbers.TGS_REQ)
+                tgs_req["msg-type"] = e2i(constants.ApplicationTagNumbers.TGS_REQ)
 
                 # Add AP-REQ as PA data
                 tgs_req["padata"] = noValue
                 tgs_req["padata"][0] = noValue
-                tgs_req["padata"][0]["padata-type"] = int(
-                    constants.PreAuthenticationDataTypes.PA_TGS_REQ
-                )
+                tgs_req["padata"][0]["padata-type"] = e2i(constants.PreAuthenticationDataTypes.PA_TGS_REQ)
+                
                 tgs_req["padata"][0]["padata-value"] = encoded_ap_req
 
                 req_body = seq_set(tgs_req, "req-body")
 
                 # Set KDC options for U2U
                 opts = [
-                    constants.KDCOptions.forwardable,
-                    constants.KDCOptions.renewable,
-                    constants.KDCOptions.canonicalize,
-                    constants.KDCOptions.enc_tkt_in_skey,  # This enables U2U
-                    constants.KDCOptions.forwardable,
-                    constants.KDCOptions.renewable_ok,
+                    e2i(constants.KDCOptions.forwardable),
+                    e2i(constants.KDCOptions.renewable),
+                    e2i(constants.KDCOptions.canonicalize),
+                    e2i(constants.KDCOptions.enc_tkt_in_skey),  # This enables U2U
+                    e2i(constants.KDCOptions.forwardable),
+                    e2i(constants.KDCOptions.renewable_ok),
                 ]
                 req_body["kdc-options"] = constants.encodeFlags(opts)
 
                 # Request a ticket to self (U2U)
                 server_name = Principal(
-                    username, type=constants.PrincipalNameType.NT_UNKNOWN
+                    username, type=e2i(constants.PrincipalNameType.NT_UNKNOWN)
                 )
                 seq_set(req_body, "sname", server_name.components_to_asn1)
                 req_body["realm"] = str(as_rep["crealm"])
 
                 # Set validity period
-                now = datetime.datetime.utcnow() + datetime.timedelta(days=1)
+                now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)
                 req_body["till"] = KerberosTime.to_asn1(now)
                 req_body["nonce"] = getrandbits(31)
 
@@ -779,7 +779,7 @@ class Authenticate:
                 seq_set_iter(
                     req_body,
                     "etype",
-                    (int(cipher.enctype), int(constants.EncryptionTypes.rc4_hmac)),
+                    (int(cipher.enctype), e2i(constants.EncryptionTypes.rc4_hmac)),
                 )
 
                 # Include our own ticket

@@ -43,6 +43,7 @@ from certipy.lib.structs import (
     KDCOptions,
     PKAuthenticator,
     PrincipalName,
+    e2i,
 )
 
 # =========================================================================
@@ -308,20 +309,20 @@ def build_pkinit_as_req(
     signed_authpack = sign_authpack(authpack.dump(), key, cert)
 
     # Build PA-PK-AS-REQ
-    payload = PA_PK_AS_REQ()
-    payload["signedAuthPack"] = signed_authpack
+    pa_pk_as_req = PA_PK_AS_REQ()
+    pa_pk_as_req["signedAuthPack"] = signed_authpack
 
     # Prepare PA-DATA entries
     # PA-PAC-REQUEST to request a PAC
     pa_data_pac = {
-        "padata-type": constants.PreAuthenticationDataTypes.PA_PAC_REQUEST,
+        "padata-type": e2i(constants.PreAuthenticationDataTypes.PA_PAC_REQUEST),
         "padata-value": PA_PAC_REQUEST({"include-pac": True}).dump(),
     }
 
     # PA-PK-AS-REQ for PKINIT
     pa_data_pk = {
-        "padata-type": constants.PreAuthenticationDataTypes.PA_PK_AS_REQ,
-        "padata-value": payload.dump(),
+        "padata-type": e2i(constants.PreAuthenticationDataTypes.PA_PK_AS_REQ),
+        "padata-value": pa_pk_as_req.dump(),
     }
 
     # Build AS-REQ

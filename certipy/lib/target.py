@@ -235,6 +235,7 @@ class Target:
             do_simple=options.do_simple,
             dc_ip=dc_ip,
             dc_host=dc_host,
+            target_ip=target_ip,
             timeout=options.timeout,
             ldap_channel_binding=ldap_channel_binding,
             ldap_port=ldap_port,

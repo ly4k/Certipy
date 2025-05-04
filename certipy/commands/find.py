@@ -778,7 +778,7 @@ class Find:
             )
         else:
             certificate_name_flag = MS_PKI_CERTIFICATE_NAME_FLAG(0)
-        template.set("certificate_name_flag", certificate_name_flag.to_str_list())
+        template.set("certificate_name_flag", certificate_name_flag.to_list())
 
         # Process enrollment flags
         enrollment_flag = template.get("msPKI-Enrollment-Flag")
@@ -786,7 +786,7 @@ class Find:
             enrollment_flag = MS_PKI_ENROLLMENT_FLAG(int(enrollment_flag))
         else:
             enrollment_flag = MS_PKI_ENROLLMENT_FLAG(0)
-        template.set("enrollment_flag", enrollment_flag.to_str_list())
+        template.set("enrollment_flag", enrollment_flag.to_list())
 
         # Process private key flags
         private_key_flag = template.get("msPKI-Private-Key-Flag")
@@ -794,7 +794,7 @@ class Find:
             private_key_flag = MS_PKI_PRIVATE_KEY_FLAG(int(private_key_flag))
         else:
             private_key_flag = MS_PKI_PRIVATE_KEY_FLAG(0)
-        template.set("private_key_flag", private_key_flag.to_str_list())
+        template.set("private_key_flag", private_key_flag.to_list())
 
         # Process signature requirements
         authorized_signatures_required = template.get("msPKI-RA-Signature")
@@ -877,23 +877,24 @@ class Find:
 
         # Check if enrollee can supply subject
         certificate_name_flag = template.get("certificate_name_flag", [])
+        print("Certificate Name Flag:", certificate_name_flag)
         enrollee_supplies_subject = any(
-            "ENROLLEE_SUPPLIES_SUBJECT" in flag for flag in certificate_name_flag
+            MS_PKI_CERTIFICATE_NAME_FLAG.ENROLLEE_SUPPLIES_SUBJECT in flag for flag in certificate_name_flag
         )
         template.set("enrollee_supplies_subject", enrollee_supplies_subject)
 
         # Check if template requires manager approval
         enrollment_flag = template.get("enrollment_flag", [])
-        requires_manager_approval = "PEND_ALL_REQUESTS" in enrollment_flag
+        requires_manager_approval = MS_PKI_ENROLLMENT_FLAG.PEND_ALL_REQUESTS in enrollment_flag
         template.set("requires_manager_approval", requires_manager_approval)
 
         # Check if template has no security extension
-        no_security_extension = "NO_SECURITY_EXTENSION" in enrollment_flag
+        no_security_extension = MS_PKI_ENROLLMENT_FLAG.NO_SECURITY_EXTENSION in enrollment_flag
         template.set("no_security_extension", no_security_extension)
 
         # Check if template requires key archival
         private_key_flag = template.get("private_key_flag", [])
-        requires_key_archival = "REQUIRE_PRIVATE_KEY_ARCHIVAL" in private_key_flag
+        requires_key_archival = MS_PKI_PRIVATE_KEY_FLAG.REQUIRE_PRIVATE_KEY_ARCHIVAL in private_key_flag
         template.set("requires_key_archival", requires_key_archival)
 
     # =========================================================================
@@ -1249,6 +1250,9 @@ class Find:
             "validity_start": "Certificate Validity Start",
             "validity_end": "Certificate Validity End",
             "web_enrollment": "Web Enrollment",
+            "http": "HTTP",
+            "https": "HTTPS",
+            "enabled": "Enabled",
             "user_specified_san": "User Specified SAN",
             "request_disposition": "Request Disposition",
             "enforce_encrypt_icertrequest": "Enforce Encryption for Requests",
@@ -1564,6 +1568,7 @@ class Find:
 
         vulnerabilities = {}
         user_can_enroll, enrollable_sids = self.can_user_enroll_in_template(template)
+        is_enabled = template.get("enabled", False)
 
         # Skip enrollment-based vulnerability checks if user can't enroll or
         # if template requires approval or signatures
@@ -1572,7 +1577,7 @@ class Find:
             or template.get("authorized_signatures_required", 0) > 0
         )
 
-        if user_can_enroll and not requires_approval:
+        if is_enabled and user_can_enroll and not requires_approval:
             enrollable_principals = format_principals(enrollable_sids)
 
             # ESC1: Client authentication with enrollee-supplied subject
@@ -1590,10 +1595,27 @@ class Find:
                     f"{enrollable_principals} can enroll and template can be used for any purpose"
                 )
 
-            # ESC3.1: Certificate Request Agent
+            # ESC3: Certificate Request Agent
             if template.get("enrollment_agent"):
-                vulnerabilities["ESC3.1"] = (
+                vulnerabilities["ESC3"] = (
                     f"{enrollable_principals} can enroll and template has Certificate Request Agent EKU set"
+                )
+
+            # ESC3-T: Schema v1 or requires Certificate Request Agent signature
+            if template.get("client_authentication") and (
+                template.get("schema_version") == 1
+                or (
+                    template.get("schema_version") > 1
+                    and template.get("authorized_signatures_required") > 0
+                    and template.get("application_policies") is not None
+                    and "Certificate Request Agent"
+                    in template.get("application_policies")
+                )
+            ):
+                vulnerabilities["ESC3-T*"] = (
+                    f"{enrollable_principals} can enroll and template has schema version 1 or "
+                    "requires a Certificate Request Agent signature. *This is not a vulnerability, "
+                    "but it is a template that can be used for ESC3."
                 )
 
             # ESC9: No security extension
@@ -1623,22 +1645,6 @@ class Find:
                 vulnerabilities["ESC15*"] = (
                     f"{enrollable_principals} can enroll, enrollee supplies subject and "
                     "schema version is 1. *CVE-2024-49019"
-                )
-
-            # ESC3.2: Schema v1 or requires Certificate Request Agent signature
-            if template.get("client_authentication") and (
-                template.get("schema_version") == 1
-                or (
-                    template.get("schema_version") > 1
-                    and template.get("authorized_signatures_required") > 0
-                    and template.get("application_policies") is not None
-                    and "Certificate Request Agent"
-                    in template.get("application_policies")
-                )
-            ):
-                vulnerabilities["ESC3.2"] = (
-                    f"{enrollable_principals} can enroll and template has schema version 1 or "
-                    "requires a Certificate Request Agent signature"
                 )
 
         # ESC4: Template ownership or vulnerable ACL

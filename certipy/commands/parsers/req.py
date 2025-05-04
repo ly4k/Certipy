@@ -58,8 +58,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         "-ca",
         action="store",
         metavar="certificate authority name",
-        required=True,
-        help="Name of the Certificate Authority to request certificates from",
+        help="Name of the Certificate Authority to request certificates from. Required for RPC and DCOM methods",
     )
 
     # Certificate request parameters
