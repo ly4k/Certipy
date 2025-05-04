@@ -1,10 +1,10 @@
 """
-Kerberos PKINIT Authentication Module for Certipy.
+Kerberos PKINIT and Schannel Authentication Module for Certipy.
 
 This module provides functionality for certificate-based Kerberos authentication:
 - PKINIT authentication using certificates
 - NT hash extraction via Kerberos U2U
-- LDAPS authentication using certificates
+- LDAPS (Schannel) authentication using certificates
 - Interactive LDAP shell
 
 It supports various authentication workflows for penetration testing and security assessments.

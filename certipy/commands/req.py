@@ -698,7 +698,7 @@ class WebRequestInterface:
             )
 
         # Try the specified scheme and port first
-        scheme = self.parent.scheme or "https"
+        scheme = self.parent.http_scheme or "https"
         port = self.parent.port or (443 if scheme == "https" else 80)
 
         base_url = f"{scheme}://{self.target.target_ip}:{port}"
@@ -1025,7 +1025,7 @@ class Request:
         web: bool = False,
         dcom: bool = False,
         port: Optional[int] = None,
-        scheme: Optional[str] = None,
+        http_scheme: Optional[str] = None,
         dynamic_endpoint: bool = False,
         debug: bool = False,
         application_policies: Optional[List[str]] = None,
@@ -1092,13 +1092,13 @@ class Request:
         self.web = web
         self.dcom = dcom
         self.port = port
-        self.scheme = scheme
+        self.http_scheme = http_scheme
 
         # Handle default ports based on scheme
-        if not self.port and self.scheme:
-            if self.scheme == "http":
+        if not self.port and self.http_scheme:
+            if self.http_scheme == "http":
                 self.port = 80
-            elif self.scheme == "https":
+            elif self.http_scheme == "https":
                 self.port = 443
 
         # Debug options
