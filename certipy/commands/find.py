@@ -879,22 +879,29 @@ class Find:
         certificate_name_flag = template.get("certificate_name_flag", [])
         print("Certificate Name Flag:", certificate_name_flag)
         enrollee_supplies_subject = any(
-            MS_PKI_CERTIFICATE_NAME_FLAG.ENROLLEE_SUPPLIES_SUBJECT in flag for flag in certificate_name_flag
+            MS_PKI_CERTIFICATE_NAME_FLAG.ENROLLEE_SUPPLIES_SUBJECT in flag
+            for flag in certificate_name_flag
         )
         template.set("enrollee_supplies_subject", enrollee_supplies_subject)
 
         # Check if template requires manager approval
         enrollment_flag = template.get("enrollment_flag", [])
-        requires_manager_approval = MS_PKI_ENROLLMENT_FLAG.PEND_ALL_REQUESTS in enrollment_flag
+        requires_manager_approval = (
+            MS_PKI_ENROLLMENT_FLAG.PEND_ALL_REQUESTS in enrollment_flag
+        )
         template.set("requires_manager_approval", requires_manager_approval)
 
         # Check if template has no security extension
-        no_security_extension = MS_PKI_ENROLLMENT_FLAG.NO_SECURITY_EXTENSION in enrollment_flag
+        no_security_extension = (
+            MS_PKI_ENROLLMENT_FLAG.NO_SECURITY_EXTENSION in enrollment_flag
+        )
         template.set("no_security_extension", no_security_extension)
 
         # Check if template requires key archival
         private_key_flag = template.get("private_key_flag", [])
-        requires_key_archival = MS_PKI_PRIVATE_KEY_FLAG.REQUIRE_PRIVATE_KEY_ARCHIVAL in private_key_flag
+        requires_key_archival = (
+            MS_PKI_PRIVATE_KEY_FLAG.REQUIRE_PRIVATE_KEY_ARCHIVAL in private_key_flag
+        )
         template.set("requires_key_archival", requires_key_archival)
 
     # =========================================================================

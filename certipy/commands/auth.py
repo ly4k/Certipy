@@ -746,8 +746,10 @@ class Authenticate:
                 # Add AP-REQ as PA data
                 tgs_req["padata"] = noValue
                 tgs_req["padata"][0] = noValue
-                tgs_req["padata"][0]["padata-type"] = e2i(constants.PreAuthenticationDataTypes.PA_TGS_REQ)
-                
+                tgs_req["padata"][0]["padata-type"] = e2i(
+                    constants.PreAuthenticationDataTypes.PA_TGS_REQ
+                )
+
                 tgs_req["padata"][0]["padata-value"] = encoded_ap_req
 
                 req_body = seq_set(tgs_req, "req-body")
@@ -771,7 +773,9 @@ class Authenticate:
                 req_body["realm"] = str(as_rep["crealm"])
 
                 # Set validity period
-                now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)
+                now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+                    days=1
+                )
                 req_body["till"] = KerberosTime.to_asn1(now)
                 req_body["nonce"] = getrandbits(31)
 

@@ -8,6 +8,7 @@ It also provides enhanced Enum types with better string representation.
 
 import enum
 from typing import List
+
 from asn1crypto import cms, core, csr, keys, x509
 
 from certipy.lib.formatting import to_pascal_case
@@ -644,4 +645,4 @@ def e2i(enum: int) -> int:
     Returns:
         The integer value of the enum member.
     """
-    return enum.value # type: ignore
+    return enum.value  # type: ignore

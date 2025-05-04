@@ -24,8 +24,8 @@ from pyasn1.codec.ber import decoder, encoder
 from pyasn1.type.univ import noValue
 
 from certipy.lib.logger import logging
-from certipy.lib.target import Target
 from certipy.lib.structs import e2i
+from certipy.lib.target import Target
 
 
 def _convert_to_binary(data: Optional[str]) -> Optional[bytes]:
@@ -157,7 +157,9 @@ def get_TGS(
             )
 
     # Create principal object for the user
-    user_principal = Principal(username, type=e2i(constants.PrincipalNameType.NT_PRINCIPAL))
+    user_principal = Principal(
+        username, type=e2i(constants.PrincipalNameType.NT_PRINCIPAL)
+    )
 
     while True:
         if TGT is None:
