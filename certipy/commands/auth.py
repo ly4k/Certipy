@@ -38,7 +38,10 @@ from impacket.krb5.asn1 import (
     EncTicketPart,
 )
 from impacket.krb5.asn1 import Ticket as TicketAsn1
-from impacket.krb5.asn1 import seq_set, seq_set_iter
+from impacket.krb5.asn1 import (
+    seq_set,
+    seq_set_iter,
+)
 from impacket.krb5.ccache import CCache
 from impacket.krb5.crypto import Key, _enctype_table
 from impacket.krb5.kerberosv5 import KerberosError, sendReceive
