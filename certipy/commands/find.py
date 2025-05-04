@@ -25,8 +25,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, cast
 import httpx
 import requests
 from asn1crypto import x509
-from impacket.dcerpc.v5 import rrp
-from impacket.dcerpc.v5 import rpcrt
+from impacket.dcerpc.v5 import rpcrt, rrp
 
 from certipy.lib.constants import (
     ACTIVE_DIRECTORY_RIGHTS,
@@ -202,7 +201,9 @@ class Find:
 
         return self._user_sids
 
-    def open_remote_registry(self, target_ip: str, dns_host_name: str) -> Optional[rpcrt.DCERPC_v5]:
+    def open_remote_registry(
+        self, target_ip: str, dns_host_name: str
+    ) -> Optional[rpcrt.DCERPC_v5]:
         """
         Open a connection to the remote registry service.
 
