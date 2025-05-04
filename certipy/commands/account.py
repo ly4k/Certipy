@@ -14,7 +14,7 @@ These operations are performed via LDAP and require appropriate permissions in t
 import argparse
 import random
 import string
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import ldap3
 from ldap3.core.results import (
@@ -50,7 +50,7 @@ class Account:
         connection: Optional[LDAPConnection] = None,
         timeout: int = 5,
         debug: bool = False,
-        **kwargs,
+        **kwargs,  # type: ignore
     ):
         """
         Initialize account management with target and account options.
@@ -169,7 +169,7 @@ class Account:
             spns = [spn.strip() for spn in spns.split(",") if spn.strip()]
 
         # Prepare account attributes
-        attributes = {
+        attributes: Dict[str, Any] = {
             "sAMAccountName": username,
             "unicodePwd": password,  # Just for the pretty print
             "userAccountControl": 0x1000,  # WORKSTATION_TRUST_ACCOUNT
@@ -270,7 +270,7 @@ class Account:
             return False
 
         # Prepare attribute changes
-        changes: Dict[str, List[tuple]] = {}
+        changes: Dict[str, List[Tuple[Any, Any]]] = {}
         changes_formatted: Dict[str, Any] = {}
 
         # Define which attributes to update based on provided parameters

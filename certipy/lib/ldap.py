@@ -62,7 +62,7 @@ def get_account_type(entry: "LDAPEntry") -> str:
         return "Domain"
 
 
-class LDAPEntry(dict):
+class LDAPEntry(Dict[str, Any]):
     """
     Dictionary-like class representing an LDAP entry with helper methods.
 
@@ -70,7 +70,7 @@ class LDAPEntry(dict):
     to LDAP attributes and raw attribute values.
     """
 
-    def get(self, key: str, default=None) -> Any:
+    def get(self, key: str, default: Any = None) -> Any:
         """
         Get an attribute value from the LDAP entry with support for default values.
 
@@ -337,9 +337,6 @@ class LDAPConnection:
         Raises:
             Exception: If Kerberos authentication fails
         """
-        if self.target.remote_name is None:
-            logging.warning("Target remote name is not set.")
-
         # Get Kerberos Type 1 message
         _, _, blob, username = get_kerberos_type1(
             self.target,

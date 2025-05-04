@@ -27,7 +27,7 @@ import urllib.parse
 from http.client import HTTPConnection
 from struct import unpack
 from threading import Lock
-from typing import Any, Optional, Tuple, Union, cast
+from typing import Any, Literal, Optional, Tuple, Union, cast
 
 import bs4
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -74,7 +74,7 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
     allowing an attacker to request certificates on behalf of the relayed user.
     """
 
-    def __init__(self, adcs_relay: "Relay", *args, **kwargs):
+    def __init__(self, adcs_relay: "Relay", *args, **kwargs):  # type: ignore
         """
         Initialize the HTTP relay server.
 
@@ -86,7 +86,7 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
         super().__init__(*args, **kwargs)
         self.adcs_relay = adcs_relay
 
-    def initConnection(self) -> bool:
+    def initConnection(self) -> Literal[True]:
         """
         Establish a connection to the AD CS Web Enrollment service.
 
@@ -108,7 +108,7 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
             self.path = self.target.path
         return True
 
-    def sendAuth(
+    def sendAuth(  # type: ignore
         self, authenticateMessageBlob: bytes, serverChallenge: Optional[bytes] = None
     ) -> Tuple[Optional[bytes], int]:
         """
@@ -123,6 +123,8 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
         """
         while not self.adcs_relay.attack_lock.acquire():
             time.sleep(0.1)
+
+        response = None, STATUS_ACCESS_DENIED
 
         try:
             response = self._sendAuth(authenticateMessageBlob, serverChallenge)
@@ -200,7 +202,7 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
             return None, STATUS_ACCESS_DENIED
 
 
-class ADCSRPCRelayServer(rpcrelayclient.RPCRelayClient, rpcrelayclient.ProtocolClient):
+class ADCSRPCRelayServer(rpcrelayclient.RPCRelayClient, rpcrelayclient.ProtocolClient):  # type: ignore
     """
     RPC relay client for AD CS Certificate Services interface.
 
@@ -244,7 +246,7 @@ class ADCSRPCRelayServer(rpcrelayclient.RPCRelayClient, rpcrelayclient.ProtocolC
 
         logging.debug(f"{self.endpoint} stringbinding is {self.stringbinding}")
 
-    def sendAuth(
+    def sendAuth(  # type: ignore
         self, authenticateMessageBlob: bytes, serverChallenge: Optional[bytes] = None
     ) -> Tuple[Optional[bytes], int]:
         """
@@ -295,7 +297,7 @@ class ADCSHTTPAttackClient(ProtocolAttack):
     This class handles certificate operations via the Web Enrollment interface.
     """
 
-    def __init__(self, adcs_relay: "Relay", *args, **kwargs):
+    def __init__(self, adcs_relay: "Relay", *args, **kwargs):  # type: ignore
         """
         Initialize the HTTP attack client.
 
@@ -307,7 +309,7 @@ class ADCSHTTPAttackClient(ProtocolAttack):
         super().__init__(*args, **kwargs)
         self.adcs_relay = adcs_relay
 
-    def run(self) -> None:
+    def run(self) -> None:  # type: ignore
         """
         Execute the certificate request attack with proper locking.
         """
@@ -691,7 +693,7 @@ class ADCSRPCAttackClient(ProtocolAttack):
             logging.error(f"Error parsing username {username}: {e}")
             self.domain, self.username = "Unknown", username
 
-    def run(self) -> None:
+    def run(self) -> None:  # type: ignore
         """
         Execute the certificate request attack with proper locking.
         """
@@ -930,7 +932,7 @@ class Relay:
         timeout: int = 5,
         enum_templates: bool = False,
         debug: bool = False,
-        **kwargs,
+        **kwargs,  # type: ignore
     ):
         """
         Initialize the NTLM relay attack.
@@ -1079,7 +1081,7 @@ class Relay:
             else:
                 logging.error("Use -debug to print a stacktrace")
 
-    def get_relay_http_server(self, *args, **kwargs) -> ADCSHTTPRelayServer:
+    def get_relay_http_server(self, *args, **kwargs) -> ADCSHTTPRelayServer:  # type: ignore
         """
         Factory method to create an HTTP relay server.
 
@@ -1088,7 +1090,7 @@ class Relay:
         """
         return ADCSHTTPRelayServer(self, *args, **kwargs)
 
-    def get_attack_http_client(self, *args, **kwargs) -> ADCSHTTPAttackClient:
+    def get_attack_http_client(self, *args, **kwargs) -> ADCSHTTPAttackClient:  # type: ignore
         """
         Factory method to create an HTTP attack client.
 
@@ -1097,7 +1099,7 @@ class Relay:
         """
         return ADCSHTTPAttackClient(self, *args, **kwargs)
 
-    def get_relay_rpc_server(self, *args, **kwargs) -> ADCSRPCRelayServer:
+    def get_relay_rpc_server(self, *args, **kwargs) -> ADCSRPCRelayServer:  # type: ignore
         """
         Factory method to create an RPC relay server.
 
@@ -1106,7 +1108,7 @@ class Relay:
         """
         return ADCSRPCRelayServer(*args, **kwargs)
 
-    def get_attack_rpc_client(self, *args, **kwargs) -> ADCSRPCAttackClient:
+    def get_attack_rpc_client(self, *args, **kwargs) -> ADCSRPCAttackClient:  # type: ignore
         """
         Factory method to create an RPC attack client.
 

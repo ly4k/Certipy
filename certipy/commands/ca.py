@@ -14,11 +14,11 @@ It serves as a comprehensive tool for CA administration and security assessment.
 import argparse
 import copy
 import time
-from typing import List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 from impacket.dcerpc.v5 import rpcrt, rrp, scmr
 from impacket.dcerpc.v5.dcom.oaut import VARIANT
-from impacket.dcerpc.v5.dcomrt import DCOMANSWER, DCOMCALL, IRemUnknown
+from impacket.dcerpc.v5.dcomrt import DCOMANSWER, DCOMCALL, IRemUnknown, IRemUnknown2
 from impacket.dcerpc.v5.dtypes import DWORD, LONG, LPWSTR, PBYTE, ULONG, WSTR
 from impacket.dcerpc.v5.ndr import NDRSTRUCT
 from impacket.dcerpc.v5.nrpc import checkNullString
@@ -68,7 +68,9 @@ class DCERPCSessionError(DCERPCException):
     Custom exception class for CA session errors that provides more meaningful error messages.
     """
 
-    def __init__(self, error_string=None, error_code=None, packet=None):
+    def __init__(
+        self, error_string: Any = None, error_code: Any = None, packet: Any = None
+    ):
         DCERPCException.__init__(self, error_string, error_code, packet)
 
     def __str__(self):
@@ -235,7 +237,7 @@ class ICertCustom(IRemUnknown):
     Base class for custom certificate service interfaces.
     """
 
-    def request(self, req, *args, **kwargs):
+    def request(self, req: Any, *args, **kwargs):  # type: ignore
         """
         Send a request to the CA service.
 
@@ -276,7 +278,7 @@ class ICertAdminD(ICertCustom):
     This is the basic certificate administration interface.
     """
 
-    def __init__(self, interface):
+    def __init__(self, interface: IRemUnknown2):
         super().__init__(interface)
         self._iid = IID_ICertAdminD
 
@@ -287,7 +289,7 @@ class ICertAdminD2(ICertCustom):
     This is the extended certificate administration interface.
     """
 
-    def __init__(self, interface):
+    def __init__(self, interface: IRemUnknown2):
         super().__init__(interface)
         self._iid = IID_ICertAdminD2
 
@@ -298,7 +300,7 @@ class ICertRequestD2(ICertCustom):
     This interface is used for certificate requests.
     """
 
-    def __init__(self, interface):
+    def __init__(self, interface: IRemUnknown2):
         super().__init__(interface)
         self._iid = IID_ICertRequestD2
 
@@ -334,7 +336,7 @@ class CA:
         config: Optional[str] = None,
         timeout: int = 5,
         debug: bool = False,
-        **kwargs,
+        **kwargs,  # type: ignore
     ):
         """
         Initialize CA management object.
@@ -403,9 +405,6 @@ class CA:
             target.remote_name = self.dc_host
 
             if target.dc_ip is None:
-                if target.resolver is None:
-                    raise ValueError("Expected a resolver to be set, but got None.")
-
                 target.dc_ip = target.resolver.resolve(self.dc_host)
 
         if target.dc_ip:
@@ -416,20 +415,12 @@ class CA:
             else:
                 remote_name = target.domain
 
-            if remote_name is None:
+            if "." not in remote_name:
                 logging.warning(
-                    "No remote name or target IP specified. This may fail. Try specifying -target-ip"
+                    f"{repr(remote_name)} doesn't look like a FQDN. DNS resolution will probably fail."
                 )
-            else:
-                if "." not in remote_name:
-                    logging.warning(
-                        f"{repr(remote_name)} doesn't look like a FQDN. DNS resolution will probably fail."
-                    )
 
-                if target.resolver is None:
-                    raise ValueError("Expected a resolver to be set, but got None.")
-
-                target.target_ip = target.resolver.resolve(remote_name)
+            target.target_ip = target.resolver.resolve(remote_name)
 
         self._connection = LDAPConnection(target, self.scheme)
         self._connection.connect()
@@ -1245,6 +1236,9 @@ class CA:
 
         # Try to connect to C$ or ADMIN$ share
         tid = None
+        share = None
+        file_path = None
+
         try:
             share = "C$"
             tid = smbclient.connectTree(share)

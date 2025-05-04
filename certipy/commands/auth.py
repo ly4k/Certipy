@@ -18,7 +18,7 @@ import ssl
 import sys
 import tempfile
 from random import getrandbits
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import ldap3
 from asn1crypto import cms, core
@@ -80,7 +80,7 @@ class LdapShell(_LdapShell):
     after successfully authenticating with a certificate.
     """
 
-    def __init__(self, tcp_shell, domain_dumper, client):
+    def __init__(self, tcp_shell: Any, domain_dumper: Any, client: Any):
         """
         Initialize the LDAP shell.
 
@@ -102,7 +102,7 @@ class LdapShell(_LdapShell):
         self.client = client
         self.domain_dumper = domain_dumper
 
-    def do_dump(self, line):
+    def do_dump(self, line: str):
         """
         Placeholder for domain dumping functionality.
 
@@ -111,7 +111,7 @@ class LdapShell(_LdapShell):
         """
         logging.warning("Not implemented")
 
-    def do_exit(self, line):
+    def do_exit(self, line: str):
         """
         Exit the shell.
 
@@ -197,7 +197,7 @@ class Authenticate:
         ldap_user_dn: Optional[str] = None,
         user_dn: Optional[str] = None,
         debug: bool = False,
-        **kwargs,
+        **kwargs,  # type: ignore
     ):
         """
         Initialize authentication parameters.
@@ -282,19 +282,11 @@ class Authenticate:
         if username is None:
             if self.target is None:
                 raise ValueError("Username is not specified and no target was provided")
-            if self.target.username is None:
-                raise ValueError(
-                    "Username is not specified and no username was provided in the target"
-                )
             username = self.target.username
 
         if domain is None:
             if self.target is None:
                 raise ValueError("Domain is not specified and no target was provided")
-            if self.target.domain is None:
-                raise ValueError(
-                    "Domain is not specified and no domain was provided in the target"
-                )
             domain = self.target.domain
 
         # Use LDAP authentication if requested
@@ -496,7 +488,7 @@ class Authenticate:
                     ldap_server,
                     raise_exceptions=True,
                     receive_timeout=self.target.timeout * 10,
-                    **conn_kwargs,
+                    **conn_kwargs,  # type: ignore
                 )
             except LDAPUnavailableResult as e:
                 logging.error("LDAP not configured for SSL/TLS connections")

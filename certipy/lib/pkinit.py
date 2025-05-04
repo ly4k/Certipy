@@ -118,8 +118,6 @@ class DirtyDH:
         Raises:
             ValueError: If p and g are not set
         """
-        if self.p is None or self.g is None:
-            raise ValueError("p and g must be set before getting the public key")
         # y = g^x mod p
         return pow(self.g, self.private_key_int, self.p)
 
@@ -190,6 +188,7 @@ def sign_authpack(
         "signature_algorithm": asn1algos.SignedDigestAlgorithm(
             {"algorithm": "sha1_rsa"}
         ),
+        "signature": bytes(),
     }
 
     # Create the signature

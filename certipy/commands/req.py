@@ -24,7 +24,7 @@ import httpx
 from httpx_ntlm import HttpNtlmAuth
 from impacket.dcerpc.v5 import rpcrt
 from impacket.dcerpc.v5.dcom.oaut import string_to_bin
-from impacket.dcerpc.v5.dcomrt import DCOMANSWER, DCOMCALL, DCOMConnection
+from impacket.dcerpc.v5.dcomrt import DCOMANSWER, DCOMCALL, DCOMConnection, IRemUnknown2
 from impacket.dcerpc.v5.dtypes import DWORD, LPWSTR, NULL, PBYTE, ULONG
 from impacket.dcerpc.v5.ndr import NDRCALL, NDRSTRUCT
 from impacket.dcerpc.v5.nrpc import checkNullString
@@ -166,7 +166,7 @@ class ICertRequestD(ICertCustom):
     ICertRequestD DCOM interface implementation.
     """
 
-    def __init__(self, interface):
+    def __init__(self, interface: IRemUnknown2):
         super().__init__(interface)
         self._iid = IID_ICertRequestD
 
@@ -176,7 +176,9 @@ class DCERPCSessionError(rpcrt.DCERPCException):
     Custom exception for handling certificate request errors.
     """
 
-    def __init__(self, error_string=None, error_code=None, packet=None):
+    def __init__(
+        self, error_string: Any = None, error_code: Any = None, packet: Any = None
+    ):
         rpcrt.DCERPCException.__init__(self, error_string, error_code, packet)
 
     def __str__(self) -> str:
@@ -270,9 +272,6 @@ class DCOMRequestInterface:
         """
         if self._dcom is not None:
             return self._dcom
-
-        if self.parent.target is None:
-            raise Exception("Target is not set")
 
         self._dcom = get_dcom_connection(self.parent.target)
         return self._dcom
@@ -466,9 +465,6 @@ class RPCRequestInterface:
         if not MSRPC_UUID_ICPR:
             # Should never happen
             raise Exception("Failed to get MSRPC UUID for ICertRequest")
-
-        if self.parent.target is None:
-            raise Exception("Target is not set")
 
         self._dce = get_dce_rpc(
             MSRPC_UUID_ICPR,
@@ -1030,7 +1026,7 @@ class Request:
         debug: bool = False,
         application_policies: Optional[List[str]] = None,
         smime: Optional[str] = None,
-        **kwargs,
+        **kwargs,  # type: ignore
     ):
         """
         Initialize a certificate request object.
@@ -1165,10 +1161,7 @@ class Request:
         if out is None:
             out, _ = cert_id_to_parts(identifications)  # type: ignore
             if out is None:
-                if not self.target is None and not self.target.username is None:
-                    out = self.target.username
-                else:
-                    out = f"{request_id}"
+                out = self.target.username
 
             out = out.rstrip("$").lower()
 
@@ -1206,14 +1199,6 @@ class Request:
         Returns:
             PFX data and filename if successful, False otherwise
         """
-        if self.target is None:
-            logging.error("No target specified")
-            return False
-
-        if self.target.username is None:
-            logging.error("No username specified")
-            return False
-
         # Determine username for certificate
         username = self.target.username
 
@@ -1287,11 +1272,6 @@ class Request:
             logging.info("Trying to retrieve CAX certificate")
             cax_cert = ca.get_exchange_certificate()
             logging.info("Retrieved CAX certificate")
-
-            if not isinstance(self.key, rsa.RSAPrivateKey):
-                logging.error("Currently only RSA keys are supported for key archival")
-                return False
-
             csr_der = create_key_archival(der_to_csr(csr_der), self.key, cax_cert)
 
         # Handle certificate renewal
@@ -1401,10 +1381,6 @@ class Request:
         Returns:
             CAX certificate in DER format if successful, False otherwise
         """
-        if self.target is None:
-            logging.error("No target specified")
-            return False
-
         ca = CA(self.target, self.ca)
         logging.info("Trying to retrieve CAX certificate")
         cax_cert = ca.get_exchange_certificate()

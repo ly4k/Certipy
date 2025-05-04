@@ -18,7 +18,7 @@ except ImportError:
             import pkg_resources  # type: ignore
 
             version = pkg_resources.get_distribution("certipy-ad").version  # type: ignore
-        except (ImportError, pkg_resources.DistributionNotFound):
+        except Exception:
             print(
                 "Cannot determine Certipy version. "
                 'If running from source you should at least run "python setup.py egg_info"'

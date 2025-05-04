@@ -30,7 +30,7 @@ def get_dcom_connection(target: Target) -> DCOMConnection:
     Notes:
         Uses Kerberos authentication if target.do_kerberos is True
     """
-    TGS = None
+    tgs = None
     username = target.username
     domain = target.domain
 
@@ -41,11 +41,11 @@ def get_dcom_connection(target: Target) -> DCOMConnection:
         if not target.remote_name:
             logging.warning("Target remote name is not set.")
 
-        tgs, cipher, session_key, username, domain = get_TGS(
+        kdc_rep, cipher, session_key, username, domain = get_TGS(
             target,
             target_name=target.remote_name,
         )
-        TGS = {"KDC_REP": tgs, "cipher": cipher, "sessionKey": session_key}
+        tgs = {"KDC_REP": kdc_rep, "cipher": cipher, "sessionKey": session_key}
 
     # Create DCOM connection
     dcom = DCOMConnection(
@@ -55,7 +55,7 @@ def get_dcom_connection(target: Target) -> DCOMConnection:
         domain=domain,
         lmhash=target.lmhash,
         nthash=target.nthash,
-        TGS=TGS,
+        TGS=tgs,
         doKerberos=target.do_kerberos,
         kdcHost=target.dc_ip,
     )
@@ -102,18 +102,18 @@ def get_dce_rpc_from_string_binding(
 
     username = target.username
     domain = target.domain
-    TGS = None
+    tgs = None
 
     # Get Kerberos ticket if needed
     if target.do_kerberos:
         if not remote_name:
             logging.warning("Target remote name is not set.")
 
-        tgs, cipher, session_key, username, domain = get_TGS(
+        kdc_rep, cipher, session_key, username, domain = get_TGS(
             target,
             target_name=remote_name,
         )
-        TGS = {"KDC_REP": tgs, "cipher": cipher, "sessionKey": session_key}
+        tgs = {"KDC_REP": kdc_rep, "cipher": cipher, "sessionKey": session_key}
 
     # Set credentials on the transport
     rpctransport.set_credentials(
@@ -122,7 +122,7 @@ def get_dce_rpc_from_string_binding(
         domain,
         target.lmhash,
         target.nthash,
-        TGS=TGS,
+        TGS=tgs,
     )
 
     # Get DCE RPC object and configure it

@@ -29,7 +29,7 @@ def entry(options: argparse.Namespace) -> None:
     template.entry(options)
 
 
-def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:
+def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:  # type: ignore
     """
     Add the certificate template command subparser to the main parser.
 

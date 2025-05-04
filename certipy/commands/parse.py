@@ -13,7 +13,7 @@ import argparse
 import re
 from enum import Enum
 from pathlib import Path
-from typing import List
+from typing import Iterator, List, Optional
 
 from certipy.commands import find
 from certipy.lib.logger import logging
@@ -41,7 +41,7 @@ class Parse(find.Find):
         ca: str = "UNKNOWN",
         sids: List[str] = [],
         published: List[str] = [],
-        **kwargs,
+        **kwargs,  # type: ignore
     ):
         """
         Initialize the certificate template parser.
@@ -78,7 +78,7 @@ class Parse(find.Find):
         }
 
     @property
-    def connection(self) -> RegConnection:
+    def connection(self) -> RegConnection:  # type: ignore
         """
         Get or create a registry connection for SID resolution.
 
@@ -88,10 +88,12 @@ class Parse(find.Find):
         if self._connection is not None:
             return self._connection
 
-        self._connection = RegConnection(self.domain, self.sids)
+        self._connection: Optional[RegConnection] = RegConnection(
+            self.domain, self.sids
+        )
         return self._connection
 
-    def get_issuance_policies(self) -> List[RegEntry]:
+    def get_issuance_policies(self) -> List[RegEntry]:  # type: ignore
         """
         Get certificate issuance policies.
 
@@ -100,7 +102,7 @@ class Parse(find.Find):
         """
         return []
 
-    def get_certificate_authorities(self) -> List[RegEntry]:
+    def get_certificate_authorities(self) -> List[RegEntry]:  # type: ignore
         """
         Get certificate authorities.
 
@@ -159,7 +161,7 @@ class ParseBof(Parse):
     certificate template information.
     """
 
-    def get_certificate_templates(self) -> List[RegEntry]:
+    def get_certificate_templates(self) -> List[RegEntry]:  # type: ignore
         """
         Parse certificate templates from BOF output.
 
@@ -273,7 +275,7 @@ class ParseReg(Parse):
     certificate template information.
     """
 
-    def get_certificate_templates(self) -> List[RegEntry]:
+    def get_certificate_templates(self) -> List[RegEntry]:  # type: ignore
         """
         Parse certificate templates from a .reg file.
 
@@ -372,7 +374,7 @@ class ParseReg(Parse):
         logging.info(f"Parsed {len(templates)} templates from registry file")
         return templates
 
-    def _parse_hex_data(self, initial_data: str, lines_iter) -> bytes:
+    def _parse_hex_data(self, initial_data: str, lines_iter: Iterator[str]) -> bytes:
         """
         Parse hex data that might span multiple lines.
 
@@ -406,7 +408,7 @@ def get_parser(
     ca: str,
     sids: List[str],
     published: List[str],
-    **kwargs,
+    **kwargs,  # type: ignore
 ) -> Parse:
     """
     Factory function to get the appropriate parser.

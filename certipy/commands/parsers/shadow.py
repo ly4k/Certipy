@@ -30,7 +30,7 @@ def entry(options: argparse.Namespace) -> None:
     shadow.entry(options)
 
 
-def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:
+def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:  # type: ignore
     """
     Add the shadow credentials command subparser to the main parser.
 

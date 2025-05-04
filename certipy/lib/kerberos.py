@@ -10,7 +10,7 @@ using Kerberos. It supports:
 import base64
 import datetime
 import os
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import httpx
 from impacket.krb5 import constants
@@ -84,8 +84,8 @@ def get_TGS(
     aes_key = _convert_to_binary(target.aes)
     kdc_host = target.dc_ip
 
-    TGT: Optional[dict] = None
-    TGS: Optional[dict] = None
+    tgt: Optional[Dict[str, Any]] = None
+    tgs: Optional[Dict[str, Any]] = None
 
     # Try to use existing ticket cache
     try:
@@ -123,12 +123,12 @@ def get_TGS(
             principal = f"krbtgt/{domain.upper()}@{domain.upper()}"
             creds = ccache.getCredential(principal)
             if creds is not None:
-                TGT = creds.toTGT()
+                tgt = creds.toTGT()
                 logging.debug("Using TGT from cache")
             else:
                 logging.debug("No valid credentials found in cache.")
         else:
-            TGS = creds.toTGS(principal)
+            tgs = creds.toTGS(principal)
 
         # Validate user information
         if creds is not None:
@@ -145,8 +145,8 @@ def get_TGS(
             logging.warning(
                 f"Username {username!r} does not match username in CCache {ccache_username!r}"
             )
-            TGT = None
-            TGS = None
+            tgt = None
+            tgs = None
         else:
             username = ccache_username
 
@@ -161,13 +161,17 @@ def get_TGS(
         username, type=e2i(constants.PrincipalNameType.NT_PRINCIPAL)
     )
 
+    kdc_rep = bytes()
+    cipher = None
+    session_key = None
+
     while True:
-        if TGT is None:
-            if TGS is None:
+        if tgt is None:
+            if tgs is None:
                 try:
                     # Request new TGT
                     logging.debug(f"Getting TGT for {username!r}@{domain!r}")
-                    tgt, cipher, _, session_key = getKerberosTGT(
+                    kdc_rep, cipher, _, session_key = getKerberosTGT(
                         user_principal, password, domain, lmhash, nthash, aes_key, kdc_host  # type: ignore
                     )
                     logging.debug(f"Got TGT for {username!r}@{domain!r}")
@@ -179,8 +183,8 @@ def get_TGS(
                             not lmhash
                             and not nthash
                             and (not aes_key or aes_key == b"")
-                            and not TGT
-                            and not TGS
+                            and not tgt
+                            and not tgs
                             and password
                         ):
                             from impacket.ntlm import compute_lmhash, compute_nthash
@@ -195,20 +199,20 @@ def get_TGS(
                         raise
         else:
             # Use existing TGT
-            tgt = TGT["KDC_REP"]
-            cipher = TGT["cipher"]
-            session_key = TGT["sessionKey"]
+            kdc_rep = tgt["KDC_REP"]
+            cipher = tgt["cipher"]
+            session_key = tgt["sessionKey"]
 
         # Request TGS using the TGT if we don't already have one
-        if TGS is None:
+        if tgs is None:
             server_principal = Principal(
                 f"{service}/{target_name}",
                 type=e2i(constants.PrincipalNameType.NT_SRV_INST),
             )
             try:
                 logging.debug(f"Getting TGS for {service}/{target_name!r}")
-                tgs, cipher, _, session_key = getKerberosTGS(
-                    server_principal, domain, kdc_host, tgt, cipher, session_key
+                kdc_rep, cipher, _, session_key = getKerberosTGS(
+                    server_principal, domain, kdc_host, kdc_rep, cipher, session_key
                 )
                 logging.debug(f"Got TGS for {service}/{target_name!r}")
                 break
@@ -220,8 +224,8 @@ def get_TGS(
                         not lmhash
                         and not nthash
                         and (not aes_key or aes_key == b"")
-                        and not TGT
-                        and not TGS
+                        and not tgt
+                        and not tgs
                         and password
                     ):
                         from impacket.ntlm import compute_lmhash, compute_nthash
@@ -230,27 +234,27 @@ def get_TGS(
                         lmhash = compute_lmhash(password)
                         nthash = compute_nthash(password)
                         # Start over with the new hashes
-                        TGT = None
+                        tgt = None
                     else:
                         raise
                 else:
                     raise
         else:
             # Use existing TGS
-            tgs = TGS["KDC_REP"]
-            cipher = TGS["cipher"]
-            session_key = TGS["sessionKey"]
+            kdc_rep = tgs["KDC_REP"]
+            cipher = tgs["cipher"]
+            session_key = tgs["sessionKey"]
             break
 
     # Extract client information from ticket
-    ticket = decoder.decode(tgs, asn1Spec=TGS_REP())[0]
+    ticket = decoder.decode(kdc_rep, asn1Spec=TGS_REP())[0]
     client_name = Principal()
     client_name = client_name.from_asn1(ticket, "crealm", "cname")
 
     username = "@".join(str(client_name).split("@")[:-1])
     domain = client_name.realm or ""
 
-    return tgs, cipher, session_key, username, domain
+    return kdc_rep, cipher, session_key, username, domain
 
 
 def get_kerberos_type1(

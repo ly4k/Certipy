@@ -51,9 +51,6 @@ def pretty_print(
     Raises:
         TypeError: If input is not a dictionary or contains unsupported types
     """
-    if not isinstance(data, dict):
-        raise TypeError(f"Expected dictionary, got {type(data).__name__}")
-
     indent_str = "  " * indent
 
     for key, value in data.items():

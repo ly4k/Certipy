@@ -27,14 +27,14 @@ class RegEntry(LDAPEntry):
     It handles data type conversions and provides attribute access methods.
     """
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:  # type: ignore
         """
         Initialize a registry entry.
 
         Args:
             **kwargs: Key-value pairs to initialize the entry with
         """
-        super().__init__(self, **kwargs)
+        super().__init__(self, *args, **kwargs)
         if "attributes" not in self:
             self["attributes"] = {}
 

@@ -88,7 +88,7 @@ class Template:
         save_old: bool = False,
         scheme: str = "ldaps",
         connection: Optional[LDAPConnection] = None,
-        **kwargs,
+        **kwargs,  # type: ignore
     ):
         """
         Initialize a Template object for certificate template operations.
@@ -127,7 +127,7 @@ class Template:
 
         return self._connection
 
-    def configuration_to_json(self, configuration: Dict) -> str:
+    def configuration_to_json(self, configuration: Dict[str, Any]) -> str:
         """
         Convert a template configuration to a JSON string.
 
@@ -196,7 +196,9 @@ class Template:
 
         return results[0]
 
-    def json_to_configuration(self, configuration_json: Dict[str, Any]) -> Dict:
+    def json_to_configuration(
+        self, configuration_json: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Convert a JSON configuration back to a usable LDAP configuration.
 
@@ -220,7 +222,7 @@ class Template:
 
         return output
 
-    def load_configuration(self, configuration_path: str) -> Dict:
+    def load_configuration(self, configuration_path: str) -> Dict[str, Any]:
         """
         Load a template configuration from a JSON file.
 
@@ -313,8 +315,8 @@ class Template:
         return self._apply_changes(old_configuration, changes)
 
     def _compute_changes(
-        self, old_configuration: LDAPEntry, new_configuration: Dict
-    ) -> Dict:
+        self, old_configuration: LDAPEntry, new_configuration: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Compute the changes needed to update a template configuration.
 
@@ -357,7 +359,9 @@ class Template:
 
         return changes
 
-    def _apply_changes(self, old_configuration: LDAPEntry, changes: Dict) -> bool:
+    def _apply_changes(
+        self, old_configuration: LDAPEntry, changes: Dict[str, Any]
+    ) -> bool:
         """
         Apply computed changes to a template configuration.
 
@@ -394,7 +398,7 @@ class Template:
 
         return False
 
-    def _log_changes(self, changes: Dict) -> None:
+    def _log_changes(self, changes: Dict[str, Any]) -> None:
         """
         Log the changes to be applied, grouped by operation type.
 

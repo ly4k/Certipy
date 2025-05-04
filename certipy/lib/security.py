@@ -9,7 +9,7 @@ This module provides classes for handling security descriptors related to:
 """
 
 import re
-from typing import Dict
+from typing import Any, Dict
 
 from impacket.ldap import ldaptypes
 from impacket.uuid import bin_to_string
@@ -50,7 +50,7 @@ class SecurityDescriptorParser:
         self.owner = format_sid(self.sd["OwnerSid"].getData())
 
         # Dictionary to store access control entries by SID
-        self.aces: Dict[str, Dict] = {}
+        self.aces: Dict[str, Dict[str, Any]] = {}
 
         # Parse the ACEs
         self._parse_aces()

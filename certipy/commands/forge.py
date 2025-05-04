@@ -77,7 +77,7 @@ class Forge:
         serial: Optional[str] = None,
         key_size: int = 2048,
         out: Optional[str] = None,
-        **kwargs,
+        **kwargs,  # type: ignore
     ):
         """
         Initialize the certificate forgery parameters.
@@ -209,9 +209,7 @@ class Forge:
 
         # Add UPN if specified
         if self.alt_upn:
-            upn_value = self.alt_upn
-            if isinstance(upn_value, str):
-                upn_value = upn_value.encode()
+            upn_value = self.alt_upn.encode()
 
             # Encode as UTF8String for UPN
             encoded_upn = encoder.encode(UTF8String(upn_value))
@@ -229,9 +227,7 @@ class Forge:
         if not self.alt_sid:
             return None
 
-        sid_value = self.alt_sid
-        if isinstance(sid_value, str):
-            sid_value = sid_value.encode()
+        sid_value = self.alt_sid.encode()
 
         # Create ASN.1 structure for SID extension
         sid_extension = asn1x509.GeneralNames(
@@ -266,7 +262,7 @@ class Forge:
             Hash algorithm instance to use for signing
         """
         # Default to SHA-256 if no algorithm specified
-        if template_hash_algorithm is None or template_hash_algorithm is type(None):
+        if template_hash_algorithm is None:
             return hashes.SHA256()
 
         # Get the algorithm class (not instance)

@@ -28,7 +28,7 @@ def entry(options: argparse.Namespace) -> None:
     parse.entry(options)
 
 
-def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:
+def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable]:  # type: ignore
     """
     Add the parse command subparser to the main parser.
 

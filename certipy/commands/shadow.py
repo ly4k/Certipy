@@ -57,7 +57,7 @@ class Shadow:
         scheme: str = "ldaps",
         connection: Optional[LDAPConnection] = None,
         debug: bool = False,
-        **kwargs,
+        **kwargs,  # type: ignore
     ):
         """
         Initialize the Shadow Authentication module.

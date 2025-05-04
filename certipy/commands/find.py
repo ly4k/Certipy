@@ -143,8 +143,8 @@ class Find:
         dc_only: bool = False,
         scheme: str = "ldaps",
         connection: Optional[LDAPConnection] = None,
-        debug=False,
-        **kwargs,
+        debug: bool = False,
+        **kwargs,  # type: ignore
     ):
         self.target = target
         self.json = json
@@ -195,7 +195,7 @@ class Find:
             Set of SIDs associated with the current user
         """
         if self._user_sids is None:
-            self._user_sids = self.connection.get_user_sids(
+            self._user_sids: Optional[Set[str]] = self.connection.get_user_sids(
                 self.target.username, self.sid, self.dn
             )
 
@@ -542,7 +542,7 @@ class Find:
             Dictionary of CA properties
         """
         # Default values
-        ca_properties = {
+        ca_properties: Dict[str, Any] = {
             "user_specified_san": "Unknown",
             "request_disposition": "Unknown",
             "enforce_encrypt_icertrequest": "Unknown",
@@ -972,7 +972,9 @@ class Find:
             output: Output data dictionary
         """
 
-        def flatten_dict(template_entries: Dict, parent_key: str = "", sep: str = "."):
+        def flatten_dict(
+            template_entries: Dict[str, Any], parent_key: str = "", sep: str = "."
+        ):
             """Flatten nested dictionaries for CSV output."""
             items = []
             for key, value in template_entries.items():
@@ -1182,8 +1184,8 @@ class Find:
     # =========================================================================
 
     def get_template_properties(
-        self, template: LDAPEntry, template_properties: Optional[Dict] = None
-    ) -> Dict:
+        self, template: LDAPEntry, template_properties: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Extract template properties for output.
 
@@ -1236,8 +1238,8 @@ class Find:
         return template_properties
 
     def get_ca_properties(
-        self, ca: LDAPEntry, ca_properties: Optional[Dict] = None
-    ) -> Dict:
+        self, ca: LDAPEntry, ca_properties: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Extract CA properties for output.
 
@@ -1278,8 +1280,8 @@ class Find:
         return ca_properties
 
     def get_oid_properties(
-        self, oid: LDAPEntry, oid_properties: Optional[Dict] = None
-    ) -> Dict:
+        self, oid: LDAPEntry, oid_properties: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Extract OID properties for output.
 
@@ -1497,9 +1499,11 @@ class Find:
         Returns:
             Dictionary of OID permissions
         """
-        security = IssuancePolicySecurity(oid.get("nTSecurityDescriptor"))
-        if security is None:
+        nt_security_descriptor = oid.get("nTSecurityDescriptor")
+        if nt_security_descriptor is None:
             return {}
+
+        security = IssuancePolicySecurity(nt_security_descriptor)
 
         oid_permissions = {}
         access_rights = {}

@@ -116,6 +116,12 @@ asn1x509.Extension._oid_specs.update(
     }
 )
 
+asn1x509.Extension._oid_specs.update(
+    {
+        "smime_capability": asn1core.ObjectIdentifier,  # type: ignore
+    }
+)  # type: ignore
+
 # SMIME capabilities mapping
 SMIME_MAP = {
     "des": "1.3.14.3.2.7",
@@ -144,8 +150,8 @@ def cert_id_to_parts(
     Returns:
         Tuple of (username, domain)
     """
-    usernames = []
-    domains = []
+    usernames: List[str] = []
+    domains: List[str] = []
 
     if len(identifications) == 0:
         return (None, None)
@@ -156,6 +162,9 @@ def cert_id_to_parts(
 
         if id_type != "DNS Host Name" and id_type != "UPN":
             continue
+
+        cert_username = ""
+        cert_domain = ""
 
         if id_type == "DNS Host Name":
             parts = identification.split(".")
@@ -703,12 +712,6 @@ def create_csr(
         asn1x509.ExtensionId._map.update(
             {
                 "1.2.840.113549.1.9.15": "smime_capability",
-            }
-        )
-
-        asn1x509.Extension._oid_specs.update(
-            {
-                "smime_capability": asn1core.ObjectIdentifier,
             }
         )
 
