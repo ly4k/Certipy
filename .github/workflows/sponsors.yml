@@ -17,4 +17,4 @@ jobs:
       - uses: JamesIves/github-sponsors-readme-action@v1
         with:
           token: ${{ secrets.PAT }}
-          minimum: 1300
+      - uses: stefanzweifel/git-auto-commit-action@v5
