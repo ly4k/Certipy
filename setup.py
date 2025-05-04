@@ -5,7 +5,7 @@ with open("README.md") as f:
 
 _ = setup(
     name="certipy-ad",
-    version="4.8.2",
+    version="5.0.0",
     license="MIT",
     author="ly4k",
     url="https://github.com/ly4k/Certipy",
