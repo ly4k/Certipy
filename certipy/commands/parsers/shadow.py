@@ -96,18 +96,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Output file for saving certificate or results",
     )
 
-    # Connection options
-    conn_group = subparser.add_argument_group("connection options")
-    conn_group.add_argument(
-        "-scheme",
-        action="store",
-        metavar="ldap scheme",
-        choices=["ldap", "ldaps"],
-        default="ldaps",
-        help="LDAP connection scheme (default: ldaps)",
-    )
-
     # Add standard target arguments from shared module
-    target.add_argument_group(subparser, connection_options=conn_group)
+    target.add_argument_group(subparser)
 
     return NAME, entry

@@ -21,7 +21,6 @@ import re
 from typing import Any, Dict, List, Optional, Protocol, Tuple, Union
 
 import httpx
-from httpx_ntlm import HttpNtlmAuth
 from impacket.dcerpc.v5 import rpcrt
 from impacket.dcerpc.v5.dcom.oaut import string_to_bin
 from impacket.dcerpc.v5.dcomrt import DCOMANSWER, DCOMCALL, DCOMConnection, IRemUnknown2
@@ -57,8 +56,9 @@ from certipy.lib.certificate import (
 from certipy.lib.constants import OID_TO_STR_MAP, USER_AGENT
 from certipy.lib.errors import translate_error_code
 from certipy.lib.formatting import print_certificate_identifications
-from certipy.lib.kerberos import HttpxImpacketKerberosAuth
+from certipy.lib.kerberos import HttpxKerberosAuth
 from certipy.lib.logger import logging
+from certipy.lib.ntlm import HttpxNtlmAuth
 from certipy.lib.rpc import get_dce_rpc, get_dcom_connection
 from certipy.lib.target import Target
 
@@ -676,26 +676,24 @@ class WebRequestInterface:
         # Create a session with httpx with appropriate authentication
         if self.target.do_kerberos:
             session = httpx.Client(
-                auth=HttpxImpacketKerberosAuth(self.target),
+                auth=HttpxKerberosAuth(
+                    self.target, channel_binding=not self.parent.no_channel_binding
+                ),
                 timeout=self.target.timeout,
                 verify=False,
             )
         else:
-            # NTLM authentication
-            password = self.target.password
-            if self.target.nthash:
-                password = f"{self.target.nthash}:{self.target.nthash}"
-
-            principal = f"{self.target.domain}\\{self.target.username}"
             session = httpx.Client(
-                auth=HttpNtlmAuth(principal, password),
+                auth=HttpxNtlmAuth(
+                    self.target, channel_binding=not self.parent.no_channel_binding
+                ),
                 timeout=self.target.timeout,
                 verify=False,
             )
 
         # Try the specified scheme and port first
         scheme = self.parent.http_scheme or "https"
-        port = self.parent.port or (443 if scheme == "https" else 80)
+        port = self.parent.http_port or (443 if scheme == "https" else 80)
 
         base_url = f"{scheme}://{self.target.target_ip}:{port}"
         logging.info(f"Checking for Web Enrollment on {repr(base_url)}")
@@ -1020,8 +1018,9 @@ class Request:
         key: Optional[rsa.RSAPrivateKey] = None,
         web: bool = False,
         dcom: bool = False,
-        port: Optional[int] = None,
         http_scheme: Optional[str] = None,
+        http_port: Optional[int] = None,
+        no_channel_binding: bool = False,
         dynamic_endpoint: bool = False,
         debug: bool = False,
         application_policies: Optional[List[str]] = None,
@@ -1087,15 +1086,16 @@ class Request:
         # Connection parameters
         self.web = web
         self.dcom = dcom
-        self.port = port
+        self.http_port = http_port
         self.http_scheme = http_scheme
+        self.no_channel_binding = no_channel_binding
 
         # Handle default ports based on scheme
-        if not self.port and self.http_scheme:
+        if not self.http_port and self.http_scheme:
             if self.http_scheme == "http":
-                self.port = 80
+                self.http_port = 80
             elif self.http_scheme == "https":
-                self.port = 443
+                self.http_port = 443
 
         # Debug options
         self.dynamic = dynamic_endpoint

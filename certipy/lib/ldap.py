@@ -129,7 +129,7 @@ class LDAPConnection:
     Active Directory using the ldap3 library.
     """
 
-    def __init__(self, target: Target, scheme: str = "ldaps") -> None:
+    def __init__(self, target: Target) -> None:
         """
         Initialize an LDAP connection with the specified target and scheme.
 
@@ -138,7 +138,7 @@ class LDAPConnection:
             scheme: Connection scheme, either "ldap" or "ldaps" (default)
         """
         self.target = target
-        self.scheme = scheme
+        self.scheme = target.ldap_scheme
 
         # Determine port based on scheme and target configuration
         if self.scheme == "ldap":
@@ -146,7 +146,7 @@ class LDAPConnection:
         elif self.scheme == "ldaps":
             self.port = int(target.ldap_port) if target.ldap_port is not None else 636
         else:
-            raise ValueError(f"Unsupported scheme: {scheme}")
+            raise ValueError(f"Unsupported scheme: {self.scheme}")
 
         # Connection-related attributes
         self.default_path: Optional[str] = None

@@ -185,7 +185,7 @@ class Authenticate:
 
     def __init__(
         self,
-        target: Optional[Target] = None,
+        target: Target,
         pfx: Optional[str] = None,
         password: Optional[str] = None,
         cert: Optional[x509.Certificate] = None,
@@ -195,10 +195,6 @@ class Authenticate:
         print: bool = False,
         kirbi: bool = False,
         ldap_shell: bool = False,
-        ldap_port: int = 0,
-        ldap_scheme: str = "ldaps",
-        ldap_user_dn: Optional[str] = None,
-        user_dn: Optional[str] = None,
         debug: bool = False,
         **kwargs,  # type: ignore
     ):
@@ -233,12 +229,6 @@ class Authenticate:
         self.print = print
         self.kirbi = kirbi
         self.ldap_shell = ldap_shell
-        self.ldap_port = (
-            ldap_port if ldap_port != 0 else (389 if ldap_scheme == "ldap" else 636)
-        )
-        self.ldap_scheme = ldap_scheme
-        self.ldap_user_dn = ldap_user_dn
-        self.user_dn = user_dn
         self.verbose = debug
         self.kwargs = kwargs
 
@@ -283,13 +273,9 @@ class Authenticate:
         """
         # Resolve username and domain from target if not provided
         if username is None:
-            if self.target is None:
-                raise ValueError("Username is not specified and no target was provided")
             username = self.target.username
 
         if domain is None:
-            if self.target is None:
-                raise ValueError("Domain is not specified and no target was provided")
             domain = self.target.domain
 
         # Use LDAP authentication if requested
@@ -439,8 +425,8 @@ class Authenticate:
         try:
             # Configure SASL credentials if user DN is specified
             sasl_credentials = None
-            if self.ldap_user_dn:
-                sasl_credentials = f"dn:{self.ldap_user_dn}"
+            if self.target.ldap_user_dn:
+                sasl_credentials = f"dn:{self.target.ldap_user_dn}"
 
             # Configure TLS settings
             tls = ldap3.Tls(
@@ -449,9 +435,6 @@ class Authenticate:
                 validate=ssl.CERT_NONE,
                 ciphers="ALL:@SECLEVEL=0",
             )
-
-            if self.target is None:
-                raise ValueError("Target is not specified")
 
             # Determine host to connect to
             host = self.target.target_ip
@@ -463,21 +446,21 @@ class Authenticate:
 
             # Connect to LDAP server
             logging.info(
-                f"Connecting to {repr(f'{self.ldap_scheme}://{host}:{self.ldap_port}')}"
+                f"Connecting to {repr(f'{self.target.ldap_scheme}://{host}:{self.target.ldap_port}')}"
             )
 
             ldap_server = ldap3.Server(
                 host=host,
                 get_info=ldap3.ALL,
-                use_ssl=True if self.ldap_scheme == "ldaps" else False,
-                port=self.ldap_port,
+                use_ssl=True if self.target.ldap_scheme == "ldaps" else False,
+                port=self.target.ldap_port,
                 tls=tls,
                 connect_timeout=self.target.timeout,
             )
 
             # Configure authentication parameters
             conn_kwargs = {}
-            if self.ldap_scheme == "ldap":
+            if self.target.ldap_scheme == "ldap":
                 conn_kwargs = {
                     "authentication": ldap3.SASL,
                     "sasl_mechanism": ldap3.EXTERNAL,
@@ -500,7 +483,7 @@ class Authenticate:
                 return False
 
             # Establish connection
-            if self.ldap_scheme == "ldaps":
+            if self.target.ldap_scheme == "ldaps":
                 ldap_conn.open()
 
             # Get authenticated identity
@@ -562,9 +545,6 @@ class Authenticate:
 
         if not isinstance(self.key, rsa.RSAPrivateKey):
             raise ValueError("Currently only RSA private keys are supported.")
-
-        if self.target is None:
-            raise ValueError("Target is not specified")
 
         # Create AS-REQ for PKINIT
         as_req, diffie = build_pkinit_as_req(username, domain, self.key, self.cert)
@@ -885,16 +865,7 @@ def entry(options: argparse.Namespace) -> None:
     options.no_pass = True
 
     # Create target from options
-    target = Target.create(
-        domain=options.domain,
-        username=options.username,
-        dc_ip=options.dc_ip,
-        target_ip=options.dc_ip,
-        ns=options.ns,
-        timeout=options.timeout,
-        dns_tcp=options.dns_tcp,
-        no_pass=True,
-    )
+    target = Target.from_options(options, dc_as_target=True, require_username=False)
 
     # Create authenticator and perform authentication
     try:

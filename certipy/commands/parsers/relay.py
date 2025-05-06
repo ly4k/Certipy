@@ -182,8 +182,8 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         "-timeout",
         action="store",
         metavar="seconds",
-        help="Timeout for connections in seconds (default: 5)",
-        default=5,
+        help="Timeout for connections in seconds (default: 10)",
+        default=10,
         type=int,
     )
 

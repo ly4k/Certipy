@@ -54,7 +54,6 @@ class Shadow:
         account: str,
         device_id: Optional[str] = None,
         out: Optional[str] = None,
-        scheme: str = "ldaps",
         connection: Optional[LDAPConnection] = None,
         debug: bool = False,
         **kwargs,  # type: ignore
@@ -76,7 +75,6 @@ class Shadow:
         self.account = account
         self.device_id = device_id
         self.out = out
-        self.scheme = scheme
         self.verbose = debug
         self.kwargs = kwargs
 
@@ -96,7 +94,7 @@ class Shadow:
         if self._connection is not None:
             return self._connection
 
-        self._connection = LDAPConnection(self.target, self.scheme)
+        self._connection = LDAPConnection(self.target)
         self._connection.connect()
 
         return self._connection

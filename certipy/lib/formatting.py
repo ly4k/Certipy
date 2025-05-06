@@ -34,6 +34,14 @@ def to_pascal_case(snake_str: str) -> str:
     return "".join(x.title() for x in components)
 
 
+REMAP = {
+    "http": "HTTP",
+    "https": "HTTPS",
+    "enabled": "Enabled",
+    "channel_binding": "Channel Binding (EPA)",
+}
+
+
 def pretty_print(
     data: JsonLike, indent: int = 0, padding: int = 40, print_func: PrintFunc = print
 ) -> None:
@@ -54,6 +62,10 @@ def pretty_print(
     indent_str = "  " * indent
 
     for key, value in data.items():
+        if key in REMAP:
+            # Remap keys if needed
+            key = REMAP[key]
+
         key_str = f"{indent_str}{key}"
         padded_key = key_str.ljust(padding, " ")
 

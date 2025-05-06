@@ -145,27 +145,9 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     # Connection options
     conn_group = subparser.add_argument_group("connection options")
     conn_group.add_argument(
-        "-scheme",
-        action="store",
-        metavar="ldap scheme",
-        choices=["ldap", "ldaps"],
-        default="ldaps",
-        help="LDAP connection scheme to use (default: ldaps)",
-    )
-    conn_group.add_argument(
         "-dynamic-endpoint",
         action="store_true",
         help="Prefer dynamic TCP endpoint over named pipe",
-    )
-    conn_group.add_argument(
-        "-dc-host",
-        action="store",
-        metavar="hostname",
-        help=(
-            "Hostname of the domain controller to use. "
-            "If omitted, the domain part (FQDN) "
-            "specified in the account parameter will be used"
-        ),
     )
 
     # Add standard target arguments from shared module

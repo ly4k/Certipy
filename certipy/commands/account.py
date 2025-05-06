@@ -46,7 +46,6 @@ class Account:
         spns: Optional[str] = None,
         passw: Optional[str] = None,
         group: Optional[str] = None,
-        scheme: str = "ldaps",
         connection: Optional[LDAPConnection] = None,
         timeout: int = 5,
         debug: bool = False,
@@ -78,7 +77,6 @@ class Account:
         self.spns = spns
         self.password = passw
         self.group = group
-        self.scheme = scheme
         self._connection = connection
         self.timeout = timeout
         self.verbose = debug
@@ -95,7 +93,7 @@ class Account:
         if self._connection is not None:
             return self._connection
 
-        self._connection = LDAPConnection(self.target, self.scheme)
+        self._connection = LDAPConnection(self.target)
         self._connection.connect()
 
         return self._connection

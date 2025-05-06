@@ -86,7 +86,6 @@ class Template:
         template: Optional[str] = None,
         configuration: Optional[str] = None,
         save_old: bool = False,
-        scheme: str = "ldaps",
         connection: Optional[LDAPConnection] = None,
         **kwargs,  # type: ignore
     ):
@@ -106,7 +105,6 @@ class Template:
         self.template_name = template
         self.configuration = configuration
         self.save_old = save_old
-        self.scheme = scheme
         self.kwargs = kwargs
 
         self._connection = connection
@@ -122,7 +120,7 @@ class Template:
         if self._connection is not None:
             return self._connection
 
-        self._connection = LDAPConnection(self.target, self.scheme)
+        self._connection = LDAPConnection(self.target)
         self._connection.connect()
 
         return self._connection

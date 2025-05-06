@@ -24,7 +24,6 @@ _ = setup(
         "pycryptodome~=3.22.0",
         "bs4~=0.0.2",
         "httpx~=0.28.1",
-        "httpx-ntlm~=1.4.0",
     ],
     packages=[
         "certipy",

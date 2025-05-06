@@ -21,6 +21,7 @@ import argparse
 import base64
 import os
 import re
+import struct
 import time
 import traceback
 from struct import unpack
@@ -137,16 +138,18 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
                 % self.adcs_relay.target
             )
             self.authenticationMethod = "NTLM"
-        elif "NTLM" in authenticate_header:
-            self.authenticationMethod = "NTLM"
-        elif "Negotiate" in authenticate_header:
-            self.authenticationMethod = "Negotiate"
         else:
-            logging.error(
-                "Neither NTLM nor Negotiate auth offered by URL, offered protocols: %s"
-                % authenticate_header
-            )
-            return None
+            authenticate_header = authenticate_header.lower()
+            if "NTLM" in authenticate_header:
+                self.authenticationMethod = "NTLM"
+            elif "Negotiate" in authenticate_header:
+                self.authenticationMethod = "Negotiate"
+            else:
+                logging.error(
+                    "Neither NTLM nor Negotiate auth offered by URL, offered protocols: %s"
+                    % authenticate_header
+                )
+                return None
 
         # Negotiate auth
         negotiate = base64.b64encode(negotiate_message).decode()
@@ -163,63 +166,59 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
             logging.error("No authentication challenge returned from server")
             return None
 
-        server_challenge_base64 = ""
+        # Extract the server challenge from the authentication header
         try:
-            server_challenge_base64 = authenticate_header.split(" ")[1]
-        except Exception as e:
+            # Find the challenge portion of the header
+            server_challenge_base64 = next(
+                s.strip()[len(self.authenticationMethod) :]
+                for s in (val.lstrip() for val in authenticate_header.split(","))
+                if s.startswith(self.authenticationMethod)
+            ).strip()
+        except Exception:
             logging.error(
-                f"Failed to parse authentication challenge: {authenticate_header}"
+                f"Failed to parse authentication header: {authenticate_header}"
             )
             return None
 
+        # Decode the challenge
         try:
             server_challenge = base64.b64decode(server_challenge_base64)
-            challenge = NTLMAuthChallenge()
-            challenge.fromString(server_challenge)
-            return challenge
         except Exception as e:
             logging.error(
                 f"Failed to decode server challenge: {authenticate_header} - {e}"
             )
+            if self.adcs_relay.verbose:
+                traceback.print_exc()
+            else:
+                logging.error("Use -debug to print a stacktrace")
             return None
 
-        return None
-        # self.session.request('GET', self.path)
-        # res = self.session.getresponse()
-        # res.read()
-        # if res.status != 401:
-        #     LOG.info('Status code returned: %d. Authentication does not seem required for URL' % res.status)
-        # try:
-        #     if 'NTLM' not in res.getheader('WWW-Authenticate') and 'Negotiate' not in res.getheader('WWW-Authenticate'):
-        #         LOG.error('NTLM Auth not offered by URL, offered protocols: %s' % res.getheader('WWW-Authenticate'))
-        #         return False
-        #     if 'NTLM' in res.getheader('WWW-Authenticate'):
-        #         self.authenticationMethod = "NTLM"
-        #     elif 'Negotiate' in res.getheader('WWW-Authenticate'):
-        #         self.authenticationMethod = "Negotiate"
-        # except (KeyError, TypeError):
-        #     LOG.error('No authentication requested by the server for url %s' % self.targetHost)
-        #     if self.serverConfig.isADCSAttack:
-        #         LOG.info('IIS cert server may allow anonymous authentication, sending NTLM auth anyways')
-        #         self.authenticationMethod = "NTLM"
-        #     else:
-        #         return False
+        # Check if challenge is wrapped in SPNEGO
+        if (
+            server_challenge
+            and struct.unpack("B", server_challenge[:1])[0]
+            == SPNEGO_NegTokenResp.SPNEGO_NEG_TOKEN_RESP
+        ):
+            respToken2 = SPNEGO_NegTokenResp(server_challenge)
+            type2 = respToken2["ResponseToken"]
+        else:
+            type2 = server_challenge
 
-        # #Negotiate auth
-        # negotiate = base64.b64encode(negotiateMessage).decode("ascii")
-        # headers = {'Authorization':'%s %s' % (self.authenticationMethod, negotiate)}
-        # self.session.request('GET', self.path ,headers=headers)
-        # res = self.session.getresponse()
-        # res.read()
-        # try:
-        #     serverChallengeBase64 = re.search(('%s ([a-zA-Z0-9+/]+={0,2})' % self.authenticationMethod), res.getheader('WWW-Authenticate')).group(1)
-        #     serverChallenge = base64.b64decode(serverChallengeBase64)
-        #     challenge = NTLMAuthChallenge()
-        #     challenge.fromString(serverChallenge)
-        #     return challenge
-        # except (IndexError, KeyError, AttributeError):
-        #     LOG.error('No NTLM challenge returned from server')
-        #     return False
+        # Parse Type 2 message
+        challenge = NTLMAuthChallenge()
+        try:
+            challenge.fromString(type2)
+            return challenge
+        except Exception as e:
+            logging.error(
+                f"Failed to parse server challenge: {authenticate_header} - {e}"
+            )
+            if self.adcs_relay.verbose:
+                traceback.print_exc()
+            else:
+                logging.error("Use -debug to print a stacktrace")
+
+        return None
 
     def sendAuth(  # type: ignore
         self, authenticateMessageBlob: bytes, serverChallenge: Optional[bytes] = None
@@ -275,45 +274,35 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
         else:
             token = authenticateMessageBlob
 
-        try:
-            # Parse NTLM authentication response
-            response = NTLMAuthChallengeResponse()
-            response.fromString(data=token)
+        # Parse NTLM authentication response
+        response = NTLMAuthChallengeResponse()
+        response.fromString(data=token)
 
-            # Extract domain and username from response
-            # TODO: Support unicode
-            domain = response["domain_name"].decode("utf-16le")
-            username = response["user_name"].decode("utf-16le")
+        # Extract domain and username from response
+        # TODO: Support unicode
+        domain = response["domain_name"].decode("utf-16le")
+        username = response["user_name"].decode("utf-16le")
 
-            # Store the authenticated user for later use
-            self.session.user = f"{domain}\\{username}"  # type: ignore
+        # Store the authenticated user for later use
+        self.session.user = f"{domain}\\{username}"  # type: ignore
 
-            # Build authorization header with NTLM token
-            auth = base64.b64encode(token).decode()
-            headers = {"Authorization": f"{self.authenticationMethod} {auth}"}
+        # Build authorization header with NTLM token
+        auth = base64.b64encode(token).decode()
+        headers = {"Authorization": f"{self.authenticationMethod} {auth}"}
 
-            # Make authenticated request to AD CS
-            # self.session.request("GET", self.path, headers=headers)
-            # res = self.session.getresponse()
-            res = self.session.get(self.path, headers=headers)
+        # Make authenticated request to AD CS
+        res = self.session.get(self.path, headers=headers)
 
-            if res.status_code == 401:
-                logging.error("Got unauthorized response from AD CS")
-                return None, STATUS_ACCESS_DENIED
-            else:
-                logging.debug(
-                    f"HTTP server returned status code {res.status_code}, treating as successful login"
-                )
-                # Cache the response
-                self.lastresult = res.read()
-                return None, STATUS_SUCCESS
-        except Exception as e:
-            logging.error(f"Got error: {e}")
-            if self.adcs_relay.verbose:
-                traceback.print_exc()
-            else:
-                logging.error("Use -debug to print a stacktrace")
+        if res.status_code == 401:
+            logging.error("Got unauthorized response from AD CS")
             return None, STATUS_ACCESS_DENIED
+        else:
+            logging.debug(
+                f"HTTP server returned status code {res.status_code}, treating as successful login"
+            )
+            # Cache the response
+            self.lastresult = res.read()
+            return None, STATUS_SUCCESS
 
 
 class ADCSRPCRelayServer(rpcrelayclient.RPCRelayClient, rpcrelayclient.ProtocolClient):  # type: ignore

@@ -18,6 +18,7 @@ import csv
 import json
 import struct
 import time
+import traceback
 from collections import OrderedDict
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
@@ -41,8 +42,10 @@ from certipy.lib.constants import (
     USER_AGENT,
 )
 from certipy.lib.formatting import pretty_print
+from certipy.lib.kerberos import HttpxKerberosAuth
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import logging
+from certipy.lib.ntlm import HttpxNtlmAuth
 from certipy.lib.rpc import get_dce_rpc_from_string_binding
 from certipy.lib.security import (
     CertificateSecurity,
@@ -141,7 +144,6 @@ class Find:
         sid: Optional[str] = None,
         dn: Optional[str] = None,
         dc_only: bool = False,
-        scheme: str = "ldaps",
         connection: Optional[LDAPConnection] = None,
         debug: bool = False,
         **kwargs,  # type: ignore
@@ -160,7 +162,6 @@ class Find:
         self.sid = sid
         self.dn = dn
         self.dc_only = dc_only
-        self.scheme = scheme
         self.verbose = debug
         self.kwargs = kwargs
 
@@ -181,7 +182,7 @@ class Find:
         if self._connection is not None:
             return self._connection
 
-        self._connection = LDAPConnection(self.target, self.scheme)
+        self._connection = LDAPConnection(self.target)
         self._connection.connect()
 
         return self._connection
@@ -255,7 +256,7 @@ class Find:
             List of certificate template entries
         """
         return self.connection.search(
-            "(objectclass=pkicertificatetemplate)",
+            "(objectclass=pKICertificateTemplate)",
             search_base=f"CN=Certificate Templates,CN=Public Key Services,CN=Services,{self.connection.configuration_path}",
             attributes=[
                 "cn",
@@ -339,6 +340,7 @@ class Find:
         4. Outputs results in requested formats
         """
         # Early establish connection
+
         _connection = self.connection
 
         # Get user SIDs for vulnerability assessment if needed
@@ -548,8 +550,8 @@ class Find:
             "enforce_encrypt_icertrequest": "Unknown",
             "security": None,
             "web_enrollment": {
-                "http": {"enabled": None},
-                "https": {"enabled": None, "channel_binding": None},
+                "http": {"enabled": "Unknown"},
+                "https": {"enabled": "Unknown"},
             },
         }
 
@@ -608,24 +610,39 @@ class Find:
             logging.warning(
                 f"Failed to get CA security and configuration for {repr(ca.get('name'))}: {e}"
             )
+            if self.verbose:
+                traceback.print_exc()
+            else:
+                logging.warning("Use -debug to print a stacktrace")
 
         # Check web enrollment
         try:
             ca_properties["web_enrollment"]["http"]["enabled"] = (
                 self.check_web_enrollment(ca, "http")
             )
-            ca_properties["web_enrollment"]["https"]["enabled"] = (
-                self.check_web_enrollment(ca, "https")
-            )
 
-            # TODO: Check channel binding
-            # if ca_properties["web_enrollment"]["https"]["enabled"]:
-            #     ca_properties["web_enrollment"]["https"]["channel_binding"] = self.test_channel_binding(ca)
+            https_enabled = self.check_web_enrollment(ca, "https")
+
+            ca_properties["web_enrollment"]["https"]["enabled"] = https_enabled
+
+            if https_enabled:
+                # Check channel binding (EPA)
+                channel_binding_enabled = self.check_channel_binding(ca)
+
+                ca_properties["web_enrollment"]["https"]["channel_binding"] = (
+                    "Unknown"
+                    if channel_binding_enabled is None
+                    else channel_binding_enabled
+                )
 
         except Exception as e:
             logging.warning(
-                f"Failed to check Web Enrollment for CA {repr(ca.get('name'))}: {e}"
+                f"Failed to check Web Enrollment for CA {ca.get('name')!r}: {e}"
             )
+            if self.verbose:
+                traceback.print_exc()
+            else:
+                logging.warning("Use -debug to print a stacktrace")
 
         return ca_properties
 
@@ -661,8 +678,14 @@ class Find:
             ca.set("validity_start", validity_start)
             ca.set("validity_end", validity_end)
 
-        except ValueError:
-            logging.warning(f"Could not parse CA certificate for {ca.get('name')}")
+        except Exception as e:
+            logging.warning(
+                f"Could not parse CA certificate for {ca.get('name')!r}: {e}"
+            )
+            if self.verbose:
+                traceback.print_exc()
+            else:
+                logging.warning("Use -debug to print a stacktrace")
 
     def check_web_enrollment(self, ca: LDAPEntry, channel: str) -> bool:
         """
@@ -711,8 +734,113 @@ class Find:
 
         except Exception as e:
             logging.warning(f"Error checking web enrollment: {e}")
+            if self.verbose:
+                traceback.print_exc()
+            else:
+                logging.warning("Use -debug to print a stacktrace")
 
         return False
+
+    def check_channel_binding(self, ca: LDAPEntry) -> Optional[bool]:
+        """
+        Check if a Certificate Authority web enrollment endpoint enforces channel binding (EPA).
+
+        This method tests HTTPS web enrollment authentication with and without channel binding
+        to determine if Extended Protection for Authentication (EPA) is enabled.
+
+        Args:
+            ca: LDAP entry for the Certificate Authority
+
+        Returns:
+            True if channel binding is enforced
+            False if channel binding is disabled
+            None if the test was inconclusive or failed
+        """
+        target_name = ca.get("dNSHostName")
+        ca_name = ca.get("name")
+
+        logging.debug(f"Checking channel binding for CA {ca_name!r} ({target_name})")
+
+        # Set up connection parameters
+        try:
+            target_ip = self.target.resolver.resolve(target_name)
+
+            # Create a copy of the target with CA-specific settings
+            ca_target = copy.copy(self.target)
+            ca_target.remote_name = target_name
+
+            # Select authentication method based on whether Kerberos is enabled
+            if self.target.do_kerberos:
+                no_cb_auth = HttpxKerberosAuth(ca_target, channel_binding=False)
+                cb_auth = HttpxKerberosAuth(ca_target, channel_binding=True)
+            else:
+                no_cb_auth = HttpxNtlmAuth(ca_target, channel_binding=False)
+                cb_auth = HttpxNtlmAuth(ca_target, channel_binding=True)
+
+            url = f"https://{target_ip}/certsrv/"
+            headers = {"User-Agent": USER_AGENT, "Host": target_name}
+
+            # First test: Try authentication without channel binding
+            no_cb_session = httpx.Client(
+                auth=no_cb_auth,
+                timeout=self.target.timeout,
+                verify=False,
+            )
+
+            res_no_cb = no_cb_session.get(
+                url,
+                headers=headers,
+                timeout=self.target.timeout,
+                follow_redirects=False,
+            )
+
+            logging.debug(
+                f"CA {ca_name!r} responds with {res_no_cb.status_code} over HTTPS without channel binding"
+            )
+
+            # If non-401 status code, channel binding is likely disabled
+            # (server accepted auth without channel binding)
+            if res_no_cb.status_code != 401:
+                logging.debug("Channel binding (EPA) seems disabled")
+                return False
+
+            # Second test: Try authentication with channel binding
+            cb_session = httpx.Client(
+                auth=cb_auth,
+                timeout=self.target.timeout,
+                verify=False,
+            )
+
+            res_cb = cb_session.get(
+                url,
+                headers=headers,
+                timeout=self.target.timeout,
+                follow_redirects=False,
+            )
+
+            logging.debug(
+                f"CA {ca_name!r} responds with {res_cb.status_code} over HTTPS with channel binding"
+            )
+
+            # If status code is not 401, channel binding is likely enabled
+            # (server accepted auth with channel binding but not without it)
+            if res_cb.status_code != 401:
+                logging.debug("Channel binding (EPA) seems enabled")
+                return True
+            else:
+                # Both requests returned 401, likely due to invalid credentials
+                logging.warning(
+                    "Channel binding (EPA) produces the same response as without it. Perhaps invalid credentials?"
+                )
+                return None
+
+        except Exception as e:
+            logging.warning(f"Failed to check channel binding: {e}")
+            if self.verbose:
+                traceback.print_exc()
+            else:
+                logging.warning("Use -debug to print a stacktrace")
+            return None
 
     # =========================================================================
     # Certificate Template Methods
@@ -877,7 +1005,6 @@ class Find:
 
         # Check if enrollee can supply subject
         certificate_name_flag = template.get("certificate_name_flag", [])
-        print("Certificate Name Flag:", certificate_name_flag)
         enrollee_supplies_subject = any(
             MS_PKI_CERTIFICATE_NAME_FLAG.ENROLLEE_SUPPLIES_SUBJECT in flag
             for flag in certificate_name_flag
@@ -1259,9 +1386,6 @@ class Find:
             "validity_start": "Certificate Validity Start",
             "validity_end": "Certificate Validity End",
             "web_enrollment": "Web Enrollment",
-            "http": "HTTP",
-            "https": "HTTPS",
-            "enabled": "Enabled",
             "user_specified_san": "User Specified SAN",
             "request_disposition": "Request Disposition",
             "enforce_encrypt_icertrequest": "Enforce Encryption for Requests",

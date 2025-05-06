@@ -40,6 +40,16 @@ def add_argument_group(
             "part (FQDN) specified in the target parameter"
         ),
     )
+    _ = conn_group.add_argument(
+        "-dc-host",
+        action="store",
+        metavar="hostname",
+        help=(
+            "Hostname of the domain controller. Required for Kerberos authentication "
+            "during certain operations. If omitted, the domain part (FQDN) "
+            "specified in the account parameter will be used"
+        ),
+    )
 
     # Target machine options
     _ = conn_group.add_argument(
@@ -74,8 +84,8 @@ def add_argument_group(
         "-timeout",
         action="store",
         metavar="seconds",
-        help="Timeout for connections in seconds (default: 5)",
-        default=5,
+        help="Timeout for connections in seconds (default: 10)",
+        default=10,
         type=int,
     )
 
@@ -138,14 +148,28 @@ def add_argument_group(
     # LDAP Options Group
     ldap_group = parser.add_argument_group("ldap options")
     _ = ldap_group.add_argument(
-        "-ldap-channel-binding",
-        action="store_true",
-        help="Use LDAP channel binding for LDAP communication (LDAPS only)",
+        "-ldap-scheme",
+        action="store",
+        metavar="ldap scheme",
+        choices=["ldap", "ldaps"],
+        default="ldaps",
+        help="LDAP connection scheme to use (default: ldaps)",
     )
     _ = ldap_group.add_argument(
         "-ldap-port",
         action="store",
         metavar="port",
         type=int,
-        help="Custom port for LDAP communication",
+        help="Port for LDAP communication (default: 636 for ldaps, 389 for ldap)",
+    )
+    _ = ldap_group.add_argument(
+        "-ldap-channel-binding",
+        action="store_true",
+        help="Use LDAP channel binding for LDAP communication (LDAPS only)",
+    )
+    _ = ldap_group.add_argument(
+        "-ldap-user-dn",
+        action="store",
+        metavar="dn",
+        help="Distinguished Name of target account for LDAP authentication",
     )

@@ -137,29 +137,4 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Authenticate with the certificate via Schannel against LDAP",
     )
 
-    # LDAP specific options
-    ldap_group = subparser.add_argument_group("ldap options")
-    ldap_group.add_argument(
-        "-ldap-port",
-        action="store",
-        help="LDAP port (default: 636)",
-        metavar="port",
-        default=0,
-        type=int,
-    )
-    ldap_group.add_argument(
-        "-ldap-scheme",
-        action="store",
-        metavar="ldap scheme",
-        choices=["ldap", "ldaps"],
-        default="ldaps",
-        help="LDAP connection scheme (default: ldaps)",
-    )
-    ldap_group.add_argument(
-        "-ldap-user-dn",
-        action="store",
-        metavar="dn",
-        help="Distinguished Name of target account for LDAPS authentication",
-    )
-
     return NAME, entry

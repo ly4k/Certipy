@@ -200,11 +200,16 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="HTTP scheme to use for Web Enrollment (default: http)",
     )
     http_group.add_argument(
-        "-port",
+        "-http-port",
         action="store",
         metavar="port number",
-        help="Web Enrollment port. If omitted, port 80 or 443 will be chosen based on the scheme",
+        help="Web Enrollment port (default: 80 for http, 443 for https)",
         type=int,
+    )
+    http_group.add_argument(
+        "-no-channel-binding",
+        action="store_true",
+        help="Disable channel binding for HTTP connections",
     )
 
     # Add standard target arguments

@@ -331,7 +331,6 @@ class CA:
         request_id: Optional[int] = None,
         connection: Optional[LDAPConnection] = None,
         scheme: str = "ldaps",
-        dc_host: Optional[str] = None,
         dynamic: bool = False,
         config: Optional[str] = None,
         timeout: int = 5,
@@ -362,7 +361,6 @@ class CA:
         self.officer = officer
         self.template = template
         self.scheme = scheme
-        self.dc_host = dc_host
         self.dynamic = dynamic
         self.config = config
         self.timeout = timeout
@@ -397,32 +395,16 @@ class CA:
         target = copy.copy(self.target)
 
         if target.do_kerberos:
-            if self.dc_host is None:
+            if self.target.dc_host is None:
                 raise Exception(
                     "Kerberos auth requires DNS name of the target DC. Use -dc-host."
                 )
 
-            target.remote_name = self.dc_host
+            target.remote_name = self.target.dc_host
 
-            if target.dc_ip is None:
-                target.dc_ip = target.resolver.resolve(self.dc_host)
+        target.target_ip = target.dc_ip
 
-        if target.dc_ip:
-            target.target_ip = target.dc_ip
-        else:
-            if self.dc_host:
-                remote_name = self.dc_host
-            else:
-                remote_name = target.domain
-
-            if "." not in remote_name:
-                logging.warning(
-                    f"{repr(remote_name)} doesn't look like a FQDN. DNS resolution will probably fail."
-                )
-
-            target.target_ip = target.resolver.resolve(remote_name)
-
-        self._connection = LDAPConnection(target, self.scheme)
+        self._connection = LDAPConnection(target)
         self._connection.connect()
 
         return self._connection
