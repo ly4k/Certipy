@@ -481,9 +481,9 @@ class CA:
         for _ in range(3):
             try:
                 dce.connect()
-                dce.bind(rrp.MSRPC_UUID_RRP)  # type: ignore
+                _ = dce.bind(rrp.MSRPC_UUID_RRP)
                 logging.debug(
-                    f"Connected to remote registry at {repr(self.target.remote_name)} ({self.target.target_ip})"
+                    f"Connected to remote registry at {repr(self.target.remote_name)} ({self.target.target_ip!r})"
                 )
                 break
             except Exception as e:

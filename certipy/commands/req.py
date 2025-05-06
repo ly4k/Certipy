@@ -18,6 +18,7 @@ Key components:
 
 import argparse
 import re
+import traceback
 from typing import Any, Dict, List, Optional, Protocol, Tuple, Union
 
 import httpx
@@ -755,10 +756,15 @@ class WebRequestInterface:
                     f"Failed to authenticate to Web Enrollment at {repr(base_url)}"
                 )
                 logging.debug(f"Got status code: {repr(res.status_code)}")
-                logging.debug(f"HTML Response:\n{repr(res.content)}")
+                if self.parent.verbose:
+                    print(res.text)
 
         except Exception as e:
             logging.warning(f"Failed to connect to Web Enrollment interface: {e}")
+            if self.parent.verbose:
+                traceback.print_exc()
+            else:
+                logging.warning("Use -debug to print a stacktrace")
 
         return False
 
@@ -783,13 +789,11 @@ class WebRequestInterface:
         )
 
         if res.status_code != 200:
+            logging.error("Got error while trying to retrieve certificate")
             if self.parent.verbose:
-                logging.error("Got error while trying to retrieve certificate:")
                 print(res.text)
             else:
-                logging.error(
-                    "Got error while trying to retrieve certificate. Use -debug to print the response"
-                )
+                logging.error("Use -debug to print the response")
             return None
 
         # Handle PEM and DER format responses
@@ -812,13 +816,11 @@ class WebRequestInterface:
                     msg = translate_error_code(error_code_int)
                     logging.warning(f"Got error from AD CS: {msg}")
                 except Exception:
+                    logging.warning("Got unknown error from AD CS")
                     if self.parent.verbose:
-                        logging.warning("Got unknown error from AD CS:")
                         print(content)
                     else:
-                        logging.warning(
-                            "Got unknown error from AD CS. Use -debug to print the response"
-                        )
+                        logging.warning("Use -debug to print the response")
             return None
 
     def request(
@@ -860,7 +862,7 @@ class WebRequestInterface:
         content = res.text
 
         if res.status_code != 200:
-            logging.error("Got error while trying to request certificate: ")
+            logging.error("Got error while trying to request certificate")
             if self.parent.verbose:
                 print(content)
             else:

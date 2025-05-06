@@ -229,7 +229,7 @@ class Find:
                 dce.connect()
                 _ = dce.bind(rrp.MSRPC_UUID_RRP)
                 logging.debug(
-                    f"Connected to remote registry at {repr(self.target.remote_name)} ({self.target.target_ip})"
+                    f"Connected to remote registry at {repr(self.target.remote_name)} ({self.target.target_ip!r})"
                 )
                 return dce
             except Exception as e:
@@ -714,7 +714,7 @@ class Find:
         url = f"{channel}://{target_ip}/certsrv/"
 
         try:
-            logging.debug(f"Connecting to {url}")
+            logging.debug(f"Connecting to {url!r}")
 
             res = session.get(
                 url,
@@ -759,7 +759,7 @@ class Find:
         target_name = ca.get("dNSHostName")
         ca_name = ca.get("name")
 
-        logging.debug(f"Checking channel binding for CA {ca_name!r} ({target_name})")
+        logging.debug(f"Checking channel binding for CA {ca_name!r} ({target_name!r})")
 
         # Set up connection parameters
         try:

@@ -34,7 +34,7 @@ def get_dcom_connection(target: Target) -> DCOMConnection:
     username = target.username
     domain = target.domain
 
-    logging.debug(f"Trying to get DCOM connection for: {target.target_ip}")
+    logging.debug(f"Trying to get DCOM connection for: {target.target_ip!r}")
 
     # Get Kerberos ticket if needed
     if target.do_kerberos:
