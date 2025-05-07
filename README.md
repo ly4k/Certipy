@@ -136,8 +136,7 @@ Thanks to these generous sponsors for supporting the development of this project
 
 ## 👤 Author
 
-Developed by [@ly4k](https://github.com/ly4k)
-Contributions welcome via pull requests or issues.
+Developed by [@ly4k](https://github.com/ly4k), with valuable contributions from the community.
 
 ---
 
