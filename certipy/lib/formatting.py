@@ -139,11 +139,11 @@ def print_certificate_identifications(
     if len(identifications) > 1:
         logging.info("Got certificate with multiple identifications")
         for id_type, id_value in identifications:
-            print(f"    {id_type}: {repr(id_value)}")
+            print(f"    {id_type}: {id_value!r}")
 
     elif len(identifications) == 1:
         id_type, id_value = identifications[0]
-        logging.info(f"Got certificate with {id_type} {repr(id_value)}")
+        logging.info(f"Got certificate with {id_type} {id_value!r}")
 
     else:
         logging.info("Got certificate without identification")

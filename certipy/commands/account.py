@@ -124,7 +124,7 @@ class Account:
         user = self.connection.get_user(username, silent=True)
         if user is not None:
             logging.error(
-                f"User {repr(user.get('sAMAccountName'))} already exists. "
+                f"User {user.get('sAMAccountName')!r} already exists. "
                 f"If you want to update the user, specify the 'update' action"
             )
             return False
@@ -191,19 +191,19 @@ class Account:
         # Handle result
         if result["result"] == 0:
             logging.info(
-                f"Successfully created account {repr(username)} with password {repr(password)}"
+                f"Successfully created account {username!r} with password {password!r}"
             )
             return True
         elif result["result"] == RESULT_INSUFFICIENT_ACCESS_RIGHTS:
             logging.error(
-                f"User {repr(self.target.username)} doesn't have the right to create a machine account"
+                f"User {self.target.username!r} doesn't have the right to create a machine account"
             )
         elif (
             result["result"] == RESULT_UNWILLING_TO_PERFORM
             and int(result["message"].split(":")[0].strip(), 16) == 0x216D
         ):
             logging.error(
-                f"Machine account quota exceeded for {repr(self.target.username)}"
+                f"Machine account quota exceeded for {self.target.username!r}"
             )
         else:
             logging.error(
@@ -243,7 +243,7 @@ class Account:
 
         # Collect attribute values
         attribute_values = {}
-        logging.info(f"Reading attributes for {repr(user.get('sAMAccountName'))}:")
+        logging.info(f"Reading attributes for {user.get('sAMAccountName')!r}:")
         for attribute in attributes:
             value = user.get(attribute)
             if value is not None:
@@ -309,12 +309,10 @@ class Account:
                 changes[attribute] = [(ldap3.MODIFY_REPLACE, encoded_value)]
 
         if not changes:
-            logging.warning(
-                f"No changes specified for {repr(user.get('sAMAccountName'))}"
-            )
+            logging.warning(f"No changes specified for {user.get('sAMAccountName')!r}")
             return False
 
-        logging.info(f"Updating user {repr(user.get('sAMAccountName'))}:")
+        logging.info(f"Updating user {user.get('sAMAccountName')!r}:")
         pretty_print(changes_formatted, indent=2)
 
         # Apply changes via LDAP
@@ -325,12 +323,12 @@ class Account:
 
         # Handle result
         if result["result"] == 0:
-            logging.info(f"Successfully updated {repr(user.get('sAMAccountName'))}")
+            logging.info(f"Successfully updated {user.get('sAMAccountName')!r}")
             return True
         elif result["result"] == RESULT_INSUFFICIENT_ACCESS_RIGHTS:
             logging.error(
-                f"User {repr(self.target.username)} doesn't have permission to update "
-                f"these attributes on {repr(user.get('sAMAccountName'))}"
+                f"User {self.target.username!r} doesn't have permission to update "
+                f"these attributes on {user.get('sAMAccountName')!r}"
             )
         else:
             logging.error(f"Received error: {result['message']}")
@@ -353,7 +351,7 @@ class Account:
 
         # Confirm deletion
         account_name = user.get("sAMAccountName")
-        logging.warning(f"You are about to delete {repr(account_name)}")
+        logging.warning(f"You are about to delete {account_name!r}")
         res = input("Are you sure? (y/N) ").rstrip("\n")
         if res.lower() != "y":
             logging.info("Deletion canceled")
@@ -364,11 +362,11 @@ class Account:
 
         # Handle result
         if result["result"] == 0:
-            logging.info(f"Successfully deleted {repr(account_name)}")
+            logging.info(f"Successfully deleted {account_name!r}")
             return True
         elif result["result"] == RESULT_INSUFFICIENT_ACCESS_RIGHTS:
             logging.error(
-                f"User {repr(self.target.username)} doesn't have permission to delete {repr(account_name)}"
+                f"User {self.target.username!r} doesn't have permission to delete {account_name!r}"
             )
         else:
             logging.error(f"Received error: {result['message']}")

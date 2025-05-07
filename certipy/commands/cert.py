@@ -39,13 +39,13 @@ def load_certificate_file(file_path: str) -> bytes:
     Returns:
         Certificate data as bytes
     """
-    logging.debug(f"Loading certificate from {repr(file_path)}")
+    logging.debug(f"Loading certificate from {file_path!r}")
     try:
         with open(file_path, "rb") as f:
             cert_data = f.read()
         return cert_data
     except FileNotFoundError:
-        logging.error(f"Certificate file not found: {repr(file_path)}")
+        logging.error(f"Certificate file not found: {file_path!r}")
         raise
     except IOError as e:
         logging.error(f"Error reading certificate file: {e}")
@@ -62,13 +62,13 @@ def load_key_file(file_path: str) -> bytes:
     Returns:
         Private key data as bytes
     """
-    logging.debug(f"Loading private key from {repr(file_path)}")
+    logging.debug(f"Loading private key from {file_path!r}")
     try:
         with open(file_path, "rb") as f:
             key_data = f.read()
         return key_data
     except FileNotFoundError:
-        logging.error(f"Private key file not found: {repr(file_path)}")
+        logging.error(f"Private key file not found: {file_path!r}")
         raise
     except IOError as e:
         logging.error(f"Error reading private key file: {e}")
@@ -133,7 +133,7 @@ def write_output(data: Union[bytes, str], output_path: Optional[str] = None) -> 
         try:
             with open(output_path, mode) as f:
                 _ = f.write(data)
-            logging.info(f"Data written to {repr(output_path)}")
+            logging.info(f"Data written to {output_path!r}")
         except IOError as e:
             logging.error(f"Error writing output file: {e}")
             raise
@@ -166,9 +166,9 @@ def entry(options: argparse.Namespace) -> None:
         try:
             password = options.password.encode() if options.password else None
             log_msg = (
-                f"Loading PFX {repr(options.pfx)} with password"
+                f"Loading PFX {options.pfx!r} with password"
                 if password
-                else f"Loading PFX {repr(options.pfx)} without password"
+                else f"Loading PFX {options.pfx!r} without password"
             )
             logging.debug(log_msg)
 
@@ -241,6 +241,6 @@ def entry(options: argparse.Namespace) -> None:
         try:
             write_output(output, options.out)
             if options.out:
-                logging.info(f"Writing {log_str} to {repr(options.out)}")
+                logging.info(f"Writing {log_str} to {options.out!r}")
         except Exception as e:
             logging.error(f"Failed to write output: {e}")

@@ -484,7 +484,7 @@ class CA:
                 dce.connect()
                 _ = dce.bind(rrp.MSRPC_UUID_RRP)
                 logging.debug(
-                    f"Connected to remote registry at {repr(self.target.remote_name)} ({self.target.target_ip!r})"
+                    f"Connected to remote registry at {self.target.remote_name!r} ({self.target.target_ip!r})"
                 )
                 break
             except Exception as e:
@@ -595,7 +595,7 @@ class CA:
 
         if not isinstance(edit_flags, int):
             raise ValueError(
-                f"Expected an int for edit flags, got {repr(type(edit_flags))}"
+                f"Expected an int for edit flags, got {type(edit_flags)!r}"
             )
 
         _, request_disposition = rrp.hBaseRegQueryValue(
@@ -604,7 +604,7 @@ class CA:
 
         if not isinstance(request_disposition, int):
             raise ValueError(
-                f"Expected an int for request disposition, got {repr(type(request_disposition))}"
+                f"Expected an int for request disposition, got {type(request_disposition)!r}"
             )
 
         # Get configuration settings
@@ -621,7 +621,7 @@ class CA:
 
         if not isinstance(interface_flags, int):
             raise ValueError(
-                f"Expected an int for interface flags, got {repr(type(interface_flags))}"
+                f"Expected an int for interface flags, got {type(interface_flags)!r}"
             )
 
         _, security_descriptor = rrp.hBaseRegQueryValue(
@@ -630,7 +630,7 @@ class CA:
 
         if not isinstance(security_descriptor, bytes):
             raise ValueError(
-                f"Expected a bytes object for security descriptor, got {repr(type(security_descriptor))}"
+                f"Expected a bytes object for security descriptor, got {type(security_descriptor)!r}"
             )
 
         security_descriptor = CASecurity(security_descriptor)
@@ -648,26 +648,26 @@ class CA:
             Returns (None, None, None, None) if both methods fail
         """
         try:
-            logging.info(f"Trying to get CA configuration for {repr(self.ca)} via CSRA")
+            logging.info(f"Trying to get CA configuration for {self.ca!r} via CSRA")
             result = self.get_config_csra()
-            logging.info(f"Got CA configuration for {repr(self.ca)}")
+            logging.info(f"Got CA configuration for {self.ca!r}")
             return result
         except Exception as e:
             logging.warning(
-                f"Got error while trying to get CA configuration for {repr(self.ca)} via CSRA: {str(e)}"
+                f"Got error while trying to get CA configuration for {self.ca!r} via CSRA: {str(e)}"
             )
 
         try:
-            logging.info(f"Trying to get CA configuration for {repr(self.ca)} via RRP")
+            logging.info(f"Trying to get CA configuration for {self.ca!r} via RRP")
             result = self.get_config_rrp()
-            logging.info(f"Got CA configuration for {repr(self.ca)}")
+            logging.info(f"Got CA configuration for {self.ca!r}")
             return result
         except Exception as e:
             logging.warning(
-                f"Got error while trying to get CA configuration for {repr(self.ca)} via RRP: {str(e)}"
+                f"Got error while trying to get CA configuration for {self.ca!r} via RRP: {str(e)}"
             )
 
-        logging.warning(f"Failed to get CA configuration for {repr(self.ca)}")
+        logging.warning(f"Failed to get CA configuration for {self.ca!r}")
         return (None, None, None, None)
 
     # =========================================================================
@@ -803,12 +803,10 @@ class CA:
             return
 
         if len(certificate_templates) == 1:
-            logging.info(
-                f"There are no enabled certificate templates on {repr(self.ca)}"
-            )
+            logging.info(f"There are no enabled certificate templates on {self.ca!r}")
             return
 
-        logging.info(f"Enabled certificate templates on {repr(self.ca)}:")
+        logging.info(f"Enabled certificate templates on {self.ca!r}:")
         for i in range(0, len(certificate_templates) - 1, 2):
             print(f"    {certificate_templates[i]}")
 
@@ -847,7 +845,7 @@ class CA:
         if disable:
             if template.get("cn") not in certificate_templates:
                 logging.error(
-                    f"Certificate template {repr(template.get('cn'))} is not enabled on {repr(self.ca)}"
+                    f"Certificate template {template.get('cn')!r} is not enabled on {self.ca!r}"
                 )
                 return False
 
@@ -891,7 +889,7 @@ class CA:
         error_code = resp["ErrorCode"]
         if error_code == 0:
             logging.info(
-                f"Successfully {action}d {repr(template.get('cn'))} on {repr(self.ca)}"
+                f"Successfully {action}d {template.get('cn')!r} on {self.ca!r}"
             )
             return True
         else:
@@ -972,8 +970,8 @@ class CA:
                 # Check if user has the right
                 if ace["Ace"]["Mask"]["Mask"] & right == 0:
                     logging.info(
-                        f"User {repr(user_obj.get('sAMAccountName'))} does not have {right_type} "
-                        f"rights on {repr(self.ca)}"
+                        f"User {user_obj.get('sAMAccountName')!r} does not have {right_type} "
+                        f"rights on {self.ca!r}"
                     )
                     return True
 
@@ -987,8 +985,8 @@ class CA:
                 # Check if user already has the right
                 if ace["Ace"]["Mask"]["Mask"] & right != 0:
                     logging.info(
-                        f"User {repr(user_obj.get('sAMAccountName'))} already has {right_type} "
-                        f"rights on {repr(self.ca)}"
+                        f"User {user_obj.get('sAMAccountName')!r} already has {right_type} "
+                        f"rights on {self.ca!r}"
                     )
                     return True
 
@@ -1001,8 +999,8 @@ class CA:
             if remove:
                 # Nothing to remove
                 logging.info(
-                    f"User {repr(user_obj.get('sAMAccountName'))} does not have {right_type} "
-                    f"rights on {repr(self.ca)}"
+                    f"User {user_obj.get('sAMAccountName')!r} does not have {right_type} "
+                    f"rights on {self.ca!r}"
                 )
                 return True
 
@@ -1041,8 +1039,8 @@ class CA:
         if error_code == 0:
             action = "removed" if remove else "added"
             logging.info(
-                f"Successfully {action} {right_type} {repr(user_obj.get('sAMAccountName'))} "
-                f"on {repr(self.ca)}"
+                f"Successfully {action} {right_type} {user_obj.get('sAMAccountName')!r} "
+                f"on {self.ca!r}"
             )
             return True
         else:
@@ -1171,7 +1169,7 @@ class CA:
 
         if len(enrollment_services) == 0:
             logging.warning(
-                f"Could not find any enrollment service identified by {repr(ca)}"
+                f"Could not find any enrollment service identified by {ca!r}"
             )
             return None
 
@@ -1241,7 +1239,7 @@ class CA:
             except Exception as e:
                 if "STATUS_BAD_NETWORK_NAME" in str(e):
                     raise Exception(
-                        f"Could not connect to 'C$' or 'ADMIN$' on {repr(self.target.target_ip)}"
+                        f"Could not connect to 'C$' or 'ADMIN$' on {self.target.target_ip!r}"
                     )
                 else:
                     raise e

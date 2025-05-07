@@ -498,7 +498,7 @@ class LDAPConnection:
 
         if self.ldap_conn.result["result"] != 0:
             logging.warning(
-                f"LDAP search {repr(search_filter)} failed: "
+                f"LDAP search {search_filter!r} failed: "
                 f"({self.ldap_conn.result['description']}) {self.ldap_conn.result['message']}"
             )
             return []
@@ -557,7 +557,7 @@ class LDAPConnection:
 
         # Log error if user not found and silent mode is not enabled
         if user is None and not silent:
-            logging.error(f"Could not find user {repr(username)}")
+            logging.error(f"Could not find user {username!r}")
 
         return user
 
@@ -769,7 +769,7 @@ class LDAPConnection:
 
         # Handle results
         if len(results) != 1:
-            logging.warning(f"Failed to lookup object with SID {repr(sid)}")
+            logging.warning(f"Failed to lookup object with SID {sid!r}")
             # Create synthetic entry for unknown SID
             entry = LDAPEntry(
                 **{

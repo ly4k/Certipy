@@ -441,7 +441,7 @@ class ADCSHTTPAttackClient(ProtocolAttack):
             and self.client.user in self.adcs_relay.attacked_targets
         ):
             logging.debug(
-                f"Skipping user {repr(self.client.user)} since attack was already performed"
+                f"Skipping user {self.client.user!r} since attack was already performed"
             )
             return
 
@@ -476,7 +476,7 @@ class ADCSHTTPAttackClient(ProtocolAttack):
 
         if select_tag:
             option_tags = select_tag.find_all("option")
-            print(f"Templates Found for {repr(self.client.user)}:")
+            print(f"Templates Found for {self.client.user!r}:")
             for option in option_tags:
                 if not isinstance(option, bs4.Tag):
                     continue
@@ -485,7 +485,7 @@ class ADCSHTTPAttackClient(ProtocolAttack):
 
                 if not isinstance(value, str):
                     logging.warning(
-                        f"Got unexpected value type {type(value)} for template {option.text}: {repr(value)}"
+                        f"Got unexpected value type {type(value)} for template {option.text}: {value!r}"
                     )
                     continue
 
@@ -604,7 +604,7 @@ class ADCSHTTPAttackClient(ProtocolAttack):
         }
 
         logging.info(
-            f"Requesting certificate for {repr(self.client.user)} based on the template {repr(template)}"
+            f"Requesting certificate for {self.client.user!r} based on the template {template!r}"
         )
 
         # Send certificate request
@@ -635,12 +635,12 @@ class ADCSHTTPAttackClient(ProtocolAttack):
 
         # Handle pending or failed requests
         if "template that is not supported" in content:
-            logging.error(f"Template {repr(template)} is not supported by AD CS")
+            logging.error(f"Template {template!r} is not supported by AD CS")
         elif "Certificate Pending" in content:
             logging.warning("Certificate request is pending approval")
         elif '"Denied by Policy Module"' in content:
             logging.warning(
-                f"Got access denied while trying to enroll in template {repr(template)}"
+                f"Got access denied while trying to enroll in template {template!r}"
             )
         else:
             # Try to extract error code
@@ -707,7 +707,7 @@ class ADCSHTTPAttackClient(ProtocolAttack):
         # Check for SID in certificate
         object_sid = get_object_sid_from_certificate(cert)
         if object_sid is not None:
-            logging.info(f"Certificate object SID is {repr(object_sid)}")
+            logging.info(f"Certificate object SID is {object_sid!r}")
         else:
             logging.info("Certificate has no object SID")
 
@@ -726,7 +726,7 @@ class ADCSHTTPAttackClient(ProtocolAttack):
                 key_path = f"{request_id}.key"
                 with open(key_path, "rb") as f:
                     key = pem_to_key(f.read())
-                logging.info(f"Loaded private key from {repr(key_path)}")
+                logging.info(f"Loaded private key from {key_path!r}")
             except Exception:
                 # Save just the certificate if key not available
                 logging.warning(
@@ -819,11 +819,11 @@ class ADCSRPCAttackClient(ProtocolAttack):
             and full_username in self.adcs_relay.attacked_targets
         ):
             logging.info(
-                f"Skipping user {repr(full_username)} since attack was already performed"
+                f"Skipping user {full_username!r} since attack was already performed"
             )
             return
 
-        logging.info(f"Attacking user {repr(full_username)}")
+        logging.info(f"Attacking user {full_username!r}")
 
         # Handle certificate retrieval or request
         request_id = self.adcs_relay.request_id
@@ -860,7 +860,7 @@ class ADCSRPCAttackClient(ProtocolAttack):
         # Check for SID in certificate
         object_sid = get_object_sid_from_certificate(cert)
         if object_sid is not None:
-            logging.info(f"Certificate object SID is {repr(object_sid)}")
+            logging.info(f"Certificate object SID is {object_sid!r}")
         else:
             logging.info("Certificate has no object SID")
 
@@ -880,7 +880,7 @@ class ADCSRPCAttackClient(ProtocolAttack):
                 key = pem_to_key(f.read())
 
             # Save certificate and key as PFX
-            logging.info(f"Loaded private key from {repr(key_path)}")
+            logging.info(f"Loaded private key from {key_path!r}")
             pfx_path = f"{out}.pfx"
             pfx = create_pfx(key, cert)
             logging.info(f"Saving certificate and private key to {pfx_path!r}")
@@ -912,7 +912,7 @@ class ADCSRPCAttackClient(ProtocolAttack):
             template = "Machine" if self.username.endswith("$") else "User"
 
         logging.info(
-            f"Requesting certificate for user {repr(self.username)} with template {repr(template)}"
+            f"Requesting certificate for user {self.username!r} with template {template!r}"
         )
 
         # Generate certificate signing request
@@ -966,7 +966,7 @@ class ADCSRPCAttackClient(ProtocolAttack):
         # Check for SID in certificate
         object_sid = get_object_sid_from_certificate(cert)
         if object_sid is not None:
-            logging.info(f"Certificate object SID is {repr(object_sid)}")
+            logging.info(f"Certificate object SID is {object_sid!r}")
         else:
             logging.info("Certificate has no object SID")
 

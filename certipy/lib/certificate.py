@@ -1323,11 +1323,11 @@ def entry(options: argparse.Namespace) -> None:
         password = None
         if options.password:
             logging.debug(
-                f"Loading PFX {repr(options.pfx)} with password {repr(options.password)}"
+                f"Loading PFX {options.pfx!r} with password {options.password!r}"
             )
             password = options.password.encode()
         else:
-            logging.debug(f"Loading PFX {repr(options.pfx)} without password")
+            logging.debug(f"Loading PFX {options.pfx!r} without password")
 
         with open(options.pfx, "rb") as f:
             pfx = f.read()
@@ -1336,7 +1336,7 @@ def entry(options: argparse.Namespace) -> None:
 
     # Load certificate if specified
     if options.cert:
-        logging.debug(f"Loading certificate from {repr(options.cert)}")
+        logging.debug(f"Loading certificate from {options.cert!r}")
 
         with open(options.cert, "rb") as f:
             cert_data = f.read()
@@ -1347,7 +1347,7 @@ def entry(options: argparse.Namespace) -> None:
 
     # Load private key if specified
     if options.key:
-        logging.debug(f"Loading private key from {repr(options.key)}")
+        logging.debug(f"Loading private key from {options.key!r}")
 
         with open(options.key, "rb") as f:
             key_data = f.read()

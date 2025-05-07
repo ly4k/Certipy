@@ -122,7 +122,7 @@ class Shadow:
 
         if len(results) == 0:
             logging.error(
-                f"Could not get the Key Credentials for {repr(user.get('sAMAccountName'))}"
+                f"Could not get the Key Credentials for {user.get('sAMAccountName')!r}"
             )
             return None
 
@@ -154,17 +154,17 @@ class Shadow:
         # Handle specific error cases with helpful messages
         if result["result"] == 50:
             logging.error(
-                f"Could not update Key Credentials for {repr(user.get('sAMAccountName'))} "
+                f"Could not update Key Credentials for {user.get('sAMAccountName')!r} "
                 f"due to insufficient access rights: {result['message']}"
             )
         elif result["result"] == 19:
             logging.error(
-                f"Could not update Key Credentials for {repr(user.get('sAMAccountName'))} "
+                f"Could not update Key Credentials for {user.get('sAMAccountName')!r} "
                 f"due to a constraint violation: {result['message']}"
             )
         else:
             logging.error(
-                f"Failed to update the Key Credentials for {repr(user.get('sAMAccountName'))}: "
+                f"Failed to update the Key Credentials for {user.get('sAMAccountName')!r}: "
                 f"{result['message']}"
             )
         return False
@@ -208,7 +208,7 @@ class Shadow:
         )
 
         device_id = key_credential.DeviceId.toFormatD()
-        logging.info(f"Key Credential generated with DeviceID {repr(device_id)}")
+        logging.info(f"Key Credential generated with DeviceID {device_id!r}")
 
         return (cert, key_credential, device_id)
 
@@ -248,8 +248,8 @@ class Shadow:
         ]
 
         logging.info(
-            f"Adding Key Credential with device ID {repr(device_id)} to the Key Credentials for "
-            f"{repr(user.get('sAMAccountName'))}"
+            f"Adding Key Credential with device ID {device_id!r} to the Key Credentials for "
+            f"{user.get('sAMAccountName')!r}"
         )
 
         # Update the user's Key Credentials
@@ -258,8 +258,8 @@ class Shadow:
             return None
 
         logging.info(
-            f"Successfully added Key Credential with device ID {repr(device_id)} to the Key Credentials for "
-            f"{repr(user.get('sAMAccountName'))}"
+            f"Successfully added Key Credential with device ID {device_id!r} to the Key Credentials for "
+            f"{user.get('sAMAccountName')!r}"
         )
 
         return (cert, new_key_credential, saved_key_credential, device_id)
@@ -348,7 +348,7 @@ class Shadow:
 
         sam_account_name = self._get_sam_account_name(user)
 
-        logging.info(f"Targeting user {repr(sam_account_name)}")
+        logging.info(f"Targeting user {sam_account_name!r}")
 
         # Get and validate the distinguished name
         target_dn = self._get_target_dn(user)
@@ -369,7 +369,7 @@ class Shadow:
         # Authenticate with the new Key Credential
         sam_account_name = self._get_sam_account_name(user)
 
-        logging.info(f"Authenticating as {repr(sam_account_name)} with the certificate")
+        logging.info(f"Authenticating as {sam_account_name!r} with the certificate")
         authenticate = Authenticate(self.target, cert=cert, key=key)
         _ = authenticate.authenticate(
             username=sam_account_name,
@@ -378,16 +378,16 @@ class Shadow:
         )
 
         # Cleanup by restoring the original Key Credentials
-        logging.info(f"Restoring the old Key Credentials for {repr(sam_account_name)}")
+        logging.info(f"Restoring the old Key Credentials for {sam_account_name!r}")
         result = self.set_key_credentials(target_dn, user, saved_key_credential)
 
         if result is True:
             logging.info(
-                f"Successfully restored the old Key Credentials for {repr(sam_account_name)}"
+                f"Successfully restored the old Key Credentials for {sam_account_name!r}"
             )
 
         # Return the obtained NT hash
-        logging.info(f"NT hash for {repr(sam_account_name)}: {authenticate.nt_hash}")
+        logging.info(f"NT hash for {sam_account_name!r}: {authenticate.nt_hash}")
         return authenticate.nt_hash
 
     def add(self) -> bool:
@@ -404,7 +404,7 @@ class Shadow:
 
         sam_account_name = self._get_sam_account_name(user)
 
-        logging.info(f"Targeting user {repr(sam_account_name)}")
+        logging.info(f"Targeting user {sam_account_name!r}")
 
         # Get and validate the distinguished name
         target_dn = self._get_target_dn(user)
@@ -454,7 +454,7 @@ class Shadow:
 
         sam_account_name = self._get_sam_account_name(user)
 
-        logging.info(f"Targeting user {repr(sam_account_name)}")
+        logging.info(f"Targeting user {sam_account_name!r}")
 
         # Get and validate the distinguished name
         target_dn = self._get_target_dn(user)
@@ -469,13 +469,13 @@ class Shadow:
         # Handle empty Key Credentials
         if len(key_credentials) == 0:
             logging.info(
-                f"The Key Credentials attribute for {repr(sam_account_name)} "
+                f"The Key Credentials attribute for {sam_account_name!r} "
                 f"is either empty or the current user does not have read permissions for the attribute"
             )
             return False
 
         # List the Key Credentials
-        logging.info(f"Listing Key Credentials for {repr(sam_account_name)}")
+        logging.info(f"Listing Key Credentials for {sam_account_name!r}")
         for dn_binary_value in key_credentials:
             key_credential = KeyCredential.fromDNWithBinary(
                 DNWithBinary.fromRawDNWithBinary(dn_binary_value)
@@ -502,7 +502,7 @@ class Shadow:
 
         sam_account_name = self._get_sam_account_name(user)
 
-        logging.info(f"Targeting user {repr(sam_account_name)}")
+        logging.info(f"Targeting user {sam_account_name!r}")
 
         # Get and validate the distinguished name
         target_dn = self._get_target_dn(user)
@@ -510,12 +510,12 @@ class Shadow:
             return False
 
         # Clear the Key Credentials
-        logging.info(f"Clearing the Key Credentials for {repr(sam_account_name)}")
+        logging.info(f"Clearing the Key Credentials for {sam_account_name!r}")
         result = self.set_key_credentials(target_dn, user, [])
 
         if result is True:
             logging.info(
-                f"Successfully cleared the Key Credentials for {repr(sam_account_name)}"
+                f"Successfully cleared the Key Credentials for {sam_account_name!r}"
             )
 
         return result
@@ -541,7 +541,7 @@ class Shadow:
 
         sam_account_name = self._get_sam_account_name(user)
 
-        logging.info(f"Targeting user {repr(sam_account_name)}")
+        logging.info(f"Targeting user {sam_account_name!r}")
 
         # Get and validate the distinguished name
         target_dn = self._get_target_dn(user)
@@ -556,7 +556,7 @@ class Shadow:
         # Handle empty Key Credentials
         if len(key_credentials) == 0:
             logging.info(
-                f"The Key Credentials attribute for {repr(sam_account_name)} "
+                f"The Key Credentials attribute for {sam_account_name!r} "
                 f"is either empty or the current user does not have read permissions for the attribute"
             )
             return True
@@ -572,7 +572,7 @@ class Shadow:
             )
             if key_credential.DeviceId.toFormatD() == device_id:
                 logging.info(
-                    f"Found device ID {repr(device_id)} in Key Credentials {repr(sam_account_name)}"
+                    f"Found device ID {device_id!r} in Key Credentials {sam_account_name!r}"
                 )
                 device_id_in_current_values = True
             else:
@@ -581,22 +581,22 @@ class Shadow:
         # Update the Key Credentials if the specified Device ID was found
         if device_id_in_current_values:
             logging.info(
-                f"Deleting the Key Credential with device ID {repr(device_id)} "
-                f"in Key Credentials for {repr(sam_account_name)}"
+                f"Deleting the Key Credential with device ID {device_id!r} "
+                f"in Key Credentials for {sam_account_name!r}"
             )
 
             result = self.set_key_credentials(target_dn, user, new_key_credentials)
 
             if result is True:
                 logging.info(
-                    f"Successfully deleted the Key Credential with device ID {repr(device_id)} "
-                    f"in Key Credentials for {repr(sam_account_name)}"
+                    f"Successfully deleted the Key Credential with device ID {device_id!r} "
+                    f"in Key Credentials for {sam_account_name!r}"
                 )
             return result
         else:
             logging.error(
-                f"Could not find device ID {repr(device_id)} in Key Credentials for "
-                f"{repr(sam_account_name)}"
+                f"Could not find device ID {device_id!r} in Key Credentials for "
+                f"{sam_account_name!r}"
             )
             return False
 
@@ -619,7 +619,7 @@ class Shadow:
 
         sam_account_name = self._get_sam_account_name(user)
 
-        logging.info(f"Targeting user {repr(sam_account_name)}")
+        logging.info(f"Targeting user {sam_account_name!r}")
 
         # Get and validate the distinguished name
         target_dn = self._get_target_dn(user)
@@ -634,7 +634,7 @@ class Shadow:
         # Handle empty Key Credentials
         if len(key_credentials) == 0:
             logging.info(
-                f"The Key Credentials attribute for {repr(sam_account_name)} "
+                f"The Key Credentials attribute for {sam_account_name!r} "
                 f"is either empty or the current user does not have read permissions for the attribute"
             )
             return True
@@ -647,14 +647,14 @@ class Shadow:
             )
             if key_credential.DeviceId.toFormatD() == device_id:
                 logging.info(
-                    f"Found device ID {repr(device_id)} in Key Credentials {repr(sam_account_name)}"
+                    f"Found device ID {device_id!r} in Key Credentials {sam_account_name!r}"
                 )
                 key_credential.show()
                 return True
 
         logging.error(
-            f"Could not find device ID {repr(device_id)} in Key Credentials for "
-            f"{repr(sam_account_name)}"
+            f"Could not find device ID {device_id!r} in Key Credentials for "
+            f"{sam_account_name!r}"
         )
 
         return False

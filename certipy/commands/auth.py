@@ -302,7 +302,7 @@ class Authenticate:
                     logging.info("Please select one:")
                     for i, identification_pair in enumerate(identifications):
                         id_t, id_value = identification_pair
-                        print(f"    [{i}] {id_t}: {repr(id_value)}")
+                        print(f"    [{i}] {id_t}: {id_value!r}")
 
                     try:
                         idx = int(input("> "))
@@ -340,7 +340,7 @@ class Authenticate:
                 ]:
                     logging.warning(
                         "The provided username does not match the identification "
-                        f"found in the provided certificate: {repr(username)} - {repr(cert_username)}"
+                        f"found in the provided certificate: {username!r} - {cert_username!r}"
                     )
                     res = input("Do you want to continue? (Y/n) ").rstrip("\n")
                     if res.lower() == "n":
@@ -359,7 +359,7 @@ class Authenticate:
                 ):
                     logging.warning(
                         "The provided domain does not match the identification "
-                        f"found in the provided certificate: {repr(domain)} - {repr(cert_domain)}"
+                        f"found in the provided certificate: {domain!r} - {cert_domain!r}"
                     )
                     res = input("Do you want to continue? (Y/n) ").rstrip("\n")
                     if res.lower() == "n":
@@ -447,7 +447,7 @@ class Authenticate:
 
             # Connect to LDAP server
             logging.info(
-                f"Connecting to {repr(f'{self.target.ldap_scheme}://{host}:{self.target.ldap_port}')}"
+                f"Connecting to {f'{self.target.ldap_scheme}://{host}:{self.target.ldap_port}'!r}"
             )
 
             ldap_server = ldap3.Server(
@@ -489,9 +489,7 @@ class Authenticate:
 
             # Get authenticated identity
             who_am_i = ldap_conn.extend.standard.who_am_i()
-            logging.info(
-                f"Authenticated to {repr(self.target.target_ip)} as: {who_am_i}"
-            )
+            logging.info(f"Authenticated to {self.target.target_ip!r} as: {who_am_i}")
 
             # Launch interactive shell
             root = ldap_server.info.other["defaultNamingContext"][0]
@@ -568,25 +566,25 @@ class Authenticate:
 
             if "KDC_ERR_CLIENT_NAME_MISMATCH" in str(e) and not is_key_credential:
                 logging.error(
-                    f"Name mismatch between certificate and user {repr(username)}"
+                    f"Name mismatch between certificate and user {username!r}"
                 )
                 if id_type is not None:
                     logging.error(
-                        f"Verify that the username {repr(username)} matches the certificate {id_type}: {identification}"
+                        f"Verify that the username {username!r} matches the certificate {id_type}: {identification}"
                     )
             elif "KDC_ERR_WRONG_REALM" in str(e) and not is_key_credential:
-                logging.error(f"Wrong domain name specified {repr(domain)}")
+                logging.error(f"Wrong domain name specified {domain!r}")
                 if id_type is not None:
                     logging.error(
-                        f"Verify that the domain {repr(domain)} matches the certificate {id_type}: {identification}"
+                        f"Verify that the domain {domain!r} matches the certificate {id_type}: {identification}"
                     )
             elif "KDC_ERR_CERTIFICATE_MISMATCH" in str(e) and not is_key_credential:
                 logging.error(
-                    f"Object SID mismatch between certificate and user {repr(username)}"
+                    f"Object SID mismatch between certificate and user {username!r}"
                 )
                 if object_sid is not None:
                     logging.error(
-                        f"Verify that user {repr(username)} has object SID {repr(object_sid)}"
+                        f"Verify that user {username!r} has object SID {object_sid!r}"
                     )
             else:
                 logging.error(f"Got error while trying to request TGT: {str(e)}")
@@ -676,7 +674,7 @@ class Authenticate:
 
         # Extract NT hash if requested
         if not self.no_hash:
-            logging.info(f"Trying to retrieve NT hash for {repr(username)}")
+            logging.info(f"Trying to retrieve NT hash for {username!r}")
 
             try:
                 # Create AP-REQ for User-to-User (U2U) authentication
@@ -840,7 +838,7 @@ class Authenticate:
 
                 # Display hash information
                 if not is_key_credential:
-                    logging.info(f"Got hash for {repr(upn)}: {lm_hash}:{nt_hash}")
+                    logging.info(f"Got hash for {upn!r}: {lm_hash}:{nt_hash}")
 
                 # Return the NT hash
                 return nt_hash

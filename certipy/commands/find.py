@@ -231,7 +231,7 @@ class Find:
                 dce.connect()
                 _ = dce.bind(rrp.MSRPC_UUID_RRP)
                 logging.debug(
-                    f"Connected to remote registry at {repr(self.target.remote_name)} ({self.target.target_ip!r})"
+                    f"Connected to remote registry at {self.target.remote_name!r} ({self.target.target_ip!r})"
                 )
                 return dce
             except Exception as e:
@@ -611,7 +611,7 @@ class Find:
 
         except Exception as e:
             logging.warning(
-                f"Failed to get CA security and configuration for {repr(ca_name)}: {e}"
+                f"Failed to get CA security and configuration for {ca_name!r}: {e}"
             )
             if self.verbose:
                 traceback.print_exc()
@@ -1939,17 +1939,6 @@ class Find:
         if template.get("vulnerabilities"):
             return template.get("vulnerabilities")
 
-        # Get human-readable list of principals from SIDs
-        def format_principals(sids: List[str]) -> str:
-            principal_names = [
-                repr(self.connection.lookup_sid(sid).get("name")) for sid in sids
-            ]
-
-            if len(principal_names) == 1:
-                return principal_names[0]
-
-            return ", ".join(principal_names[:-1]) + " and " + principal_names[-1]
-
         vulnerabilities = {}
         remarks = {}
         user_can_enroll, enrollable_sids = self.can_user_enroll_in_template(template)
@@ -1963,7 +1952,7 @@ class Find:
         )
 
         if is_enabled and user_can_enroll and not requires_approval:
-            enrollable_principals = format_principals(enrollable_sids)
+            enrollable_principals = self.format_principals(enrollable_sids)
 
             # ESC1: Client authentication with enrollee-supplied subject
             if template.get("enrollee_supplies_subject") and template.get(
@@ -2058,7 +2047,7 @@ class Find:
             )
             if has_vulnerable_acl:
                 vulnerabilities["ESC4"] = (
-                    f"{format_principals(vulnerable_acl_sids)} has dangerous permissions"
+                    f"{self.format_principals(vulnerable_acl_sids)} has dangerous permissions"
                 )
 
         return (vulnerabilities, remarks)
@@ -2181,17 +2170,6 @@ class Find:
         if ca.get("vulnerabilities"):
             return ca.get("vulnerabilities")
 
-        # Get human-readable list of principals from SIDs
-        def format_principals(sids: List[str]) -> str:
-            principal_names = [
-                repr(self.connection.lookup_sid(sid).get("name")) for sid in sids
-            ]
-
-            if len(principal_names) == 1:
-                return principal_names[0]
-
-            return ", ".join(principal_names[:-1]) + " and " + principal_names[-1]
-
         vulnerabilities = {}
         remarks = {}
         request_disposition = ca.get("request_disposition")
@@ -2207,7 +2185,7 @@ class Find:
         has_vulnerable_acl, vulnerable_acl_sids = self.ca_has_vulnerable_acl(ca)
         if has_vulnerable_acl:
             vulnerabilities["ESC7"] = (
-                f"{format_principals(vulnerable_acl_sids)} has dangerous permissions"
+                f"{self.format_principals(vulnerable_acl_sids)} has dangerous permissions"
             )
 
         # ESC8: Insecure web enrollment
@@ -2317,17 +2295,6 @@ class Find:
         if oid.get("vulnerabilities"):
             return oid.get("vulnerabilities")
 
-        # Get human-readable list of principals from SIDs
-        def format_principals(sids: List[str]) -> str:
-            principal_names = [
-                repr(self.connection.lookup_sid(sid).get("name")) for sid in sids
-            ]
-
-            if len(principal_names) == 1:
-                return principal_names[0]
-
-            return ", ".join(principal_names[:-1]) + " and " + principal_names[-1]
-
         vulnerabilities = {}
 
         # ESC13: OID ownership or vulnerable ACL
@@ -2345,7 +2312,7 @@ class Find:
             has_vulnerable_acl, vulnerable_acl_sids = self.oid_has_vulnerable_acl(oid)
             if has_vulnerable_acl:
                 vulnerabilities["ESC13"] = (
-                    f"{format_principals(vulnerable_acl_sids)} has dangerous permissions"
+                    f"{self.format_principals(vulnerable_acl_sids)} has dangerous permissions"
                 )
 
         return vulnerabilities
@@ -2389,6 +2356,25 @@ class Find:
                 has_vulnerable_acl = True
 
         return has_vulnerable_acl, list(set(vulnerable_acl_sids))  # Deduplicate SIDs
+
+    def format_principals(self, sids: List[str]) -> str:
+        """
+        Format a list of SIDs into a human-readable string.
+
+        Args:
+            sids: List of SIDs to format
+
+        Returns:
+            Formatted string of principal names
+        """
+        principal_names = [
+            repr(self.connection.lookup_sid(sid).get("name")) for sid in sids
+        ]
+
+        if len(principal_names) == 1:
+            return principal_names[0]
+
+        return ", ".join(principal_names[:-1]) + " and " + principal_names[-1]
 
 
 def entry(options: argparse.Namespace) -> None:

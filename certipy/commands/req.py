@@ -699,7 +699,7 @@ class WebRequestInterface:
         port = self.parent.http_port or (443 if scheme == "https" else 80)
 
         base_url = f"{scheme}://{self.target.target_ip}:{port}"
-        logging.info(f"Checking for Web Enrollment on {repr(base_url)}")
+        logging.info(f"Checking for Web Enrollment on {base_url!r}")
 
         success = self._try_connection(session, base_url)
 
@@ -709,9 +709,7 @@ class WebRequestInterface:
             alt_port = 80 if alt_scheme == "http" else 443
 
             base_url = f"{alt_scheme}://{self.target.target_ip}:{alt_port}"
-            logging.info(
-                f"Trying to connect to Web Enrollment interface {repr(base_url)}"
-            )
+            logging.info(f"Trying to connect to Web Enrollment interface {base_url!r}")
 
             success = self._try_connection(session, base_url)
 
@@ -752,12 +750,12 @@ class WebRequestInterface:
             if res.status_code == 200:
                 return True
             elif res.status_code == 401:
-                logging.error(f"Unauthorized for Web Enrollment at {repr(base_url)}")
+                logging.error(f"Unauthorized for Web Enrollment at {base_url!r}")
             else:
                 logging.warning(
-                    f"Failed to authenticate to Web Enrollment at {repr(base_url)}"
+                    f"Failed to authenticate to Web Enrollment at {base_url!r}"
                 )
-                logging.debug(f"Got status code: {repr(res.status_code)}")
+                logging.debug(f"Got status code: {res.status_code!r}")
                 if self.parent.verbose:
                     print(res.text)
 
@@ -886,7 +884,7 @@ class WebRequestInterface:
         # Check for pending requests
         if "template that is not supported" in content:
             logging.error(
-                f"Template {repr(self.parent.template)} is not supported by AD CS"
+                f"Template {self.parent.template!r} is not supported by AD CS"
             )
         else:
             # Try to find request ID in other format
@@ -1156,7 +1154,7 @@ class Request:
         # Check for object SID
         object_sid = get_object_sid_from_certificate(cert)
         if object_sid is not None:
-            logging.info(f"Certificate object SID is {repr(object_sid)}")
+            logging.info(f"Certificate object SID is {object_sid!r}")
         else:
             logging.info("Certificate has no object SID")
 
@@ -1175,7 +1173,7 @@ class Request:
                 key = pem_to_key(f.read())
 
             # If key found, save as PFX
-            logging.info(f"Loaded private key from {repr(f'{request_id}.key')}")
+            logging.info(f"Loaded private key from {f'{request_id}.key'!r}")
             pfx = create_pfx(key, cert, self.pfx_password)
 
             output_path = f"{out}.pfx"
@@ -1353,7 +1351,7 @@ class Request:
         # Check for object SID
         object_sid = get_object_sid_from_certificate(cert)
         if object_sid is not None:
-            logging.info(f"Certificate object SID is {repr(object_sid)}")
+            logging.info(f"Certificate object SID is {object_sid!r}")
         else:
             logging.info("Certificate has no object SID")
 
