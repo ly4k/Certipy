@@ -9,7 +9,6 @@ misconfigured templates in AD CS environments.
 import argparse
 import collections
 import json
-import logging
 from itertools import groupby
 from typing import Any, Dict, Optional
 
@@ -18,6 +17,7 @@ from ldap3.core.results import RESULT_INSUFFICIENT_ACCESS_RIGHTS
 from ldap3.protocol.microsoft import security_descriptor_control
 from ldap3.utils.conv import escape_filter_chars
 
+from certipy.lib.files import try_to_save_file
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import logging
 from certipy.lib.target import Target
@@ -288,16 +288,12 @@ class Template:
             )
 
             template_name = old_configuration.get("cn")
+
             out_file = f"{template_name}.json"
-
-            # Replace slashes with underscores for safe filenames
-            out_file = out_file.replace("\\", "_").replace("/", "_")
-
-            with open(out_file, "w") as f:
-                _ = f.write(old_configuration_json)
-
+            logging.info(f"Saving old configuration to {out_file!r}")
+            out_file = try_to_save_file(old_configuration_json, out_file)
             logging.info(
-                f"Saved old configuration for {self.template_name!r} to {out_file!r}"
+                f"Wrote old configuration for {self.template_name!r} to {out_file!r}"
             )
 
         # Compute the changes to make

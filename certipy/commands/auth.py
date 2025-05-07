@@ -69,6 +69,7 @@ from certipy.lib.certificate import (
     x509,
 )
 from certipy.lib.errors import KRB5_ERROR_MESSAGES
+from certipy.lib.files import try_to_save_file
 from certipy.lib.logger import logging
 from certipy.lib.pkinit import build_pkinit_as_req
 from certipy.lib.structs import PA_PK_AS_REP, Enctype, KDCDHKeyInfo, e2i
@@ -664,12 +665,14 @@ class Authenticate:
         if not self.no_save:
             if self.kirbi:
                 kirbi_name = f"{username.rstrip('$')}.kirbi"
-                ccache.saveKirbiFile(kirbi_name)
-                logging.info(f"Saved Kirbi file to {repr(kirbi_name)}")
+                logging.info(f"Saving Kirbi file to {kirbi_name!r}")
+                saved_path = try_to_save_file(ccache.toKRBCRED(), kirbi_name)
+                logging.info(f"Wrote Kirbi file to {saved_path!r}")
             else:
                 self.ccache_name = f"{username.rstrip('$')}.ccache"
-                ccache.saveFile(self.ccache_name)
-                logging.info(f"Saved credential cache to {repr(self.ccache_name)}")
+                logging.info(f"Saving credential cache to {self.ccache_name!r}")
+                saved_path = try_to_save_file(ccache.getData(), self.ccache_name)
+                logging.info(f"Wrote credential cache to {saved_path!r}")
 
         # Extract NT hash if requested
         if not self.no_hash:

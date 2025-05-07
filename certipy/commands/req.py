@@ -56,6 +56,7 @@ from certipy.lib.certificate import (
 )
 from certipy.lib.constants import OID_TO_STR_MAP, USER_AGENT
 from certipy.lib.errors import translate_error_code
+from certipy.lib.files import try_to_save_file
 from certipy.lib.formatting import print_certificate_identifications
 from certipy.lib.kerberos import HttpxKerberosAuth
 from certipy.lib.logger import logging
@@ -422,14 +423,14 @@ class DCOMRequestInterface:
             out = self.parent.out if self.parent.out is not None else str(request_id)
 
             try:
-                with open(f"{out}.key", "wb") as f:
-                    if self.parent.key is None:
-                        logging.error("No private key found")
-                        return
+                if self.parent.key is None:
+                    logging.error("No private key found")
+                    return
 
-                    _ = f.write(key_to_pem(self.parent.key))
-
-                logging.info(f"Saved private key to {out}.key")
+                output_path = f"{out}.key"
+                logging.info(f"Saving private key to {output_path!r}")
+                output_path = try_to_save_file(key_to_pem(self.parent.key), output_path)
+                logging.info(f"Wrote private key to {output_path!r}")
             except Exception as e:
                 logging.error(f"Failed to save private key: {str(e)}")
 
@@ -632,13 +633,14 @@ class RPCRequestInterface:
 
         if should_save.lower() == "y":
             out = self.parent.out if self.parent.out is not None else str(request_id)
-            with open(f"{out}.key", "wb") as f:
-                if self.parent.key is None:
-                    logging.error("No private key found")
-                    return None
-                _ = f.write(key_to_pem(self.parent.key))
+            if self.parent.key is None:
+                logging.error("No private key found")
+                return None
 
-            logging.info(f"Saved private key to {out}.key")
+            output_path = f"{out}.key"
+            logging.info(f"Saving private key to {output_path!r}")
+            output_path = try_to_save_file(key_to_pem(self.parent.key), output_path)
+            logging.info(f"Wrote private key to {output_path!r}")
 
         return None
 
@@ -974,14 +976,14 @@ class WebRequestInterface:
             out = self.parent.out if self.parent.out is not None else str(request_id)
 
             try:
-                with open(f"{out}.key", "wb") as f:
-                    if self.parent.key is None:
-                        logging.error("No private key found")
-                        return
+                if self.parent.key is None:
+                    logging.error("No private key found")
+                    return
 
-                    _ = f.write(key_to_pem(self.parent.key))
-
-                logging.info(f"Saved private key to {out}.key")
+                output_path = f"{out}.key"
+                logging.info(f"Saving private key to {output_path!r}")
+                output_path = try_to_save_file(key_to_pem(self.parent.key), output_path)
+                logging.info(f"Wrote private key to {output_path!r}")
             except Exception as e:
                 logging.error(f"Failed to save private key: {str(e)}")
 
@@ -1176,21 +1178,20 @@ class Request:
             logging.info(f"Loaded private key from {repr(f'{request_id}.key')}")
             pfx = create_pfx(key, cert, self.pfx_password)
 
-            with open(f"{out}.pfx", "wb") as f:
-                _ = f.write(pfx)
-
-            logging.info(f"Saved certificate and private key to {repr(f'{out}.pfx')}")
-
+            output_path = f"{out}.pfx"
+            logging.info(f"Saving certificate and private key to {output_path!r}")
+            output_path = try_to_save_file(pfx, output_path)
+            logging.info(f"Wrote certificate and private key to {output_path!r}")
         except Exception:
             # If no key found, save just the certificate
             logging.warning(
                 "Could not find matching private key. Saving certificate as PEM"
             )
 
-            with open(f"{out}.crt", "wb") as f:
-                _ = f.write(cert_to_pem(cert))
-
-            logging.info(f"Saved certificate to {repr(f'{out}.crt')}")
+            output_path = f"{out}.crt"
+            logging.info(f"Saving certificate to {output_path!r}")
+            output_path = try_to_save_file(cert_to_pem(cert), output_path)
+            logging.info(f"Wrote certificate to {output_path!r}")
 
         return True
 
@@ -1367,12 +1368,11 @@ class Request:
 
         # Create PFX and save to file
         pfx = create_pfx(key, cert, self.pfx_password)
+
         outfile = f"{out}.pfx"
-
-        with open(outfile, "wb") as f:
-            _ = f.write(pfx)
-
-        logging.info(f"Saved certificate and private key to {repr(outfile)}")
+        logging.info(f"Saving certificate and private key to {outfile!r}")
+        outfile = try_to_save_file(pfx, outfile)
+        logging.info(f"Wrote certificate and private key to {outfile!r}")
 
         return pfx, outfile
 
@@ -1419,9 +1419,9 @@ def entry(options: argparse.Namespace) -> None:
 
         cax = request.getCAX()
         if isinstance(cax, bytes):
-            with open(options.out, "wb") as f:
-                _ = f.write(cax)
-            logging.info(f"CAX certificate saved to {options.out}")
+            logging.info(f"Saving CAX certificate to {options.out!r}")
+            output_path = try_to_save_file(cax, options.out)
+            logging.info(f"Wrote CAX certificate to {output_path!r}")
         return
 
     # Handle certificate retrieval or request

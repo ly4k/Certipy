@@ -30,6 +30,7 @@ from impacket.uuid import string_to_bin, uuidtup_to_bin
 from certipy.lib.certificate import NameOID, create_pfx, der_to_cert, load_pfx, x509
 from certipy.lib.constants import CERTIFICATION_AUTHORITY_RIGHTS
 from certipy.lib.errors import translate_error_code
+from certipy.lib.files import try_to_save_file
 from certipy.lib.kerberos import get_TGS
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import logging
@@ -1350,8 +1351,12 @@ class CA:
             pfx = self.get_backup()
             if pfx:
                 # Save raw PFX with password "certipy"
-                with open("pfx.p12", "wb") as f:
-                    _ = f.write(pfx)
+                logging.info("Backing up original PFX/P12 to 'pfx.p12'")
+                path = try_to_save_file(
+                    pfx,
+                    "pfx.p12",
+                )
+                logging.info(f"Backed up original PFX/P12 to {path!r}")
 
                 # Parse and convert to standard PFX format
                 key, cert = load_pfx(pfx, b"certipy")
@@ -1372,10 +1377,12 @@ class CA:
                 pfx = create_pfx(key, cert)
 
                 pfx_out = f"{common_name.value}.pfx"
-                with open(pfx_out, "wb") as f:
-                    _ = f.write(pfx)
-
-                logging.info(f"Saved certificate and private key to {repr(pfx_out)}")
+                logging.info(f"Saving certificate and private key to {pfx_out!r}")
+                path = try_to_save_file(
+                    pfx,
+                    pfx_out,
+                )
+                logging.info(f"Wrote certificate and private key to {path!r}")
         except Exception as e:
             logging.error(f"Backup failed: {e}")
             return False

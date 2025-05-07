@@ -28,6 +28,7 @@ from dsinternals.system.DateTime import DateTime
 from dsinternals.system.Guid import Guid
 
 from certipy.lib.certificate import create_pfx, der_to_cert, der_to_key, x509
+from certipy.lib.files import try_to_save_file
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import logging
 from certipy.lib.target import Target
@@ -429,10 +430,13 @@ class Shadow:
 
         # Create and save PFX
         pfx = create_pfx(key, cert)
-        with open(out, "wb") as f:
-            _ = f.write(pfx)
 
-        logging.info(f"Saved certificate and private key to {repr(out)}")
+        logging.info(f"Saving certificate and private key to {out!r}")
+        out = try_to_save_file(
+            pfx,
+            out,
+        )
+        logging.info(f"Saved certificate and private key to {out!r}")
 
         return True
 

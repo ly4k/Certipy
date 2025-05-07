@@ -30,7 +30,7 @@ def add_argument_group(
     else:
         conn_group = parser.add_argument_group("connection options")
 
-    # Domain Controller options
+    # Domain controller options
     _ = conn_group.add_argument(
         "-dc-ip",
         action="store",
@@ -68,7 +68,7 @@ def add_argument_group(
         help="DNS name or IP address of the target machine. Required for Kerberos authentication",
     )
 
-    # DNS resolution options
+    # DNS options
     _ = conn_group.add_argument(
         "-ns",
         action="store",
@@ -79,7 +79,7 @@ def add_argument_group(
         "-dns-tcp", action="store_true", help="Use TCP instead of UDP for DNS queries"
     )
 
-    # Connection parameters
+    # Connection options
     _ = conn_group.add_argument(
         "-timeout",
         action="store",
@@ -116,7 +116,7 @@ def add_argument_group(
         help="NTLM hash",
     )
 
-    # Authentication methods
+    # Authentication options
     _ = auth_group.add_argument(
         "-k",
         action="store_true",

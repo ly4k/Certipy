@@ -40,6 +40,7 @@ from certipy.lib.certificate import (
     szOID_NTDS_OBJECTSID,
     x509,
 )
+from certipy.lib.files import try_to_save_file
 from certipy.lib.logger import logging
 
 # List of secure hash algorithms
@@ -559,10 +560,10 @@ class Forge:
 
         # Save PFX to file
         out_path = self.determine_output_filename(id_type, id_value)
-        with open(out_path, "wb") as f:
-            _ = f.write(pfx)
 
-        logging.info(f"Saved forged certificate and private key to {repr(out_path)}")
+        logging.info(f"Saving forged certificate and private key to {out_path!r}")
+        out_path = try_to_save_file(pfx, out_path)
+        logging.info(f"Wrote forged certificate and private key to {out_path!r}")
 
 
 def entry(options: argparse.Namespace) -> None:

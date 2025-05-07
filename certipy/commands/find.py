@@ -15,6 +15,7 @@ settings, helping identify misconfiguration and potential attack vectors.
 import argparse
 import copy
 import csv
+import io
 import json
 import struct
 import time
@@ -41,6 +42,7 @@ from certipy.lib.constants import (
     OID_TO_STR_MAP,
     USER_AGENT,
 )
+from certipy.lib.files import try_to_save_file
 from certipy.lib.formatting import pretty_print
 from certipy.lib.kerberos import HttpxKerberosAuth
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
@@ -555,10 +557,11 @@ class Find:
             },
         }
 
+        ca_name = ca.get("name")
+        ca_remote_name = ca.get("dNSHostName")
+
         try:
             # Get CA hostname and IP
-            ca_name = ca.get("name")
-            ca_remote_name = ca.get("dNSHostName")
             ca_target_ip = self.target.resolver.resolve(ca_remote_name)
 
             # Clone target for this CA
@@ -608,7 +611,7 @@ class Find:
 
         except Exception as e:
             logging.warning(
-                f"Failed to get CA security and configuration for {repr(ca.get('name'))}: {e}"
+                f"Failed to get CA security and configuration for {repr(ca_name)}: {e}"
             )
             if self.verbose:
                 traceback.print_exc()
@@ -616,7 +619,9 @@ class Find:
                 logging.warning("Use -debug to print a stacktrace")
 
         # Check web enrollment
+        logging.info(f"Checking web enrollment for CA {ca_name!r} @ {ca_remote_name!r}")
         try:
+
             ca_properties["web_enrollment"]["http"]["enabled"] = (
                 self.check_web_enrollment(ca, "http")
             )
@@ -636,9 +641,7 @@ class Find:
                 )
 
         except Exception as e:
-            logging.warning(
-                f"Failed to check Web Enrollment for CA {ca.get('name')!r}: {e}"
-            )
+            logging.warning(f"Failed to check Web Enrollment for CA {ca_name!r}: {e}")
             if self.verbose:
                 traceback.print_exc()
             else:
@@ -1055,138 +1058,70 @@ class Find:
         not_specified = not any([self.json, self.text, self.csv])
 
         # Generate output for text/JSON formats
-        if self.text or self.json or not_specified:
-            output = self.get_output_for_text_and_json(templates, cas, oids)
+        output = self.get_output_for_text_and_json(templates, cas, oids)
 
-            # Save text output
-            if self.text or not_specified:
-                output_text_stdout = copy.copy(output)
+        # Save text output
+        if self.text or not_specified:
+            output_text_stdout = copy.copy(output)
 
-                if self.trailing_output:
-                    output_text_stdout["ESC14"] = self.trailing_output
+            if self.trailing_output:
+                output_text_stdout["ESC14"] = self.trailing_output
 
-                if self.stdout:
-                    logging.info("Enumeration output:")
-                    pretty_print(output_text_stdout)
-                else:
-                    output_path = f"{prefix}_Certipy.txt"
-                    with open(output_path, "w") as f:
-                        pretty_print(
-                            output_text_stdout,
-                            print_func=lambda x: f.write(x + "\n"),
-                        )
-                    logging.info(f"Saved text output to {repr(output_path)}")
+            if self.stdout:
+                logging.info("Enumeration output:")
+                pretty_print(output_text_stdout)
+            else:
+                output_path = f"{prefix}_Certipy.txt"
+                logging.info(f"Saving text output to {output_path!r}")
 
-            # Save JSON output
-            if self.json or not_specified:
-                output_path = f"{prefix}_Certipy.json"
-                with open(output_path, "w") as f:
-                    json.dump(output, f, indent=2, default=str)
-                logging.info(f"Saved JSON output to {repr(output_path)}")
+                f = io.StringIO()
+                pretty_print(
+                    output_text_stdout,
+                    print_func=lambda x: f.write(x + "\n"),
+                )
 
-            # Save CSV output
-            if self.csv:
-                output_path = f"{prefix}_Certipy.csv"
-                self.save_templates_to_csv(prefix, output)
-                logging.info(f"Saved CSV output to {repr(output_path)}")
+                output_path = try_to_save_file(
+                    f.getvalue(),
+                    output_path,
+                )
+                logging.info(f"Wrote text output to {output_path!r}")
 
-    def save_templates_to_csv(self, prefix: str, output: Dict[str, Any]):
-        """
-        Save certificate templates to CSV file.
+        # Save JSON output
+        if self.json or not_specified:
+            output_path = f"{prefix}_Certipy.json"
+            logging.info(f"Saving JSON output to {output_path!r}")
 
-        Args:
-            prefix: Output file prefix
-            output: Output data dictionary
-        """
-
-        def flatten_dict(
-            template_entries: Dict[str, Any], parent_key: str = "", sep: str = "."
-        ):
-            """Flatten nested dictionaries for CSV output."""
-            items = []
-            for key, value in template_entries.items():
-                new_key = f"{parent_key}{sep}{key}" if parent_key else key
-
-                if isinstance(value, dict):
-                    if "Permissions" in key:
-                        # Handle permissions specially
-                        for sub_key, sub_value in value.items():
-                            if "Enrollment Permissions" in sub_key:
-                                items.append(
-                                    (sub_key, "\n".join(sub_value["Enrollment Rights"]))
-                                )
-                            elif "Object Control Permissions" in sub_key:
-                                for subsub_key, subsub_value in sub_value.items():
-                                    if isinstance(subsub_value, list):
-                                        items.append(
-                                            (subsub_key, "\n".join(subsub_value))
-                                        )
-                                    else:
-                                        items.append((subsub_key, subsub_value))
-                    else:
-                        # General dictionary
-                        items.append(
-                            (
-                                new_key,
-                                ", ".join([f"{k}: {v}" for k, v in value.items()]),
-                            )
-                        )
-                elif isinstance(value, list):
-                    # Format lists with newlines
-                    items.append((new_key, "\n".join(value)))
-                else:
-                    # Plain values
-                    items.append((new_key, value))
-
-            return dict(items)
-
-        # Define column order
-        column_order = [
-            "Template Name",
-            "Display Name",
-            "Certificate Authorities",
-            "Enabled",
-            "Client Authentication",
-            "Enrollment Agent",
-            "Any Purpose",
-            "Enrollee Supplies Subject",
-            "Certificate Name Flag",
-            "Enrollment Flag",
-            "Private Key Flag",
-            "Extended Key Usage",
-            "Requires Manager Approval",
-            "Requires Key Archival",
-            "Authorized Signatures Required",
-            "Validity Period",
-            "Renewal Period",
-            "Minimum RSA Key Length",
-            "Enrollment Permissions",
-            "Owner",
-            "Write Owner Principals",
-            "Write Dacl Principals",
-            "Write Property Principals",
-            "[!] Vulnerabilities",
-        ]
-
-        # Create CSV file
-        output_path = f"{prefix}_Certipy.csv"
-        with open(output_path, "w", newline="") as csvfile:
-            writer = csv.DictWriter(
-                csvfile,
-                fieldnames=column_order,
-                extrasaction="ignore",
-                delimiter=";",
-                quoting=csv.QUOTE_ALL,
+            f = io.StringIO()
+            json.dump(
+                output,
+                f,
+                indent=2,
+                default=str,
             )
-            writer.writeheader()
 
-            # Write each template as a row
-            template_rows = [
-                flatten_dict(output["Certificate Templates"][id_])
-                for id_ in output["Certificate Templates"]
-                if isinstance(output["Certificate Templates"], dict)
-            ]
-            writer.writerows(template_rows)
+            output_path = try_to_save_file(
+                f.getvalue(),
+                output_path,
+            )
+            logging.info(f"Wrote JSON output to {output_path!r}")
+
+        # Save CSV output
+        if self.csv:
+            # Save templates CSV
+            template_output = self.get_template_output_for_csv(output)
+            template_output_path = f"{prefix}_Templates_Certipy.csv"
+            logging.info(f"Saving templates CSV output to {template_output_path!r}")
+            template_output_path = try_to_save_file(
+                template_output, template_output_path
+            )
+            logging.info(f"Wrote templates CSV output to {template_output_path!r}")
+
+            # Save CA CSV
+            ca_output = self.get_ca_output_for_csv(output)
+            ca_output_path = f"{prefix}_CAs_Certipy.csv"
+            logging.info(f"Saving CA CSV output to {ca_output_path!r}")
+            ca_output_path = try_to_save_file(ca_output, ca_output_path)
+            logging.info(f"Wrote CA CSV output to {ca_output_path!r}")
 
     def get_output_for_text_and_json(
         self, templates: List[LDAPEntry], cas: List[LDAPEntry], oids: List[LDAPEntry]
@@ -1213,7 +1148,7 @@ class Find:
                 continue
 
             # Get template vulnerabilities
-            vulnerabilities = self.get_template_vulnerabilities(template)
+            (vulnerabilities, remarks) = self.get_template_vulnerabilities(template)
 
             # Skip if only showing vulnerable templates and this one isn't
             if self.vuln and not vulnerabilities:
@@ -1232,6 +1167,9 @@ class Find:
             if vulnerabilities:
                 entry["[!] Vulnerabilities"] = vulnerabilities
 
+            if remarks:
+                entry["[i] Remarks"] = remarks
+
             # Add entry to collection
             template_entries[len(template_entries)] = entry
 
@@ -1247,9 +1185,11 @@ class Find:
                 entry["Permissions"] = permissions
 
             # Add vulnerabilities
-            vulnerabilities = self.get_ca_vulnerabilities(ca)
+            (vulnerabilities, remarks) = self.get_ca_vulnerabilities(ca)
             if vulnerabilities:
                 entry["[!] Vulnerabilities"] = vulnerabilities
+            if remarks:
+                entry["[i] Remarks"] = remarks
 
             # Add entry to collection
             ca_entries[len(ca_entries)] = entry
@@ -1305,6 +1245,313 @@ class Find:
                 output["Issuance Policies"] = oids_entries
 
         return output
+
+    def get_ca_output_for_csv(self, output: Dict[str, Any]) -> str:
+        """
+        Convert Certificate Authority data to CSV format.
+
+        This function transforms nested CA data into a flattened CSV format.
+        It handles complex nested structures like permissions and web enrollment
+        settings in a way that makes them readable in CSV format.
+
+        Args:
+            output: Dictionary containing CA data (from get_output_for_text_and_json)
+
+        Returns:
+            String containing CSV-formatted data
+
+        Raises:
+            ValueError: If CA data is malformed or missing
+        """
+        # Column order for the CSV output (determines which fields to include and their order)
+        column_order = [
+            "CA Name",
+            "DNS Name",
+            "Certificate Subject",
+            "Certificate Serial Number",
+            "Certificate Validity Start",
+            "Certificate Validity End",
+            "User Specified SAN",
+            "Request Disposition",
+            "Enforce Encryption for Requests",
+            "Web Enrollment HTTP",
+            "Web Enrollment HTTPS",
+            "Channel Binding",
+            "Owner",
+            "Manage CA Principals",
+            "Manage Certificates Principals",
+            "[!] Vulnerabilities",
+        ]
+
+        # Create CSV writer with semicolon delimiter and quote all fields
+        csvfile = io.StringIO(newline="")
+        writer = csv.DictWriter(
+            csvfile,
+            fieldnames=column_order,
+            extrasaction="ignore",  # Ignore fields not in column_order
+            delimiter=";",
+            quoting=csv.QUOTE_ALL,
+        )
+
+        # Write header row
+        writer.writeheader()
+
+        # Check if we have valid CA data
+        if not isinstance(output.get("Certificate Authorities"), dict):
+            logging.warning("No certificate authority data available for CSV export")
+            return csvfile.getvalue()
+
+        try:
+            # Process each CA and flatten its structure
+            ca_rows = [
+                self._flatten_ca_data(output["Certificate Authorities"][id_])
+                for id_ in output["Certificate Authorities"]
+            ]
+
+            # Write all rows to CSV
+            writer.writerows(ca_rows)
+            return csvfile.getvalue()
+
+        except Exception as e:
+            logging.error(f"Error generating CA CSV data: {e}")
+            if self.verbose:
+                import traceback
+
+                traceback.print_exc()
+            return csvfile.getvalue()
+
+    def _flatten_ca_data(self, ca_entry: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Flatten a nested CA dictionary for CSV output.
+
+        Handles special cases like permissions dictionaries, web enrollment settings,
+        and list values by converting them to appropriate string representations.
+
+        Args:
+            ca_entry: Dictionary containing CA data
+
+        Returns:
+            Flattened dictionary with string values suitable for CSV
+        """
+        items = []
+
+        # Process each field in the CA entry
+        for key, value in ca_entry.items():
+            # Handle web enrollment specially
+            if key == "Web Enrollment" and isinstance(value, dict):
+                # Extract HTTP status
+                if (
+                    "http" in value
+                    and isinstance(value["http"], dict)
+                    and "enabled" in value["http"]
+                ):
+                    http_status = "Enabled" if value["http"]["enabled"] else "Disabled"
+                    items.append(("Web Enrollment HTTP", http_status))
+
+                # Extract HTTPS status
+                if "https" in value and isinstance(value["https"], dict):
+                    if "enabled" in value["https"]:
+                        https_status = (
+                            "Enabled" if value["https"]["enabled"] else "Disabled"
+                        )
+                        items.append(("Web Enrollment HTTPS", https_status))
+
+                    # Extract channel binding status
+                    if "channel_binding" in value["https"]:
+                        cb_status = "Unknown"
+                        if value["https"]["channel_binding"] is True:
+                            cb_status = "Enabled"
+                        elif value["https"]["channel_binding"] is False:
+                            cb_status = "Disabled"
+                        items.append(("Channel Binding", cb_status))
+
+            # Handle permissions specially
+            elif "Permissions" in key and isinstance(value, dict):
+                # Process owner
+                if "Owner" in value:
+                    items.append(("Owner", str(value["Owner"])))
+
+                # Process access rights
+                if "Access Rights" in value and isinstance(
+                    value["Access Rights"], dict
+                ):
+                    access_rights = value["Access Rights"]
+
+                    # Process Manage CA permissions
+                    if "Manage CA" in access_rights and isinstance(
+                        access_rights["Manage CA"], list
+                    ):
+                        items.append(
+                            (
+                                "Manage CA Principals",
+                                "\n".join(access_rights["Manage CA"]),
+                            )
+                        )
+
+                    # Process Manage Certificates permissions
+                    if "Manage Certificates" in access_rights and isinstance(
+                        access_rights["Manage Certificates"], list
+                    ):
+                        items.append(
+                            (
+                                "Manage Certificates Principals",
+                                "\n".join(access_rights["Manage Certificates"]),
+                            )
+                        )
+
+            # Handle vulnerabilities specially
+            elif "[!] Vulnerabilities" in key and isinstance(value, dict):
+                vuln_list = [f"{k}: {v}" for k, v in value.items()]
+                items.append((key, "\n".join(vuln_list)))
+
+            # Handle dictionaries (convert to "key: value" format)
+            elif isinstance(value, dict):
+                formatted_value = ", ".join([f"{k}: {v}" for k, v in value.items()])
+                items.append((key, formatted_value))
+
+            # Handle lists (join with newlines for better CSV reading)
+            elif isinstance(value, list):
+                items.append((key, "\n".join(map(str, value))))
+
+            # Handle simple values
+            else:
+                items.append((key, str(value) if value is not None else ""))
+
+        return dict(items)
+
+    def get_template_output_for_csv(self, output: Dict[str, Any]) -> str:
+        """
+        Convert certificate template data to CSV format.
+
+        This function transforms nested certificate templates data into a flattened CSV format.
+        It handles complex nested structures like permissions and lists in a way that makes them
+        readable in CSV format.
+
+        Args:
+            output: Dictionary containing certificate template data (from get_output_for_text_and_json)
+
+        Returns:
+            String containing CSV-formatted data
+
+        Raises:
+            ValueError: If certificate template data is malformed or missing
+        """
+        # Column order for the CSV output (determines which fields to include and their order)
+        column_order = [
+            "Template Name",
+            "Display Name",
+            "Certificate Authorities",
+            "Enabled",
+            "Client Authentication",
+            "Enrollment Agent",
+            "Any Purpose",
+            "Enrollee Supplies Subject",
+            "Certificate Name Flag",
+            "Enrollment Flag",
+            "Private Key Flag",
+            "Extended Key Usage",
+            "Requires Manager Approval",
+            "Requires Key Archival",
+            "Authorized Signatures Required",
+            "Validity Period",
+            "Renewal Period",
+            "Minimum RSA Key Length",
+            "Enrollment Permissions",
+            "Owner",
+            "Write Owner Principals",
+            "Write Dacl Principals",
+            "Write Property Principals",
+            "[!] Vulnerabilities",
+        ]
+
+        # Create CSV writer with semicolon delimiter and quote all fields
+        csvfile = io.StringIO(newline="")
+        writer = csv.DictWriter(
+            csvfile,
+            fieldnames=column_order,
+            extrasaction="ignore",  # Ignore fields not in column_order
+            delimiter=";",
+            quoting=csv.QUOTE_ALL,
+        )
+
+        # Write header row
+        writer.writeheader()
+
+        # Check if we have valid template data
+        if not isinstance(output.get("Certificate Templates"), dict):
+            logging.warning("No certificate templates data available for CSV export")
+            return csvfile.getvalue()
+
+        try:
+            # Process each template and flatten its structure
+            template_rows = [
+                self._flatten_template_data(output["Certificate Templates"][id_])
+                for id_ in output["Certificate Templates"]
+            ]
+
+            # Write all rows to CSV
+            writer.writerows(template_rows)
+            return csvfile.getvalue()
+
+        except Exception as e:
+            logging.error(f"Error generating CSV data: {e}")
+            if self.verbose:
+                import traceback
+
+                traceback.print_exc()
+            return csvfile.getvalue()
+
+    def _flatten_template_data(self, template_entry: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Flatten a nested template dictionary for CSV output.
+
+        Handles special cases like permissions dictionaries, nested objects,
+        and list values by converting them to appropriate string representations.
+
+        Args:
+            template_entry: Dictionary containing template data
+
+        Returns:
+            Flattened dictionary with string values suitable for CSV
+        """
+        items = []
+
+        # Process each field in the template
+        for key, value in template_entry.items():
+            # Handle permissions specially
+            if "Permissions" in key and isinstance(value, dict):
+                for section_name, section_data in value.items():
+                    if "Enrollment Permissions" in section_name:
+                        # Extract enrollment rights
+                        if (
+                            isinstance(section_data, dict)
+                            and "Enrollment Rights" in section_data
+                        ):
+                            items.append(
+                                (
+                                    section_name,
+                                    "\n".join(section_data["Enrollment Rights"]),
+                                )
+                            )
+                    elif "Object Control Permissions" in section_name:
+                        # Process each permission type
+                        for perm_name, principals in section_data.items():
+                            if isinstance(principals, list):
+                                items.append((perm_name, "\n".join(principals)))
+                            else:
+                                items.append((perm_name, str(principals)))
+            # Handle dictionaries (convert to "key: value" format)
+            elif isinstance(value, dict):
+                formatted_value = ", ".join([f"{k}: {v}" for k, v in value.items()])
+                items.append((key, formatted_value))
+            # Handle lists (join with newlines for better CSV reading)
+            elif isinstance(value, list):
+                items.append((key, "\n".join(map(str, value))))
+            # Handle simple values
+            else:
+                items.append((key, str(value) if value is not None else ""))
+
+        return dict(items)
 
     # =========================================================================
     # Property Extraction Methods
@@ -1667,7 +1914,9 @@ class Find:
     # Vulnerability Detection Methods
     # =========================================================================
 
-    def get_template_vulnerabilities(self, template: LDAPEntry) -> Dict[str, str]:
+    def get_template_vulnerabilities(
+        self, template: LDAPEntry
+    ) -> Tuple[Dict[str, str], Dict[str, str]]:
         """
         Detect vulnerabilities in certificate templates.
 
@@ -1684,7 +1933,7 @@ class Find:
             template: Certificate template to analyze
 
         Returns:
-            Dictionary of detected vulnerabilities with descriptions
+            Tuple of detected vulnerabilities and remarks
         """
         # Return cached vulnerabilities if already processed
         if template.get("vulnerabilities"):
@@ -1702,6 +1951,7 @@ class Find:
             return ", ".join(principal_names[:-1]) + " and " + principal_names[-1]
 
         vulnerabilities = {}
+        remarks = {}
         user_can_enroll, enrollable_sids = self.can_user_enroll_in_template(template)
         is_enabled = template.get("enabled", False)
 
@@ -1721,22 +1971,22 @@ class Find:
             ):
                 vulnerabilities["ESC1"] = (
                     f"{enrollable_principals} can enroll, enrollee supplies subject "
-                    "and template allows client authentication"
+                    "and template allows client authentication."
                 )
 
             # ESC2: Any purpose template
             if template.get("any_purpose"):
                 vulnerabilities["ESC2"] = (
-                    f"{enrollable_principals} can enroll and template can be used for any purpose"
+                    f"{enrollable_principals} can enroll and template can be used for any purpose."
                 )
 
             # ESC3: Certificate Request Agent
             if template.get("enrollment_agent"):
                 vulnerabilities["ESC3"] = (
-                    f"{enrollable_principals} can enroll and template has Certificate Request Agent EKU set"
+                    f"{enrollable_principals} can enroll and template has Certificate Request Agent EKU set."
                 )
 
-            # ESC3-T: Schema v1 or requires Certificate Request Agent signature
+            # ESC3 Target: Schema v1 or requires Certificate Request Agent signature
             if template.get("client_authentication") and (
                 template.get("schema_version") == 1
                 or (
@@ -1747,10 +1997,11 @@ class Find:
                     in template.get("application_policies")
                 )
             ):
-                vulnerabilities["ESC3-T*"] = (
-                    f"{enrollable_principals} can enroll and template has schema version 1 or "
-                    "requires a Certificate Request Agent signature. *This is not a vulnerability, "
-                    "but it is a template that can be used for ESC3."
+                remarks["ESC3 Target Template"] = (
+                    "Template can be targeted as part of ESC3 exploitation. This is not a vulnerability "
+                    f"by itself. See the wiki for more details. {enrollable_principals} "
+                    "can enroll and template has schema version 1 or requires a Certificate Request Agent "
+                    "signature."
                 )
 
             # ESC9: No security extension
@@ -1759,6 +2010,10 @@ class Find:
             ):
                 vulnerabilities["ESC9"] = (
                     f"{enrollable_principals} can enroll and template has no security extension"
+                )
+                remarks["ESC9"] = (
+                    "Other prerequisites may be required for this to be a vulnerability. See "
+                    "the wiki for more details."
                 )
 
             # ESC13: Template with issuance policy linked to a group
@@ -1777,9 +2032,13 @@ class Find:
                 template.get("enrollee_supplies_subject")
                 and template.get("msPKI-Template-Schema-Version") == 1
             ):
-                vulnerabilities["ESC15*"] = (
+                vulnerabilities["ESC15"] = (
                     f"{enrollable_principals} can enroll, enrollee supplies subject and "
-                    "schema version is 1. *CVE-2024-49019"
+                    "schema version is 1."
+                )
+                remarks["ESC15"] = (
+                    f"Only applicable if the environment has not been patched. "
+                    "See CVE-2024-49019 for more details."
                 )
 
         # ESC4: Template ownership or vulnerable ACL
@@ -1802,7 +2061,7 @@ class Find:
                     f"{format_principals(vulnerable_acl_sids)} has dangerous permissions"
                 )
 
-        return vulnerabilities
+        return (vulnerabilities, remarks)
 
     def template_has_vulnerable_acl(
         self, template: LDAPEntry
@@ -1900,7 +2159,9 @@ class Find:
 
         return user_can_enroll, list(set(enrollable_sids))  # Deduplicate SIDs
 
-    def get_ca_vulnerabilities(self, ca: LDAPEntry) -> Dict[str, str]:
+    def get_ca_vulnerabilities(
+        self, ca: LDAPEntry
+    ) -> Tuple[Dict[str, str], Dict[str, str]]:
         """
         Detect vulnerabilities in certificate authorities.
 
@@ -1914,7 +2175,7 @@ class Find:
             ca: Certificate authority to analyze
 
         Returns:
-            Dictionary of detected vulnerabilities with descriptions
+            Tuple of detected vulnerabilities and remarks
         """
         # Return cached vulnerabilities if already processed
         if ca.get("vulnerabilities"):
@@ -1932,6 +2193,7 @@ class Find:
             return ", ".join(principal_names[:-1]) + " and " + principal_names[-1]
 
         vulnerabilities = {}
+        remarks = {}
         request_disposition = ca.get("request_disposition")
 
         # ESC6: User-specified SAN with auto-issuance
@@ -1979,6 +2241,12 @@ class Find:
                     f"Web Enrollment is enabled over HTTPS, Channel Binding is disabled and "
                     f"Request Disposition is set to {request_disposition}"
                 )
+            elif https_enabled and channel_binding_enforced == "Unknown":
+                remarks["ESC8"] = (
+                    "Channel Binding could not be determined for HTTPS Web Enrollment. "
+                    "Please check manually by requesting a certificate via HTTPS, and disabling "
+                    "Channel Binding in the request."
+                )
 
         # ESC11: Unencrypted certificate requests
         if (
@@ -1989,7 +2257,7 @@ class Find:
                 "Encryption is not enforced for ICPR requests and Request Disposition is set to Issue"
             )
 
-        return vulnerabilities
+        return (vulnerabilities, remarks)
 
     def ca_has_vulnerable_acl(self, ca: LDAPEntry) -> Tuple[bool, List[str]]:
         """

@@ -62,6 +62,7 @@ from certipy.lib.certificate import (
 )
 from certipy.lib.constants import USER_AGENT
 from certipy.lib.errors import translate_error_code
+from certipy.lib.files import try_to_save_file
 from certipy.lib.formatting import print_certificate_identifications
 from certipy.lib.logger import logging
 from certipy.lib.target import DnsResolver, Target
@@ -670,10 +671,10 @@ class ADCSHTTPAttackClient(ProtocolAttack):
 
             if should_save.lower() == "y":
                 key_path = f"{request_id}.key"
-                with open(key_path, "wb") as f:
-                    _ = f.write(key_to_pem(key))
 
-                logging.info(f"Saved private key to {key_path}")
+                logging.info(f"Saving private key to {key_path!r}")
+                key_path = try_to_save_file(key_to_pem(key), key_path)
+                logging.info(f"Wrote private key to {key_path!r}")
 
         return self.finish_run()
 
@@ -732,18 +733,19 @@ class ADCSHTTPAttackClient(ProtocolAttack):
                     "Could not find matching private key. Saving certificate as PEM"
                 )
                 cert_path = f"{out}.crt"
-                with open(cert_path, "wb") as f:
-                    _ = f.write(cert_to_pem(cert))
-                logging.info(f"Saved certificate to {repr(cert_path)}")
+                logging.info(f"Saving certificate to {cert_path!r}")
+                cert_path = try_to_save_file(cert_to_pem(cert), cert_path)
+                logging.info(f"Wrote certificate to {cert_path!r}")
                 self.finish_run()
                 return
 
         # Save certificate and key as PFX
         pfx = create_pfx(key, cert)  # type: ignore
+
         pfx_path = f"{out}.pfx"
-        with open(pfx_path, "wb") as f:
-            _ = f.write(pfx)
-        logging.info(f"Saved certificate and private key to {repr(pfx_path)}")
+        logging.info(f"Saving certificate and private key to {pfx_path!r}")
+        pfx_path = try_to_save_file(pfx, pfx_path)
+        logging.info(f"Wrote certificate and private key to {pfx_path!r}")
 
         self.finish_run()
 
@@ -881,18 +883,18 @@ class ADCSRPCAttackClient(ProtocolAttack):
             logging.info(f"Loaded private key from {repr(key_path)}")
             pfx_path = f"{out}.pfx"
             pfx = create_pfx(key, cert)
-            with open(pfx_path, "wb") as f:
-                _ = f.write(pfx)
-            logging.info(f"Saved certificate and private key to {repr(pfx_path)}")
+            logging.info(f"Saving certificate and private key to {pfx_path!r}")
+            pfx_path = try_to_save_file(pfx, pfx_path)
+            logging.info(f"Wrote certificate and private key to {pfx_path!r}")
         except Exception:
             # Save just the certificate if key not available
             logging.warning(
                 "Could not find matching private key. Saving certificate as PEM"
             )
             cert_path = f"{out}.crt"
-            with open(cert_path, "wb") as f:
-                _ = f.write(cert_to_pem(cert))
-            logging.info(f"Saved certificate to {repr(cert_path)}")
+            logging.info(f"Saving certificate to {cert_path!r}")
+            cert_path = try_to_save_file(cert_to_pem(cert), cert_path)
+            logging.info(f"Wrote certificate to {cert_path!r}")
 
         return True
 
@@ -979,12 +981,12 @@ class ADCSRPCAttackClient(ProtocolAttack):
 
         # Save certificate and key as PFX
         pfx = create_pfx(key, cert)
+
         pfx_path = f"{out}.pfx"
+        logging.info(f"Saving certificate and private key to {pfx_path!r}")
+        pfx_path = try_to_save_file(pfx, pfx_path)
+        logging.info(f"Wrote certificate and private key to {pfx_path!r}")
 
-        with open(pfx_path, "wb") as f:
-            _ = f.write(pfx)
-
-        logging.info(f"Saved certificate and private key to {repr(pfx_path)}")
         return pfx, pfx_path
 
     def finish_run(self) -> None:

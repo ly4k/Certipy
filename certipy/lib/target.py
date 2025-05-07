@@ -117,8 +117,46 @@ class Target:
         Raises:
             Exception: If no target can be determined
         """
+        # Domain controller options
+        dc_ip = options.dc_ip if hasattr(options, "dc_ip") else None
+        dc_host = options.dc_host if hasattr(options, "dc_host") else None
+
+        # Target machine options
+        target_ip = options.target_ip if hasattr(options, "target_ip") else None
+        target = options.target if hasattr(options, "target") else None
+
+        # DNS options
+        ns = options.ns if hasattr(options, "ns") else dc_ip
+        dns_tcp = options.dns_tcp if hasattr(options, "dns_tcp") else False
+
+        # Connection options
+        timeout = options.timeout if hasattr(options, "timeout") else 10
+
+        # Authentication options
+        principal = options.username if hasattr(options, "username") else None
+        password = options.password if hasattr(options, "password") else None
+        hashes = options.hashes if hasattr(options, "hashes") else None
+
+        do_kerberos = options.do_kerberos if hasattr(options, "do_kerberos") else False
+        do_simple = options.do_simple if hasattr(options, "do_simple") else False
+        aes = options.aes if hasattr(options, "aes") else None
+        no_pass = options.no_pass if hasattr(options, "no_pass") else False
+
+        # LDAP options
+        ldap_scheme = (
+            options.ldap_scheme if hasattr(options, "ldap_scheme") else "ldaps"
+        )
+        ldap_port = options.ldap_port if hasattr(options, "ldap_port") else None
+        ldap_channel_binding = (
+            options.ldap_channel_binding
+            if hasattr(options, "ldap_channel_binding")
+            else False
+        )
+        ldap_user_dn = (
+            options.ldap_user_dn if hasattr(options, "ldap_user_dn") else None
+        )
+
         # Parse username and domain from principal format (user@DOMAIN)
-        principal = options.username
         domain = ""
         username = ""
 
@@ -130,14 +168,8 @@ class Target:
                 username = "@".join(parts[:-1])
                 domain = parts[-1]
 
-        dc_ip = options.dc_ip
-        dc_host = options.dc_host
-        if dc_host is None:
-            if domain:
-                dc_host = domain
-
         # Handle Kerberos authentication
-        if options.do_kerberos:
+        if do_kerberos:
             principal = get_kerberos_principal()
             if principal:
                 username, domain = principal
@@ -150,14 +182,13 @@ class Target:
             logging.error("Username is not specified")
 
         # Handle password input
-        password = options.password
         if (
             not password
             and username != ""
-            and options.hashes is None
-            and options.aes is None
-            and options.no_pass is not True
-            and options.do_kerberos is not True
+            and hashes is None
+            and aes is None
+            and no_pass is not True
+            and do_kerberos is not True
         ):
             from getpass import getpass
 
@@ -166,7 +197,6 @@ class Target:
         # Parse hashes if provided
         lmhash = ""
         nthash = ""
-        hashes = options.hashes
         if hashes is not None:
             hash_parts = hashes.split(":")
             if len(hash_parts) == 1:
@@ -178,21 +208,32 @@ class Target:
                     lmhash = nthash
 
         # AES key implies Kerberos
-        if options.aes is not None:
-            options.do_kerberos = True
+        if aes is not None:
+            do_kerberos = True
 
         # Determine remote target name
-        remote_name = options.target or ""
-        if options.do_kerberos and not remote_name and not dc_as_target:
+        remote_name = target or ""
+        if do_kerberos and not remote_name:
             logging.warning(
                 "Target name (-target) not specified and Kerberos authentication is used. This might fail"
             )
-        elif dc_as_target and not remote_name:
+
+        if dc_as_target and not remote_name:
             remote_name = domain
 
+        if dc_host is None:
+            if dc_as_target:
+                dc_host = remote_name
+            elif domain:
+                if do_kerberos:
+                    logging.warning(
+                        "DC host (-dc-host) not specified and Kerberos authentication is used. This might fail"
+                    )
+                dc_host = domain
+
         if not remote_name:
-            if options.target_ip:
-                remote_name = options.target_ip
+            if target_ip:
+                remote_name = target_ip
             elif dc_host:
                 remote_name = dc_host
             elif dc_ip:
@@ -203,40 +244,22 @@ class Target:
                 raise Exception("Could not find a target in the specified options")
 
         # Configure LDAP optinos
-        ldap_scheme = (
-            options.ldap_scheme if hasattr(options, "ldap_scheme") else "ldaps"
-        )
-        ldap_port = options.ldap_port if hasattr(options, "ldap_port") else None
         if ldap_port is None:
             if ldap_scheme == "ldap":
                 ldap_port = 389
             else:
                 ldap_port = 636
-        ldap_channel_binding = (
-            options.ldap_channel_binding
-            if hasattr(options, "ldap_channel_binding")
-            else False
-        )
-        ldap_user_dn = (
-            options.ldap_user_dn if hasattr(options, "ldap_user_dn") else None
-        )
 
         # Adjust DC IP if needed
-        if dc_as_target and options.dc_ip is None and is_ip(remote_name):
+        if dc_as_target and dc_ip is None and is_ip(remote_name):
             dc_ip = remote_name
 
-        # Set up DNS resolver
-        ns = options.ns if hasattr(options, "ns") else dc_ip
-        dns_tcp = options.dns_tcp if hasattr(options, "dns_tcp") else False
-
         # Handle target IP
-        target_ip = options.target_ip if hasattr(options, "target_ip") else None
         if is_ip(remote_name):
             target_ip = remote_name
 
         resolver = DnsResolver.create(ns=ns, dc_ip=dc_ip, dns_tcp=dns_tcp)
 
-        target_ip = target_ip
         if target_ip is None:
             target_ip = resolver.resolve(remote_name)
 
@@ -254,13 +277,13 @@ class Target:
             hashes=hashes,
             lmhash=lmhash,
             nthash=nthash,
-            aes=options.aes,
-            do_kerberos=options.do_kerberos,
-            do_simple=options.do_simple,
+            aes=aes,
+            do_kerberos=do_kerberos,
+            do_simple=do_simple,
             dc_ip=dc_ip,
             dc_host=dc_host,
             target_ip=target_ip,
-            timeout=options.timeout,
+            timeout=timeout,
             ldap_scheme=ldap_scheme,
             ldap_channel_binding=ldap_channel_binding,
             ldap_port=ldap_port,
@@ -268,122 +291,6 @@ class Target:
         )
 
         return target
-
-    # @staticmethod
-    # def create(
-    #     domain: str = "",
-    #     username: str = "",
-    #     password: Optional[str] = None,
-    #     hashes: Optional[str] = None,
-    #     target_ip: Optional[str] = None,
-    #     remote_name: Optional[str] = None,
-    #     no_pass: bool = False,
-    #     do_kerberos: bool = False,
-    #     do_simple: bool = False,
-    #     aes: Optional[str] = None,
-    #     dc_ip: Optional[str] = None,
-    #     dc_host: Optional[str] = None,
-    #     ns: Optional[str] = None,
-    #     dns_tcp: bool = False,
-    #     timeout: int = 10,
-    #     ldap_scheme: str = "ldaps",
-    #     ldap_port: Optional[int] = None,
-    #     ldap_channel_binding: bool = False,
-    #     ldap_user_dn: Optional[str] = None,
-    # ) -> "Target":
-    #     """
-    #     Create a Target with the specified parameters.
-
-    #     Returns:
-    #         Target: Configured target object
-    #     """
-    #     dc_host = None
-
-    #     # Normalize domain and username
-    #     domain = domain.upper() if domain else ""
-    #     username = username.upper() if username else ""
-
-    #     # Handle password input
-    #     if (
-    #         not password
-    #         and username != ""
-    #         and hashes is None
-    #         and aes is None
-    #         and no_pass is not True
-    #     ):
-    #         from getpass import getpass
-
-    #         password = getpass("Password:")
-
-    #     # Parse hashes if provided
-    #     lmhash = ""
-    #     nthash = ""
-    #     if hashes is not None:
-    #         hash_parts = hashes.split(":")
-    #         if len(hash_parts) == 1:
-    #             nthash = hash_parts[0]
-    #             lmhash = nthash
-    #         else:
-    #             lmhash, nthash = hash_parts
-    #             if len(lmhash) == 0:
-    #                 lmhash = nthash
-
-    #     # AES key implies Kerberos
-    #     if aes is not None:
-    #         do_kerberos = True
-
-    #     # Ensure remote_name has a value
-    #     if remote_name is None:
-    #         if target_ip:
-    #             remote_name = target_ip
-    #         elif domain:
-    #             remote_name = domain
-    #         else:
-    #             remote_name = ""
-
-    #     # Configure LDAP options
-    #     if ldap_port is None:
-    #         if ldap_scheme == "ldap":
-    #             ldap_port = 389
-    #         else:
-    #             ldap_port = 636
-
-    #     # Handle DNS and target IP configuration
-    #     if ns is None:
-    #         ns = dc_ip
-
-    #     if is_ip(remote_name):
-    #         target_ip = remote_name
-
-    #     resolver = DnsResolver.create(ns=ns, dc_ip=dc_ip, dns_tcp=dns_tcp)
-
-    #     if target_ip is None:
-    #         target_ip = resolver.resolve(remote_name)
-
-    #     # Create target instance
-    #     target = Target(
-    #         resolver,
-    #         domain=domain,
-    #         username=username,
-    #         password=password,
-    #         remote_name=remote_name,
-    #         hashes=hashes,
-    #         lmhash=lmhash,
-    #         nthash=nthash,
-    #         aes=aes,
-    #         do_kerberos=do_kerberos,
-    #         do_simple=do_simple,
-    #         dc_ip=dc_ip,
-    #         dc_host=dc_host,
-    #         target_ip=target_ip,
-    #         timeout=timeout,
-    #         ldap_scheme=ldap_scheme,
-    #         ldap_port=ldap_port,
-    #         ldap_channel_binding=ldap_channel_binding,
-    #         ldap_user_dn=ldap_user_dn,
-    #     )
-
-    #     return target
 
     def resolve_hostname(self, hostname: str) -> str:
         """
@@ -551,7 +458,7 @@ def get_kerberos_principal() -> Optional[Tuple[str, str]]:
     """
     krb5ccname = os.getenv("KRB5CCNAME")
     if krb5ccname is None:
-        logging.error("KRB5CCNAME environment variable not set")
+        logging.warning("KRB5CCNAME environment variable not set")
         return None
 
     try:

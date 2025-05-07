@@ -53,6 +53,7 @@ from impacket.dcerpc.v5.nrpc import checkNullString
 from pyasn1.codec.der import decoder
 from pyasn1.type.char import UTF8String
 
+from certipy.lib.files import try_to_save_file
 from certipy.lib.logger import logging
 from certipy.lib.structs import (
     CMCAddAttributesInfo,
@@ -1367,10 +1368,9 @@ def entry(options: argparse.Namespace) -> None:
 
         pfx = create_pfx(key, cert)
         if options.out:
-            logging.info(f"Writing PFX to {repr(options.out)}")
-
-            with open(options.out, "wb") as f:
-                _ = f.write(pfx)
+            logging.info(f"Saving certificate and private key to {options.out!r}")
+            output_path = try_to_save_file(pfx, options.out)
+            logging.info(f"Wrote certificate and private key to {output_path!r}")
         else:
             _ = sys.stdout.buffer.write(pfx)
     else:
@@ -1393,9 +1393,8 @@ def entry(options: argparse.Namespace) -> None:
             return
 
         if options.out:
-            logging.info(f"Writing {log_str} to {repr(options.out)}")
-
-            with open(options.out, "w") as f:
-                _ = f.write(output)
+            logging.info(f"Saving {log_str} to {options.out!r}")
+            output_path = try_to_save_file(output.encode(), options.out)
+            logging.info(f"Wrote {log_str} to {output_path!r}")
         else:
             print(output)
