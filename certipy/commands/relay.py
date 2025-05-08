@@ -663,7 +663,7 @@ class Relay:
 
             logging.info("Targeting %s (ESC11)" % target)
         else:
-            if not self.target.startswith("http://"):
+            if not self.target.startswith("https://"):
                 self.target = "http://%s" % self.target
             if not self.target.endswith("/certsrv/certfnsh.asp"):
                 if not self.target.endswith("/"):
