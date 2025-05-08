@@ -142,9 +142,9 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
             self.authenticationMethod = "NTLM"
         else:
             authenticate_header = authenticate_header.lower()
-            if "NTLM" in authenticate_header:
+            if "ntlm" in authenticate_header:
                 self.authenticationMethod = "NTLM"
-            elif "Negotiate" in authenticate_header:
+            elif "negotiate" in authenticate_header:
                 self.authenticationMethod = "Negotiate"
             else:
                 logging.error(

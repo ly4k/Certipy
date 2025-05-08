@@ -9,6 +9,8 @@ import logging as _logging
 import sys
 from typing import Dict
 
+# from impacket.examples import logger as _impacket_logger
+
 # Bullet point mapping for different log levels
 BULLET_POINTS: Dict[int, str] = {
     _logging.INFO: "[*]",
