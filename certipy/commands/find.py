@@ -571,40 +571,50 @@ class Find:
 
             # Connect to CA and get configuration
             ca_service = CA(ca_target, ca=ca_name)
-            edit_flags, request_disposition, interface_flags, security = (
-                ca_service.get_config()
-            )
+            ca_configuration = ca_service.get_config()
 
-            # Process request disposition
-            if request_disposition is not None:
+            active_policy = "Unknown"
+            request_disposition = "Unknown"
+            user_specified_san = "Unknown"
+            enforce_encrypt_icertrequest = "Unknown"
+            disabled_extensions = "Unknown"
+            security = None
+
+            if ca_configuration is not None:
+                active_policy = ca_configuration.active_policy
+
+                # Process request disposition
                 request_disposition = (
-                    "Pending" if request_disposition & 0x100 else "Issue"
+                    "Pending"
+                    if ca_configuration.request_disposition & 0x100
+                    else "Issue"
                 )
-            else:
-                request_disposition = "Unknown"
 
-            # Process SAN flag
-            if edit_flags is not None:
-                user_specified_san = (edit_flags & 0x00040000) == 0x00040000
+                # Process SAN flag
+                user_specified_san = (
+                    ca_configuration.edit_flags & 0x00040000
+                ) == 0x00040000
                 user_specified_san = "Enabled" if user_specified_san else "Disabled"
-            else:
-                user_specified_san = "Unknown"
 
-            # Process encryption flag
-            if interface_flags is not None:
-                enforce_encrypt = (interface_flags & 0x00000200) == 0x00000200
+                # Process encryption flag
+                enforce_encrypt = (
+                    ca_configuration.interface_flags & 0x00000200
+                ) == 0x00000200
                 enforce_encrypt_icertrequest = (
                     "Enabled" if enforce_encrypt else "Disabled"
                 )
-            else:
-                enforce_encrypt_icertrequest = "Unknown"
+
+                # TODO: Map to human-readable format
+                disabled_extensions = ca_configuration.disable_extension_list
 
             # Update properties
             ca_properties.update(
                 {
+                    "active_policy": active_policy,
                     "user_specified_san": user_specified_san,
                     "request_disposition": request_disposition,
                     "enforce_encrypt_icertrequest": enforce_encrypt_icertrequest,
+                    "disabled_extensions": disabled_extensions,
                     "security": security,
                 }
             )
@@ -1636,6 +1646,8 @@ class Find:
             "user_specified_san": "User Specified SAN",
             "request_disposition": "Request Disposition",
             "enforce_encrypt_icertrequest": "Enforce Encryption for Requests",
+            "active_policy": "Active Policy",
+            "disabled_extensions": "Disabled Extensions",
         }
 
         # Create properties dictionary
@@ -1998,7 +2010,7 @@ class Find:
                 "client_authentication"
             ):
                 vulnerabilities["ESC9"] = (
-                    f"{enrollable_principals} can enroll and template has no security extension"
+                    f"{enrollable_principals} can enroll and template has no security extension."
                 )
                 remarks["ESC9"] = (
                     "Other prerequisites may be required for this to be a vulnerability. See "
@@ -2013,7 +2025,7 @@ class Find:
             ):
                 vulnerabilities["ESC13"] = (
                     f"{enrollable_principals} can enroll, template allows client authentication "
-                    f"and issuance policy is linked to group {template.get('issuance_policies_linked_groups')}"
+                    f"and issuance policy is linked to group {template.get('issuance_policies_linked_groups')}."
                 )
 
             # ESC15: Schema v1 template with enrollee-supplied subject (CVE-2024-49019)
@@ -2173,24 +2185,28 @@ class Find:
         vulnerabilities = {}
         remarks = {}
         request_disposition = ca.get("request_disposition")
+        will_issue = request_disposition in ["Issue", "Unknown"]
 
         # ESC6: User-specified SAN with auto-issuance
-        if ca.get("user_specified_san") == "Enabled" and request_disposition == "Issue":
+        if ca.get("user_specified_san") == "Enabled" and will_issue:
             vulnerabilities["ESC6"] = (
                 "Enrollees can specify SAN and Request Disposition is set to Issue. "
-                "Does not work after May 2022"
+                "Requires ESC9 or ESC16 to be exploitable."
             )
+
+        if ca.get("active_policy") != "CertificateAuthority_MicrosoftDefault.Policy":
+            remarks["Policy"] = "Not using the built-in Microsoft default policy."
 
         # ESC7: CA with dangerous permissions
         has_vulnerable_acl, vulnerable_acl_sids = self.ca_has_vulnerable_acl(ca)
         if has_vulnerable_acl:
             vulnerabilities["ESC7"] = (
-                f"{self.format_principals(vulnerable_acl_sids)} has dangerous permissions"
+                f"{self.format_principals(vulnerable_acl_sids)} has dangerous permissions."
             )
 
         # ESC8: Insecure web enrollment
         web_enrollment = ca.get("web_enrollment")
-        if web_enrollment and request_disposition in ["Issue", "Unknown"]:
+        if web_enrollment and will_issue:
             http_enabled = (
                 web_enrollment["http"] is not None and web_enrollment["http"]["enabled"]
             )
@@ -2207,17 +2223,17 @@ class Find:
             if http_enabled and https_enabled and not channel_binding_enforced:
                 vulnerabilities["ESC8"] = (
                     f"Web Enrollment is enabled over HTTP and HTTPS, Channel Binding is disabled "
-                    f"and Request Disposition is set to {request_disposition}"
+                    f"and Request Disposition is set to {request_disposition}."
                 )
             elif http_enabled:
                 vulnerabilities["ESC8"] = (
                     f"Web Enrollment is enabled over HTTP and Request Disposition is set to "
-                    f"{request_disposition}"
+                    f"{request_disposition}."
                 )
             elif https_enabled and not channel_binding_enforced:
                 vulnerabilities["ESC8"] = (
                     f"Web Enrollment is enabled over HTTPS, Channel Binding is disabled and "
-                    f"Request Disposition is set to {request_disposition}"
+                    f"Request Disposition is set to {request_disposition}."
                 )
             elif https_enabled and channel_binding_enforced == "Unknown":
                 remarks["ESC8"] = (
@@ -2227,13 +2243,22 @@ class Find:
                 )
 
         # ESC11: Unencrypted certificate requests
-        if (
-            ca.get("enforce_encrypt_icertrequest") == "Disabled"
-            and request_disposition == "Issue"
-        ):
+        if ca.get("enforce_encrypt_icertrequest") == "Disabled" and will_issue:
             vulnerabilities["ESC11"] = (
-                "Encryption is not enforced for ICPR requests and Request Disposition is set to Issue"
+                "Encryption is not enforced for ICPR requests and Request Disposition is set to Issue."
             )
+
+        # ESC16: Security extension disabled (similar to ESC9)
+        disabled_extensions = ca.get("disabled_extensions")
+        if disabled_extensions and will_issue:
+            if "1.3.6.1.4.1.311.25.2" in disabled_extensions:
+                vulnerabilities["ESC16"] = (
+                    "The security extension is disabled for the CA. Similar to ESC9."
+                )
+                remarks["ESC16"] = (
+                    "Other prerequisites may be required for this to be a vulnerability. See "
+                    "the wiki for more details."
+                )
 
         return (vulnerabilities, remarks)
 

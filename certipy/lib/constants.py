@@ -380,6 +380,8 @@ OID_TO_STR_MAP = {
     "1.3.6.1.4.1.311.64.1.1": "Server Trust",
 }
 
+OID_TO_STR_NAME_MAP = {v.lower(): k for k, v in OID_TO_STR_MAP.items()}
+
 
 # =========================================================================
 # Extended Rights Mapping

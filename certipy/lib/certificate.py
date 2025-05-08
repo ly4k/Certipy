@@ -95,6 +95,8 @@ DN_MAP = {
 PRINCIPAL_NAME = x509.ObjectIdentifier("1.3.6.1.4.1.311.20.2.3")
 NTDS_CA_SECURITY_EXT = x509.ObjectIdentifier("1.3.6.1.4.1.311.25.2")
 NTDS_OBJECTSID = x509.ObjectIdentifier("1.3.6.1.4.1.311.25.2.1")
+APPLICATION_POLICIES = x509.ObjectIdentifier("1.3.6.1.4.1.311.21.10")
+SMIME_CAPABILITIES = x509.ObjectIdentifier("1.2.840.113549.1.9.15")
 
 # Microsoft-specific ASN.1 OIDs
 szOID_RENEWAL_CERTIFICATE = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.13.1")
@@ -108,6 +110,12 @@ szOID_NTDS_OBJECTSID = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.25.2.1")
 asn1x509.ExtensionId._map.update(
     {
         "1.3.6.1.4.1.311.25.2": "security_ext",
+    }
+)
+
+asn1x509.ExtensionId._map.update(
+    {
+        "1.2.840.113549.1.9.15": "smime_capability",
     }
 )
 
@@ -191,6 +199,49 @@ def cert_id_to_parts(
 
 
 def get_identifications_from_certificate(
+    certificate: x509.Certificate,
+) -> List[Tuple[str, str]]:
+    """
+    Extract identity information from a certificate.
+
+    Args:
+        certificate: X.509 certificate to analyze
+
+    Returns:
+        List of tuples with (id_type, id_value)
+    """
+    identifications = []
+
+    try:
+        # Get Subject Alternative Name extension
+        san = certificate.extensions.get_extension_for_oid(
+            ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
+
+        if not isinstance(san.value, SubjectAlternativeName):
+            raise ValueError("Invalid SAN value")
+
+        # Extract UPN from OtherName fields
+        for name in san.value.get_values_for_type(x509.OtherName):
+            if name.type_id == PRINCIPAL_NAME:
+                identifications.append(
+                    (
+                        "UPN",
+                        decoder.decode(name.value, asn1Spec=UTF8String)[0].decode(),
+                    )
+                )
+
+        # Extract DNS names
+        for name in san.value.get_values_for_type(x509.DNSName):
+            identifications.append(("DNS Host Name", name))
+
+    except Exception:
+        pass  # Ignore errors if SAN is missing or malformed
+
+    return identifications
+
+
+def get_san_url_sid(
     certificate: x509.Certificate,
 ) -> List[Tuple[str, str]]:
     """
@@ -605,15 +656,15 @@ def get_subject_from_str(subject: str) -> x509.Name:
 
 def create_csr(
     username: str,
-    alt_dns: Optional[Union[bytes, str]] = None,
-    alt_upn: Optional[Union[bytes, str]] = None,
-    alt_sid: Optional[Union[bytes, str]] = None,
+    alt_dns: Optional[Union[bytes, str]],
+    alt_upn: Optional[Union[bytes, str]],
+    alt_sid: Optional[Union[bytes, str]],
+    subject: Optional[str],
+    key_size: int,
+    application_policies: Optional[List[str]],
+    smime: Optional[str],
     key: Optional[rsa.RSAPrivateKey] = None,
-    key_size: int = 2048,
-    subject: Optional[str] = None,
     renewal_cert: Optional[x509.Certificate] = None,
-    application_policies: Optional[List[str]] = None,
-    smime: Optional[str] = None,
 ) -> Tuple[x509.CertificateSigningRequest, rsa.RSAPrivateKey]:
     """
     Create a certificate signing request (CSR) with optional extensions.
@@ -667,7 +718,7 @@ def create_csr(
     cri_attributes = []
 
     # Add Subject Alternative Name extension if needed
-    if alt_dns or alt_upn:
+    if alt_dns or alt_upn or alt_sid:
         general_names = []
 
         # Add DNS name
@@ -696,6 +747,19 @@ def create_csr(
                 )
             )
 
+        # Add SID URL
+        if alt_sid:
+            if isinstance(alt_sid, bytes):
+                alt_sid = alt_sid.decode()
+
+            general_names.append(
+                asn1x509.GeneralName(
+                    {
+                        "uniform_resource_identifier": f"tag:microsoft.com,2022-09-14:sid:{alt_sid}"
+                    }
+                )
+            )
+
         # Create SAN extension
         san_extension = asn1x509.Extension(
             {"extn_id": "subject_alt_name", "extn_value": general_names}
@@ -710,15 +774,9 @@ def create_csr(
 
     # Add SMIME capability extension if requested
     if smime:
-        asn1x509.ExtensionId._map.update(
-            {
-                "1.2.840.113549.1.9.15": "smime_capability",
-            }
-        )
-
         # Create SMIME extension
         smime_extension = asn1x509.Extension(
-            {"extn_id": "1.2.840.113549.1.9.15", "extn_value": SMIME_MAP[smime]}
+            {"extn_id": "smime_capability", "extn_value": SMIME_MAP[smime]}
         )
 
         # Add extension to CSR attributes
@@ -730,9 +788,6 @@ def create_csr(
 
     # Add Security Identifier extension if requested
     if alt_sid:
-        if isinstance(alt_sid, str):
-            alt_sid = alt_sid.encode()
-
         # Create security extension
         san_extension = asn1x509.Extension(
             {
@@ -743,9 +798,9 @@ def create_csr(
                             "other_name": asn1x509.AnotherName(
                                 {
                                     "type_id": szOID_NTDS_OBJECTSID,
-                                    "value": asn1x509.OctetString(alt_sid).retag(
-                                        {"explicit": 0}
-                                    ),
+                                    "value": asn1x509.OctetString(
+                                        alt_sid.encode()
+                                    ).retag({"explicit": 0}),
                                 }
                             )
                         }
@@ -823,6 +878,63 @@ def create_csr(
     )
 
     return (der_to_csr(csr.dump()), key)
+
+
+def create_csr_attributes(
+    template: str,
+    alt_dns: Optional[Union[bytes, str]] = None,
+    alt_upn: Optional[Union[bytes, str]] = None,
+    alt_sid: Optional[Union[bytes, str]] = None,
+) -> List[str]:
+    """
+    Create a list of CSR attributes based on the provided template and Subject Alternative Name options.
+
+    This function generates the attributes needed when requesting a certificate through Microsoft's
+    certificate enrollment web services. It formats the template name and any requested SAN entries
+    according to Microsoft's specifications.
+
+    Args:
+        template: Certificate template name to request
+        alt_dns: Alternative DNS name to include in the certificate SAN
+        alt_upn: Alternative User Principal Name (UPN) to include in the certificate SAN
+        alt_sid: Alternative Security Identifier (SID) to include in the certificate SAN as a URL
+
+    Returns:
+        List of formatted CSR attribute strings ready for use in certificate requests
+    """
+    # Start with the certificate template attribute
+    attributes = [f"CertificateTemplate:{template}"]
+
+    # Only add SAN attribute if at least one SAN value is provided
+    if any(value is not None for value in [alt_dns, alt_upn, alt_sid]):
+        san_parts = []
+
+        # Process DNS name
+        if alt_dns:
+            # Convert bytes to string if needed
+            if isinstance(alt_dns, bytes):
+                alt_dns = alt_dns.decode("utf-8")
+            san_parts.append(f"dns={alt_dns}")
+
+        # Process User Principal Name
+        if alt_upn:
+            # Convert bytes to string if needed
+            if isinstance(alt_upn, bytes):
+                alt_upn = alt_upn.decode("utf-8")
+            san_parts.append(f"upn={alt_upn}")
+
+        # Process Security Identifier
+        if alt_sid:
+            # Convert bytes to string if needed
+            if isinstance(alt_sid, bytes):
+                alt_sid = alt_sid.decode("utf-8")
+            # Format SID as URL according to Microsoft's specifications
+            san_parts.append(f"url=tag:microsoft.com,2022-09-14:sid:{alt_sid}")
+
+        # Join all SAN parts with ampersands
+        attributes.append(f"SAN:{'&'.join(san_parts)}")
+
+    return attributes
 
 
 # =========================================================================

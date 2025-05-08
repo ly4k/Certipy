@@ -28,8 +28,11 @@ from cryptography.hazmat.primitives.asymmetric.types import (
 from pyasn1.codec.der import encoder
 
 from certipy.lib.certificate import (
+    APPLICATION_POLICIES,
     NTDS_CA_SECURITY_EXT,
     PRINCIPAL_NAME,
+    SMIME_CAPABILITIES,
+    SMIME_MAP,
     UTF8String,
     asn1x509,
     cert_id_to_parts,
@@ -40,6 +43,7 @@ from certipy.lib.certificate import (
     szOID_NTDS_OBJECTSID,
     x509,
 )
+from certipy.lib.constants import OID_TO_STR_NAME_MAP
 from certipy.lib.files import try_to_save_file
 from certipy.lib.logger import logging
 
@@ -73,6 +77,8 @@ class Forge:
         sid: Optional[str] = None,
         template: Optional[str] = None,
         subject: Optional[str] = None,
+        application_policies: Optional[List[str]] = None,
+        smime: Optional[str] = None,
         issuer: Optional[str] = None,
         crl: Optional[str] = None,
         serial: Optional[str] = None,
@@ -90,6 +96,8 @@ class Forge:
             sid: Security Identifier to include in the certificate
             template: Path to an existing certificate to use as a template
             subject: Subject name (in DN format) for the certificate
+            application_policies: List of application policy OIDs
+            smime: SMIME capability identifier
             issuer: Issuer name (in DN format) for the certificate
             crl: URI for the CRL distribution point
             serial: Custom serial number (in hex format, colons optional)
@@ -109,6 +117,13 @@ class Forge:
         self.key_size = key_size
         self.out = out
         self.kwargs = kwargs
+
+        # Convert application policy names to OIDs
+        self.application_policies = [
+            OID_TO_STR_NAME_MAP.get(policy.lower(), policy)
+            for policy in (application_policies or [])
+        ]
+        self.smime = smime
 
     def get_serial_number(self) -> int:
         """
@@ -216,6 +231,16 @@ class Forge:
             encoded_upn = encoder.encode(UTF8String(upn_value))
             sans.append(x509.OtherName(PRINCIPAL_NAME, encoded_upn))
 
+        # Add SID if specified
+        if self.alt_sid:
+            sid = self.alt_sid
+            if isinstance(sid, bytes):
+                sid = sid.decode()
+
+            sid = f"tag:microsoft.com,2022-09-14:sid:{sid}"
+
+            sans.append(x509.UniformResourceIdentifier(sid))
+
         return sans
 
     def create_sid_extension(self) -> Optional[x509.UnrecognizedExtension]:
@@ -249,6 +274,46 @@ class Forge:
         )
 
         return x509.UnrecognizedExtension(NTDS_CA_SECURITY_EXT, sid_extension.dump())
+
+    def create_application_policies(self) -> Optional[x509.UnrecognizedExtension]:
+        """
+        Create an extension containing the application policies for the certificate.
+
+        Returns:
+            UnrecognizedExtension containing the application policies or None if not specified
+        """
+        if not self.application_policies:
+            return None
+
+        # Convert each policy OID string to PolicyIdentifier
+        application_policy_oids = [
+            asn1x509.PolicyInformation(
+                {"policy_identifier": asn1x509.PolicyIdentifier(ap)}
+            )
+            for ap in self.application_policies
+        ]
+
+        # Create certificate policies extension
+        cert_policies = asn1x509.CertificatePolicies(application_policy_oids)
+
+        return x509.UnrecognizedExtension(APPLICATION_POLICIES, cert_policies.dump())
+
+    def create_smime_extension(self) -> Optional[x509.UnrecognizedExtension]:
+        """
+        Create an extension containing the S/MIME capability for the certificate.
+
+        Returns:
+            UnrecognizedExtension containing the S/MIME capability or None if not specified
+        """
+        if not self.smime:
+            return None
+
+        # Create S/MIME capability extension
+        smime_capability = SMIME_MAP[self.smime]
+
+        return x509.UnrecognizedExtension(
+            SMIME_CAPABILITIES, asn1x509.ObjectIdentifier(smime_capability).dump()
+        )
 
     def get_allowed_hash_algorithm(
         self, template_hash_algorithm: Optional[hashes.HashAlgorithm]
@@ -361,6 +426,20 @@ class Forge:
         if crl_extension:
             skip_extensions.append(x509.CRLDistributionPoints.oid)
             cert_builder = cert_builder.add_extension(crl_extension, False)
+
+        # Add S/MIME capability if specified
+        smime_extension = self.create_smime_extension()
+        if smime_extension:
+            skip_extensions.append(SMIME_CAPABILITIES)
+            cert_builder = cert_builder.add_extension(smime_extension, False)
+
+        # Add application policies if specified
+        application_policies_extension = self.create_application_policies()
+        if application_policies_extension:
+            skip_extensions.append(APPLICATION_POLICIES)
+            cert_builder = cert_builder.add_extension(
+                application_policies_extension, False
+            )
 
         # Copy remaining extensions from template
         extensions = template_cert.extensions
@@ -477,6 +556,18 @@ class Forge:
         if crl_extension:
             cert_builder = cert_builder.add_extension(crl_extension, False)
 
+        # Add S/MIME capability if specified
+        smime_extension = self.create_smime_extension()
+        if smime_extension:
+            cert_builder = cert_builder.add_extension(smime_extension, False)
+
+        # Add application policies if specified
+        application_policies_extension = self.create_application_policies()
+        if application_policies_extension:
+            cert_builder = cert_builder.add_extension(
+                application_policies_extension, False
+            )
+
         # Add subject alternative names
         sans = self.create_subject_alternative_names()
         if sans:
@@ -574,10 +665,6 @@ def entry(options: argparse.Namespace) -> None:
         options: Command line arguments
     """
     # Validate required parameters
-    if not options.upn and not options.dns:
-        logging.error("Either -upn or -dns must be specified (or both)")
-        return
-
     if not options.ca_pfx:
         logging.error("CA PFX file (-ca-pfx) must be specified")
         return

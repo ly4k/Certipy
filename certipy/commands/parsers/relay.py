@@ -106,6 +106,12 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         metavar="alternative Object SID",
         help="Object SID to include in the Subject Alternative Name",
     )
+    cert_group.add_argument(
+        "-subject",
+        action="store",
+        metavar="subject",
+        help="Subject to include in certificate, e.g. CN=Administrator,CN=Users,DC=CORP,DC=LOCAL",
+    )
 
     # Certificate options
     cert_group.add_argument(
@@ -129,6 +135,21 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         action="store",
         metavar="cax cert file",
         help="Specify CAX Certificate for Key Archival. You can request the cax cert with 'certipy req -cax-cert'",
+    )
+
+    # Advanced certificate options
+    cert_group.add_argument(
+        "-application-policies",
+        action="store",
+        nargs="+",
+        metavar="Application Policy",
+        help="Specify application policies for the certificate request using OIDs (e.g., '1.3.6.1.4.1.311.10.3.4' or 'Client Authentication')",
+    )
+    cert_group.add_argument(
+        "-smime",
+        action="store",
+        metavar="encryption algorithm",
+        help="Specify SMIME Extension that gets added to CSR (e.g., des, rc4, 3des, aes128, aes192, aes256)",
     )
 
     # Output options

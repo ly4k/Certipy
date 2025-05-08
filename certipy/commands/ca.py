@@ -14,7 +14,8 @@ It serves as a comprehensive tool for CA administration and security assessment.
 import argparse
 import copy
 import time
-from typing import Any, List, Optional, Tuple, Union
+import traceback
+from typing import Any, List, Optional, Union
 
 from impacket.dcerpc.v5 import rpcrt, rrp, scmr
 from impacket.dcerpc.v5.dcom.oaut import VARIANT
@@ -528,86 +529,93 @@ class CA:
         exchange_cert = der_to_cert(b"".join(resp["pctbPropertyValue"]["pb"]))
         return exchange_cert
 
-    def get_config_csra(self) -> Tuple[int, int, int, CASecurity]:
-        """
-        Get CA configuration via the Certificate Services Remote Administration protocol.
-
-        Returns:
-            Tuple of (edit_flags, request_disposition, interface_flags, security)
-
-        Raises:
-            Exception: If the configuration retrieval fails
-        """
-        # Get request disposition setting (auto-approve, pending, etc.)
-        request = ICertAdminD2_GetConfigEntry()
-        request["pwszAuthority"] = checkNullString(self.ca)
-        request["pwszNodePath"] = checkNullString(
-            "PolicyModules\\CertificateAuthority_MicrosoftDefault.Policy"
-        )
-        request["pwszEntry"] = checkNullString("RequestDisposition")
-
-        resp = self.cert_admin2.request(request)
-        request_disposition = resp["pVariant"]["_varUnion"]["lVal"]
-
-        # Get edit flags (SAN setting, etc.)
-        request["pwszEntry"] = checkNullString("EditFlags")
-        resp = self.cert_admin2.request(request)
-        edit_flags = resp["pVariant"]["_varUnion"]["lVal"]
-
-        # Get interface flags (encryption settings, etc.)
-        request["pwszNodePath"] = checkNullString("")
-        request["pwszEntry"] = checkNullString("InterfaceFlags")
-        resp = self.cert_admin2.request(request)
-        interface_flags = resp["pVariant"]["_varUnion"]["lVal"]
-
-        # Get CA security settings
-        request = ICertAdminD2_GetCASecurity()
-        request["pwszAuthority"] = checkNullString(self.ca)
-        resp = self.cert_admin2.request(request)
-        security = CASecurity(b"".join(resp["pctbSD"]["pb"]))
-
-        return (edit_flags, request_disposition, interface_flags, security)
-
-    def get_config_rrp(self) -> Tuple[int, int, int, CASecurity]:
+    def get_config_rrp(self) -> "CAConfiguration":
         """
         Get CA configuration via the Remote Registry Protocol.
         Used as a fallback when CSRA fails.
 
+        This method navigates the Windows registry structure to extract CA configuration
+        settings including policy modules, edit flags, request disposition,
+        disabled extensions, interface flags, and security descriptors.
+
         Returns:
-            Tuple of (edit_flags, request_disposition, interface_flags, security)
+            CAConfiguration object containing CA configuration settings
 
         Raises:
-            Exception: If the configuration retrieval fails
+            ValueError: If critical registry values have unexpected types
         """
+        # Open local machine registry hive
         hklm = rrp.hOpenLocalMachine(self.rrp_dce)
         h_root_key = hklm["phKey"]
 
-        # Get policy settings
+        # First retrieve active policy module information
         policy_key_path = (
             f"SYSTEM\\CurrentControlSet\\Services\\CertSvc\\Configuration\\{self.ca}\\"
-            "PolicyModules\\CertificateAuthority_MicrosoftDefault.Policy"
+            "PolicyModules"
         )
         policy_key = rrp.hBaseRegOpenKey(self.rrp_dce, h_root_key, policy_key_path)
 
+        # Get active policy module name
+        _, active_policy = rrp.hBaseRegQueryValue(
+            self.rrp_dce, policy_key["phkResult"], "Active"
+        )
+
+        if not isinstance(active_policy, str):
+            logging.warning(
+                f"Expected a string for active policy, got {type(active_policy)!r}"
+            )
+            logging.warning("Falling back to default policy")
+            active_policy = "CertificateAuthority_MicrosoftDefault.Policy"
+
+        active_policy = active_policy.strip("\x00")
+
+        # Open policy module configuration
+        policy_key_path = (
+            f"SYSTEM\\CurrentControlSet\\Services\\CertSvc\\Configuration\\{self.ca}\\"
+            f"PolicyModules\\{active_policy}"
+        )
+        policy_key = rrp.hBaseRegOpenKey(self.rrp_dce, h_root_key, policy_key_path)
+
+        # Retrieve edit flags (controls certificate request behavior)
         _, edit_flags = rrp.hBaseRegQueryValue(
             self.rrp_dce, policy_key["phkResult"], "EditFlags"
         )
 
         if not isinstance(edit_flags, int):
-            raise ValueError(
-                f"Expected an int for edit flags, got {type(edit_flags)!r}"
-            )
+            logging.warning(f"Expected an int for edit flags, got {type(edit_flags)!r}")
+            logging.warning("Falling back to default edit flags")
+            edit_flags = 0x00000000
 
+        # Retrieve request disposition (auto-enrollment settings)
         _, request_disposition = rrp.hBaseRegQueryValue(
             self.rrp_dce, policy_key["phkResult"], "RequestDisposition"
         )
 
         if not isinstance(request_disposition, int):
-            raise ValueError(
+            logging.warning(
                 f"Expected an int for request disposition, got {type(request_disposition)!r}"
             )
+            logging.warning("Falling back to default request disposition")
+            request_disposition = 0x00000000
 
-        # Get configuration settings
+        # Retrieve disabled extensions
+        _, disable_extension_list = rrp.hBaseRegQueryValue(
+            self.rrp_dce, policy_key["phkResult"], "DisableExtensionList"
+        )
+
+        if not isinstance(disable_extension_list, str):
+            logging.warning(
+                f"Expected a string for disable extension list, got {type(disable_extension_list)!r}"
+            )
+            logging.warning("Falling back to default disable extension list")
+            disable_extension_list = ""
+
+        # Process null-terminated string list into Python list
+        disable_extension_list = [
+            item for item in disable_extension_list.strip("\x00").split("\x00") if item
+        ]
+
+        # Now get general CA configuration settings
         configuration_key_path = (
             f"SYSTEM\\CurrentControlSet\\Services\\CertSvc\\Configuration\\{self.ca}"
         )
@@ -615,15 +623,19 @@ class CA:
             self.rrp_dce, h_root_key, configuration_key_path
         )
 
+        # Retrieve interface flags (controls CA interface behavior)
         _, interface_flags = rrp.hBaseRegQueryValue(
             self.rrp_dce, configuration_key["phkResult"], "InterfaceFlags"
         )
 
         if not isinstance(interface_flags, int):
-            raise ValueError(
+            logging.warning(
                 f"Expected an int for interface flags, got {type(interface_flags)!r}"
             )
+            logging.warning("Falling back to default interface flags")
+            interface_flags = 0x00000000
 
+        # Retrieve security descriptor (controls access permissions)
         _, security_descriptor = rrp.hBaseRegQueryValue(
             self.rrp_dce, configuration_key["phkResult"], "Security"
         )
@@ -633,42 +645,43 @@ class CA:
                 f"Expected a bytes object for security descriptor, got {type(security_descriptor)!r}"
             )
 
+        # Parse the binary security descriptor
         security_descriptor = CASecurity(security_descriptor)
-        return (edit_flags, request_disposition, interface_flags, security_descriptor)
 
-    def get_config(
-        self,
-    ) -> Tuple[Optional[int], Optional[int], Optional[int], Optional[CASecurity]]:
+        # Return a complete configuration object
+        return CAConfiguration(
+            active_policy,
+            edit_flags,
+            disable_extension_list,
+            request_disposition,
+            interface_flags,
+            security_descriptor,
+        )
+
+    def get_config(self) -> Optional["CAConfiguration"]:
         """
-        Get CA configuration using either CSRA or RRP protocol.
-        Tries CSRA first, then falls back to RRP if CSRA fails.
+        Get CA configuration using the Remote Registry Protocol (RRP).
+
+        This method attempts to retrieve the CA configuration using RRP
+        and handles any exceptions that might occur during the process.
 
         Returns:
-            Tuple of (edit_flags, request_disposition, interface_flags, security)
-            Returns (None, None, None, None) if both methods fail
+            CAConfiguration object containing configuration settings or None if retrieval fails
         """
         try:
-            logging.info(f"Trying to get CA configuration for {self.ca!r} via CSRA")
-            result = self.get_config_csra()
-            logging.info(f"Got CA configuration for {self.ca!r}")
-            return result
-        except Exception as e:
-            logging.warning(
-                f"Got error while trying to get CA configuration for {self.ca!r} via CSRA: {str(e)}"
-            )
-
-        try:
-            logging.info(f"Trying to get CA configuration for {self.ca!r} via RRP")
+            logging.info(f"Retrieving CA configuration for {self.ca!r} via RRP")
             result = self.get_config_rrp()
-            logging.info(f"Got CA configuration for {self.ca!r}")
+            logging.info(f"Successfully retrieved CA configuration for {self.ca!r}")
             return result
         except Exception as e:
             logging.warning(
-                f"Got error while trying to get CA configuration for {self.ca!r} via RRP: {str(e)}"
+                f"Failed to get CA configuration for {self.ca!r} via RRP: {str(e)}"
             )
+            if self.verbose:
+                logging.debug(traceback.format_exc())
 
-        logging.warning(f"Failed to get CA configuration for {self.ca!r}")
-        return (None, None, None, None)
+            logging.warning(f"Could not retrieve configuration for {self.ca!r}")
+            return None
 
     # =========================================================================
     # Certificate Request Management Methods
@@ -1407,6 +1420,50 @@ class CA:
         scmr.hRCloseServiceHandle(dce, service_handle)
 
         return True
+
+
+class CAConfiguration:
+    """
+    Class representing a Certificate Authority configuration.
+
+    This class encapsulates all the configuration parameters for a Certificate Authority,
+    including security settings, policy configuration, and operational flags.
+
+    Attributes:
+        active_policy: Name of the active policy module
+        edit_flags: CA policy edit flags controlling certificate request handling
+        disable_extension_list: List of certificate extensions that are disabled
+        request_disposition: Default disposition for certificate requests
+        interface_flags: Flags controlling CA interface behavior
+        security: Security descriptor for the CA
+    """
+
+    def __init__(
+        self,
+        active_policy: str,
+        edit_flags: int,
+        disable_extension_list: List[str],
+        request_disposition: int,
+        interface_flags: int,
+        security: CASecurity,
+    ):
+        """
+        Initialize a CA configuration object.
+
+        Args:
+            active_policy: Name of the active policy module (typically CertificateAuthority_MicrosoftDefault.Policy)
+            edit_flags: Policy edit flags that control certificate issuance behavior
+            disable_extension_list: List of disabled certificate extensions
+            request_disposition: Default disposition for new certificate requests
+            interface_flags: Interface control flags
+            security: CASecurity object containing the CA's security descriptor
+        """
+        self.active_policy = active_policy
+        self.edit_flags = edit_flags
+        self.disable_extension_list = disable_extension_list
+        self.request_disposition = request_disposition
+        self.interface_flags = interface_flags
+        self.security = security
 
 
 def entry(options: argparse.Namespace) -> None:

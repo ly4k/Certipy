@@ -37,6 +37,7 @@ from certipy.lib.certificate import (
     cert_to_der,
     cert_to_pem,
     create_csr,
+    create_csr_attributes,
     create_key_archival,
     create_on_behalf_of,
     create_pfx,
@@ -54,7 +55,7 @@ from certipy.lib.certificate import (
     rsa,
     x509,
 )
-from certipy.lib.constants import OID_TO_STR_MAP, USER_AGENT
+from certipy.lib.constants import OID_TO_STR_NAME_MAP, USER_AGENT
 from certipy.lib.errors import translate_error_code
 from certipy.lib.files import try_to_save_file
 from certipy.lib.formatting import print_certificate_identifications
@@ -1003,11 +1004,13 @@ class Request:
         self,
         target: Target,
         ca: Optional[str] = None,
-        template: Optional[str] = None,
+        template: str = "User",
         upn: Optional[str] = None,
         dns: Optional[str] = None,
         sid: Optional[str] = None,
         subject: Optional[str] = None,
+        application_policies: Optional[List[str]] = None,
+        smime: Optional[str] = None,
         retrieve: Optional[int] = None,
         on_behalf_of: Optional[str] = None,
         pfx: Optional[str] = None,
@@ -1025,8 +1028,6 @@ class Request:
         no_channel_binding: bool = False,
         dynamic_endpoint: bool = False,
         debug: bool = False,
-        application_policies: Optional[List[str]] = None,
-        smime: Optional[str] = None,
         **kwargs,  # type: ignore
     ):
         """
@@ -1040,6 +1041,8 @@ class Request:
             dns: Alternative DNS name
             sid: Alternative SID (Security Identifier)
             subject: Certificate subject name
+            application_policies: List of application policy OIDs
+            smime: SMIME capability identifier
             retrieve: Request ID to retrieve
             on_behalf_of: Username to request on behalf of
             pfx: Path to PKCS#12/PFX file
@@ -1056,8 +1059,6 @@ class Request:
             scheme: Scheme for Web Enrollment (http/https)
             dynamic_endpoint: Use dynamic RPC endpoint
             debug: Enable verbose debug output
-            application_policies: List of application policy OIDs
-            smime: SMIME capability identifier
         """
         # Core parameters
         self.target = target
@@ -1080,7 +1081,7 @@ class Request:
 
         # Convert application policy names to OIDs
         self.application_policies = [
-            OID_TO_STR_MAP.get(policy, policy)
+            OID_TO_STR_NAME_MAP.get(policy.lower(), policy)
             for policy in (application_policies or [])
         ]
         self.smime = smime
@@ -1238,29 +1239,18 @@ class Request:
                     logging.error("Failed to load certificate and private key from PFX")
                     return False
 
-        # Convert application policy names to OIDs
-        converted_policies = []
-        for policy in self.application_policies or []:
-            oid = next(
-                (k for k, v in OID_TO_STR_MAP.items() if v.lower() == policy.lower()),
-                policy,
-            )
-            converted_policies.append(oid)
-
-        self.application_policies = converted_policies
-
         # Create the CSR
         csr, key = create_csr(
             username,
             alt_dns=self.alt_dns,
             alt_upn=self.alt_upn,
             alt_sid=self.alt_sid,
-            key=self.key,
-            key_size=self.key_size,
             subject=self.subject,
-            renewal_cert=renewal_cert,
+            key_size=self.key_size,
             application_policies=self.application_policies,
             smime=self.smime,
+            key=self.key,
+            renewal_cert=renewal_cert,
         )
         self.key = key
 
@@ -1317,20 +1307,9 @@ class Request:
             )
 
         # Construct attributes list
-        attributes = [f"CertificateTemplate:{self.template}"]
-
-        if self.alt_upn is not None or self.alt_dns is not None:
-            san = []
-            if self.alt_dns:
-                san.append(f"dns={self.alt_dns}")
-            if self.alt_upn:
-                san.append(f"upn={self.alt_upn}")
-
-            attributes.append(f"SAN:{'&'.join(san)}")
-
-        if self.application_policies:
-            policy_string = "&".join(self.application_policies)
-            attributes.append(f"ApplicationPolicies:{policy_string}")
+        attributes = create_csr_attributes(
+            self.template, self.alt_dns, self.alt_upn, self.alt_sid
+        )
 
         # Submit the certificate request
         cert = self.interface.request(csr_der, attributes)
