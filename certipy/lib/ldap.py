@@ -17,11 +17,13 @@ Main components:
 
 import socket
 import ssl
-from typing import Any, Dict, List, Optional, Set, Union, cast
+import tempfile
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
 import ldap3
 import ldap3.strategy
 import ldap3.strategy.sync
+from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from impacket.ntlm import NTLMSSP_NEGOTIATE_SEAL, NTLMAuthChallenge
 from ldap3.core.exceptions import LDAPExceptionError
 from ldap3.core.results import (
@@ -39,6 +41,7 @@ from pyasn1.codec.ber.encoder import Encoder
 ldap3_encode = cast(Encoder, _ldap3_encode)
 
 
+from certipy.lib.certificate import cert_to_pem, key_to_pem, x509
 from certipy.lib.channel_binding import get_channel_binding_data_from_ssl_socket
 from certipy.lib.constants import WELLKNOWN_SIDS
 from certipy.lib.errors import handle_error
@@ -46,6 +49,7 @@ from certipy.lib.kerberos import KerberosCipher, get_kerberos_type1
 from certipy.lib.logger import logging
 from certipy.lib.ntlm import NTLMCipher, ntlm_authenticate, ntlm_negotiate
 from certipy.lib.target import Target
+
 
 def get_account_type(entry: "LDAPEntry") -> str:
     """
@@ -547,14 +551,20 @@ class LDAPConnection:
     for secure operations.
     """
 
-    def __init__(self, target: Target) -> None:
+    def __init__(
+        self,
+        target: Target,
+        schannel_auth: Optional[Tuple[x509.Certificate, PrivateKeyTypes]] = None,
+    ) -> None:
         """
         Initialize an LDAP connection with the specified target.
 
         Args:
             target: Target object containing connection details
+            ldap_pfx: Optional tuple containing LDAP PFX file path and password
         """
         self.target = target
+        self.schannel_auth = schannel_auth
         self.use_ssl = target.ldap_scheme == "ldaps"
 
         # Determine port based on scheme and target configuration
@@ -567,7 +577,9 @@ class LDAPConnection:
         self.default_path: Optional[str] = None
         self.configuration_path: Optional[str] = None
         self.ldap_server: Optional[ldap3.Server] = None
-        self.ldap_conn: Optional["ExtendedLdapConnection"] = None
+        self.ldap_conn: Optional[Union["ExtendedLdapConnection", ldap3.Connection]] = (
+            None
+        )
         self.domain: Optional[str] = None
 
         # Caching and tracking
@@ -591,9 +603,11 @@ class LDAPConnection:
         Raises:
             Exception: If connection or authentication fails
         """
-
         if self.target.target_ip is None:
             raise Exception("Target IP is not set")
+
+        if self.schannel_auth is not None:
+            return self.schannel_connect()
 
         # Format user credentials
         user = f"{self.target.domain}\\{self.target.username}"
@@ -603,7 +617,10 @@ class LDAPConnection:
         if self.use_ssl:
             # Configure TLS for LDAPS
             tls = ldap3.Tls(
-                validate=ssl.CERT_NONE, version=ssl.PROTOCOL_TLS_CLIENT, ciphers="ALL:@SECLEVEL=0", ssl_options=[ssl.OP_ALL]
+                validate=ssl.CERT_NONE,
+                version=ssl.PROTOCOL_TLS_CLIENT,
+                ciphers="ALL:@SECLEVEL=0",
+                ssl_options=[ssl.OP_ALL],
             )
             ldap_server = ldap3.Server(
                 self.target.target_ip,
@@ -663,6 +680,129 @@ class LDAPConnection:
                 result = ldap_conn.result
 
                 self._check_ldap_result(result)
+
+        # Get schema information if not already available
+        if ldap_server.schema is None:
+            ldap_server.get_info_from_server(ldap_conn)
+
+            if ldap_conn.result["result"] != RESULT_SUCCESS:
+                if ldap_conn.result["message"].split(":")[0] == "000004DC":
+                    raise Exception(
+                        "Failed to bind to LDAP. This is most likely due to an invalid username"
+                    )
+
+            if ldap_server.schema is None:
+                raise Exception("Failed to get LDAP schema")
+
+        logging.debug(f"Bound to {ldap_server}")
+
+        # Store connection objects and directory paths
+        self.ldap_conn = ldap_conn
+        self.ldap_server = ldap_server
+
+        self.default_path = self.ldap_server.info.other["defaultNamingContext"][0]
+        self.configuration_path = self.ldap_server.info.other[
+            "configurationNamingContext"
+        ][0]
+
+        logging.debug(f"Default path: {self.default_path}")
+        logging.debug(f"Configuration path: {self.configuration_path}")
+
+        # Extract domain name from LDAP service name
+        self.domain = self.ldap_server.info.other["ldapServiceName"][0].split("@")[-1]
+
+    def schannel_connect(self) -> None:
+        if self.schannel_auth is None:
+            raise Exception(
+                "Schannel authentication requires a certificate and private key"
+            )
+
+        if self.target.target_ip is None:
+            raise Exception("Target IP is not set")
+
+        cert, key = self.schannel_auth
+
+        # Create temporary files for certificate and key
+        key_file = tempfile.NamedTemporaryFile(delete=False)
+        _ = key_file.write(key_to_pem(key))
+        key_file.close()
+
+        cert_file = tempfile.NamedTemporaryFile(delete=False)
+        _ = cert_file.write(cert_to_pem(cert))
+        cert_file.close()
+
+        # Configure TLS for LDAPS
+        tls = ldap3.Tls(
+            local_private_key_file=key_file.name,
+            local_certificate_file=cert_file.name,
+            validate=ssl.CERT_NONE,
+            version=ssl.PROTOCOL_TLS_CLIENT,
+            ciphers="ALL:@SECLEVEL=0",
+            ssl_options=[ssl.OP_ALL],
+        )
+
+        ldap_server = ldap3.Server(
+            self.target.target_ip,
+            use_ssl=self.use_ssl,
+            port=self.port,
+            get_info=ldap3.ALL,
+            tls=tls,
+            connect_timeout=self.target.timeout,
+        )
+
+        logging.debug("Authenticating to LDAP server using Schannel authentication")
+        logging.info(
+            f"Connecting to {f'{self.target.ldap_scheme}://{self.target.target_ip}:{self.port}'!r}"
+        )
+
+        # Configure authentication parameters for non-SSL connections
+        conn_kwargs = {}
+        if not self.use_ssl:
+            # Configure SASL credentials if user DN is specified
+            sasl_credentials = None
+            if self.target.ldap_user_dn:
+                sasl_credentials = f"dn:{self.target.ldap_user_dn}"
+
+            if sasl_credentials:
+                logging.info(f"Using DN: {sasl_credentials!r}")
+            else:
+                logging.warning(
+                    "No DN specified for LDAP authentication. "
+                    "Try to use '-ldap-user-dn' to specify a user DN if authentication fails"
+                )
+
+            conn_kwargs = {
+                "authentication": ldap3.SASL,
+                "sasl_mechanism": ldap3.EXTERNAL,
+                "auto_bind": ldap3.AUTO_BIND_TLS_BEFORE_BIND,
+                "sasl_credentials": sasl_credentials,
+            }
+
+        # Create connection
+        try:
+            ldap_conn = ldap3.Connection(
+                ldap_server,
+                raise_exceptions=True,
+                auto_referrals=False,
+                receive_timeout=self.target.timeout * 10,
+                **conn_kwargs,  # type: ignore
+            )
+        except Exception as e:
+            logging.error(f"Failed to connect to LDAP server: {e}")
+            raise
+
+        # Open the connection if using SSL. Non-SSL connections are opened automatically.
+        if self.use_ssl:
+            ldap_conn.open()
+
+        # Get authenticated identity
+        who_am_i = ldap_conn.extend.standard.who_am_i()
+        if not who_am_i:
+            raise Exception(
+                "Failed to authenticate to LDAP server. Server did not return an identity (whoAmI)"
+            )
+
+        logging.info(f"Authenticated to {self.target.target_ip!r} as: {who_am_i!r}")
 
         # Get schema information if not already available
         if ldap_server.schema is None:

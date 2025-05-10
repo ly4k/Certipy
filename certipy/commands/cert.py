@@ -220,7 +220,7 @@ def entry(options: argparse.Namespace) -> None:
             return
 
         try:
-            pfx = create_pfx(key, cert)
+            pfx = create_pfx(key, cert, options.export_password)
             write_output(pfx, options.out)
         except Exception as e:
             logging.error(f"Failed to create PFX: {e}")

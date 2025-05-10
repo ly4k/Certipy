@@ -507,7 +507,7 @@ def handle_pending_key_save(
 def web_request(
     session: httpx.Client,
     username: str,
-    csr: Union[bytes, x509.CertificateSigningRequest],
+    csr: Union[str, bytes, x509.CertificateSigningRequest],
     attributes_list: List[str],
     template: str,
     key: PrivateKeyTypes,
@@ -529,11 +529,13 @@ def web_request(
         Certificate if immediately issued, None otherwise
     """
     # Convert CSR to PEM format if needed
-    csr_pem = (
-        csr_to_pem(csr)
-        if not isinstance(csr, bytes)
-        else der_to_pem(csr, "CERTIFICATE REQUEST")
-    )
+    if isinstance(csr, x509.CertificateSigningRequest):
+        csr_pem = csr_to_pem(csr).decode()
+    elif isinstance(csr, bytes):
+        csr_pem = der_to_pem(csr, "CERTIFICATE REQUEST")
+    else:
+        # Already in PEM format
+        csr_pem = csr
 
     attributes = "\n".join(attributes_list)
 
@@ -1502,7 +1504,11 @@ class Request:
 
         # Construct attributes list
         attributes = create_csr_attributes(
-            self.template, self.alt_dns, self.alt_upn, self.alt_sid
+            self.template,
+            self.alt_dns,
+            self.alt_upn,
+            self.alt_sid,
+            self.application_policies,
         )
 
         # Submit the certificate request

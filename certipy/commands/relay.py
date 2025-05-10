@@ -30,6 +30,7 @@ import bs4
 import httpx
 from cryptography.hazmat.primitives.asymmetric import rsa
 from impacket.dcerpc.v5 import epm
+from impacket.examples import logger as _impacket_logger
 from impacket.examples.ntlmrelayx.attacks import ProtocolAttack
 from impacket.examples.ntlmrelayx.clients import rpcrelayclient
 from impacket.examples.ntlmrelayx.clients.httprelayclient import HTTPRelayClient
@@ -117,7 +118,7 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
 
         return True
 
-    def sendNegotiate( # noqa: N802 # type: ignore
+    def sendNegotiate(  # noqa: N802 # type: ignore
         self, negotiate_message: bytes
     ) -> Optional[NTLMAuthChallenge]:
         # Check if server wants auth
@@ -305,8 +306,8 @@ class ADCSRPCRelayServer(rpcrelayclient.RPCRelayClient, rpcrelayclient.ProtocolC
         self,
         config: NTLMRelayxConfig,
         target: object,
-        target_port: Optional[int] = None,
-        extended_security: bool = True,
+        targetPort: Optional[int] = None,  # noqa: N803
+        extendedSecurity: bool = True,  # noqa: N803
     ):
         """
         Initialize the RPC relay server.
@@ -318,7 +319,7 @@ class ADCSRPCRelayServer(rpcrelayclient.RPCRelayClient, rpcrelayclient.ProtocolC
             extendedSecurity: Whether to use extended security
         """
         rpcrelayclient.ProtocolClient.__init__(
-            self, config, target, target_port, extended_security
+            self, config, target, targetPort, extendedSecurity
         )
 
         # Set up RPC endpoint details
@@ -551,7 +552,7 @@ class ADCSHTTPAttackClient(ProtocolAttack):
         result = web_request(
             self.client,
             self.client.user,
-            csr.encode(),
+            csr,
             attributes,
             template,
             key,
@@ -717,8 +718,7 @@ class ADCSRPCAttackClient(ProtocolAttack):
             application_policies=self.adcs_relay.application_policies,
             smime=self.adcs_relay.smime,
         )
-        self.key = key
-        self.adcs_relay.key = key
+        self.interface.parent.key = key
 
         # Handle key archival if specified
         if self.adcs_relay.archive_key:
@@ -730,7 +730,7 @@ class ADCSRPCAttackClient(ProtocolAttack):
                 cax_cert = der_to_cert(cax_cert)
                 logging.info("Retrieved CAX certificate")
 
-            csr_data = create_key_archival(csr, self.key, cax_cert)
+            csr_data = create_key_archival(csr, key, cax_cert)
         else:
             csr_data = csr_to_der(csr)
 
@@ -1027,5 +1027,8 @@ def entry(options: argparse.Namespace) -> None:
     Args:
         options: Command line arguments
     """
+    # Initialize logging from Impacket
+    _impacket_logger.init()
+
     relay = Relay(**vars(options))
     relay.start()

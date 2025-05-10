@@ -13,14 +13,10 @@ It supports various authentication workflows for penetration testing and securit
 import argparse
 import base64
 import datetime
-import os
-import ssl
 import sys
-import tempfile
 from random import getrandbits
 from typing import Any, Optional, Union
 
-import ldap3
 from asn1crypto import cms, core
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
@@ -53,24 +49,22 @@ from impacket.krb5.pac import (
     PACTYPE,
 )
 from impacket.krb5.types import KerberosTime, Principal, Ticket
-from ldap3.core.exceptions import LDAPUnavailableResult
 from pyasn1.codec.der import decoder, encoder
 from pyasn1.type.univ import noValue
 
 from certipy.lib.certificate import (
     cert_id_to_parts,
-    cert_to_pem,
     get_identities_from_certificate,
     get_object_sid_from_certificate,
     hash_digest,
     hashes,
-    key_to_pem,
     load_pfx,
     print_certificate_authentication_information,
     x509,
 )
 from certipy.lib.errors import KRB5_ERROR_MESSAGES, handle_error
 from certipy.lib.files import try_to_save_file
+from certipy.lib.ldap import LDAPConnection
 from certipy.lib.logger import logging
 from certipy.lib.pkinit import build_pkinit_as_req
 from certipy.lib.structs import EncType, KDCDHKeyInfo, PaPkAsRep, e2i
@@ -189,6 +183,8 @@ class Authenticate:
         self,
         target: Target,
         pfx: Optional[str] = None,
+        username: Optional[str] = None,
+        domain: Optional[str] = None,
         password: Optional[str] = None,
         cert: Optional[x509.Certificate] = None,
         key: Optional[PrivateKeyTypes] = None,
@@ -205,6 +201,8 @@ class Authenticate:
         Args:
             target: Target information (domain, DC IP, etc.)
             pfx: Path to PFX/P12 certificate file
+            username: Username to authenticate as
+            domain: Domain to authenticate to
             password: Password for PFX file
             cert: Pre-loaded certificate object
             key: Pre-loaded private key object
@@ -220,6 +218,8 @@ class Authenticate:
             **kwargs: Additional parameters
         """
         self.target = target
+        self.username = username
+        self.domain = domain
         self.pfx = pfx
         self.password = password
         self.cert = cert
@@ -277,11 +277,11 @@ class Authenticate:
         print_certificate_authentication_information(self.cert)
 
         # Resolve username and domain from target if not provided
-        if username is None:
-            username = self.target.username
+        if not username:
+            username = self.username or self.target.username
 
-        if domain is None:
-            domain = self.target.domain
+        if not domain:
+            domain = self.domain or self.target.domain
 
         # Use LDAP authentication if requested
         if self.ldap_shell:
@@ -522,107 +522,28 @@ class Authenticate:
         if self.cert is None:
             raise ValueError("Certificate is not specified and no PFX was provided")
 
-        # Create temporary files for certificate and key
-        key_file = tempfile.NamedTemporaryFile(delete=False)
-        _ = key_file.write(key_to_pem(self.key))
-        key_file.close()
-
-        cert_file = tempfile.NamedTemporaryFile(delete=False)
-        _ = cert_file.write(cert_to_pem(self.cert))
-        cert_file.close()
+        ldap_conn = LDAPConnection(self.target, (self.cert, self.key))
 
         try:
-            # Configure SASL credentials if user DN is specified
-            sasl_credentials = None
-            if self.target.ldap_user_dn:
-                sasl_credentials = f"dn:{self.target.ldap_user_dn}"
+            ldap_conn.schannel_connect()
+        except Exception as e:
+            logging.error(f"Failed to connect to LDAP server: {e}")
+            handle_error()
+            return False
 
-            # Configure TLS settings
-            tls = ldap3.Tls(
-                local_private_key_file=key_file.name,
-                local_certificate_file=cert_file.name,
-                validate=ssl.CERT_NONE,
-                ciphers="ALL:@SECLEVEL=0",
-            )
+        if ldap_conn.default_path is None:
+            logging.error("Failed to retrieve default naming context")
+            return False
 
-            # Determine host to connect to
-            host = self.target.target_ip
-            if host is None:
-                host = domain
+        domain_dumper = DummyDomainDumper(ldap_conn.default_path)
+        ldap_shell = LdapShell(sys, domain_dumper, ldap_conn.ldap_conn)
 
-            if host is None:
-                raise ValueError("Target IP or domain is not specified")
+        try:
+            ldap_shell.cmdloop()
+        except KeyboardInterrupt:
+            print("Bye!\n")
 
-            # Connect to LDAP server
-            logging.info(
-                f"Connecting to {f'{self.target.ldap_scheme}://{host}:{self.target.ldap_port}'!r}"
-            )
-
-            ldap_server = ldap3.Server(
-                host=host,
-                get_info=ldap3.ALL,
-                use_ssl=True if self.target.ldap_scheme == "ldaps" else False,
-                port=self.target.ldap_port,
-                tls=tls,
-                connect_timeout=self.target.timeout,
-            )
-
-            # Configure authentication parameters
-            conn_kwargs = {}
-            if self.target.ldap_scheme == "ldap":
-                conn_kwargs = {
-                    "authentication": ldap3.SASL,
-                    "sasl_mechanism": ldap3.EXTERNAL,
-                    "auto_bind": ldap3.AUTO_BIND_TLS_BEFORE_BIND,
-                    "sasl_credentials": sasl_credentials,
-                }
-
-            try:
-                # Create LDAP connection
-                ldap_conn = ldap3.Connection(
-                    ldap_server,
-                    raise_exceptions=True,
-                    receive_timeout=self.target.timeout * 10,
-                    **conn_kwargs,  # type: ignore
-                )
-            except LDAPUnavailableResult as e:
-                logging.error(f"LDAP not configured for SSL/TLS connections: {e}")
-                handle_error()
-                return False
-
-            # Establish connection
-            if self.target.ldap_scheme == "ldaps":
-                ldap_conn.open()
-
-            # Get authenticated identity
-            who_am_i = ldap_conn.extend.standard.who_am_i()
-            if not who_am_i:
-                logging.error(
-                    "Failed to retrieve authenticated identity. Authentication failed"
-                )
-                return False
-
-            logging.info(f"Authenticated to {self.target.target_ip!r} as: {who_am_i}")
-
-            # Launch interactive shell
-            root = ldap_server.info.other["defaultNamingContext"][0]
-            domain_dumper = DummyDomainDumper(root)
-            ldap_shell = LdapShell(sys, domain_dumper, ldap_conn)
-
-            try:
-                ldap_shell.cmdloop()
-            except KeyboardInterrupt:
-                print("Bye!\n")
-
-            return True
-
-        finally:
-            # Clean up temporary files
-            try:
-                os.unlink(key_file.name)
-                os.unlink(cert_file.name)
-            except Exception as e:
-                pass
+        return True
 
     def kerberos_authentication(
         self,

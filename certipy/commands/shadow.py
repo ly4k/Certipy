@@ -16,7 +16,7 @@ References:
 """
 
 import argparse
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 import ldap3
 import OpenSSL
@@ -124,10 +124,10 @@ class Shadow:
             return None
 
         result = results[0]
-        return result.get_raw("msDS-KeyCredentialLink")
+        return result.get("msDS-KeyCredentialLink")
 
     def set_key_credentials(
-        self, target_dn: str, user: LDAPEntry, key_credential: List[bytes]
+        self, target_dn: str, user: LDAPEntry, key_credential: List[Union[bytes, str]]
     ) -> bool:
         """
         Set new Key Credentials for a user.
@@ -211,7 +211,7 @@ class Shadow:
 
     def add_new_key_credential(
         self, target_dn: str, user: LDAPEntry
-    ) -> Optional[Tuple[X509Certificate2, List[bytes], List[bytes], str]]:
+    ) -> Optional[Tuple[X509Certificate2, List[Union[bytes, str]], List[bytes], str]]:
         """
         Add a new Key Credential to a user.
 
@@ -232,16 +232,15 @@ class Shadow:
         # Show detailed info in verbose mode
         if is_verbose():
             key_credential.fromDNWithBinary(key_credential.toDNWithBinary()).show()
-        logging.debug(f"Key Credential: {key_credential.toDNWithBinary().toString()}")
 
         # Get the existing Key Credentials
         saved_key_credential = self.get_key_credentials(target_dn, user)
         if saved_key_credential is None:
-            return None
+            saved_key_credential = []
 
         # Create a new list including our new Key Credential
         new_key_credential = saved_key_credential + [
-            key_credential.toDNWithBinary().BinaryData
+            key_credential.toDNWithBinary().toString()
         ]
 
         logging.info(
@@ -376,7 +375,7 @@ class Shadow:
 
         # Cleanup by restoring the original Key Credentials
         logging.info(f"Restoring the old Key Credentials for {sam_account_name!r}")
-        result = self.set_key_credentials(target_dn, user, saved_key_credential)
+        result = self.set_key_credentials(target_dn, user, saved_key_credential)  # type: ignore
 
         if result is True:
             logging.info(

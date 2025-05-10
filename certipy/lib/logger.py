@@ -114,7 +114,6 @@ def init(
 
     # Configure the logger
     logger = _logging.getLogger(logger_name)
-    # _impacket_logger.init()
 
     # Remove existing handlers if any (to avoid duplicates on re-initialization)
     if logger.handlers:

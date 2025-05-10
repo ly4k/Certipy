@@ -700,7 +700,7 @@ class CA:
         request = ICertAdminDResubmitRequest()
         request["pwszAuthority"] = checkNullString(self.ca)
         request["pdwRequestId"] = int(self.request_id)
-        request["pwszExtensionName"] = checkNullString(None)  # No extension
+        request["pwszExtensionName"] = checkNullString("\x00")  # No extension
 
         try:
             resp = self.cert_admin.request(request)

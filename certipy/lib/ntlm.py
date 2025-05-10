@@ -86,7 +86,7 @@ def compute_response(
         ValueError: If target information is missing DNS hostname
     """
     # Generate response key
-    response_key_nt = NTOWFv2(user, password, domain, nt_hash)
+    response_key_nt = NTOWFv2(user, password, domain, bytes.fromhex(nt_hash) if nt_hash else "")  # type: ignore
     av_pairs = AV_PAIRS(target_info)
 
     # Add SPN (target name)

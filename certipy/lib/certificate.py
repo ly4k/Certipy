@@ -944,6 +944,7 @@ def create_csr(
 
     # Add Microsoft Application Policies if requested
     if application_policies:
+        print("Adding application policies to CSR")
         # Convert each policy OID string to PolicyIdentifier
         application_policy_oids = [
             asn1x509.PolicyInformation(
@@ -997,6 +998,7 @@ def create_csr_attributes(
     alt_dns: Optional[Union[bytes, str]] = None,
     alt_upn: Optional[Union[bytes, str]] = None,
     alt_sid: Optional[Union[bytes, str]] = None,
+    application_policies: Optional[List[str]] = None,
 ) -> List[str]:
     """
     Create a list of CSR attributes based on the provided template and Subject Alternative Name options.
@@ -1045,6 +1047,11 @@ def create_csr_attributes(
 
         # Join all SAN parts with ampersands
         attributes.append(f"SAN:{'&'.join(san_parts)}")
+
+    # Add application policies if provided
+    if application_policies:
+        # Join all application policy parts with ampersands
+        attributes.append(f"ApplicationPolicies:{'&'.join(application_policies)}")
 
     return attributes
 

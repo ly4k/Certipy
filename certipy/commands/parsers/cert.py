@@ -108,15 +108,4 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Password to protect the output PFX/P12 file",
     )
 
-    # Display options group
-    display_group = subparser.add_argument_group("display options")
-    display_group.add_argument(
-        "-info", action="store_true", help="Display certificate information"
-    )
-    display_group.add_argument(
-        "-text",
-        action="store_true",
-        help="Display certificate in text format (similar to OpenSSL)",
-    )
-
     return NAME, entry
