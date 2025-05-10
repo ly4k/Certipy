@@ -406,7 +406,7 @@ class Find:
                     enabled_oids_count += 1
 
                     # Get linked group (if any)
-                    linked_group = b"".join(oid.get_raw("msDS-OIDToGroupLink")).decode()
+                    linked_group = oid.get("msDS-OIDToGroupLink")
 
                     # Add template to OID's template list
                     if "templates" in oid["attributes"]:
@@ -1932,10 +1932,20 @@ class Find:
                     and template.get("msPKI-Certificate-Policy")
                     and template.get("issuance_policies_linked_groups")
                 ):
-                    vulnerabilities["ESC13"] = (
-                        f"Template allows client authentication "
-                        f"and issuance policy is linked to group {template.get('issuance_policies_linked_groups')!r}."
-                    )
+                    groups = template.get("issuance_policies_linked_groups")
+                    if not isinstance(groups, list):
+                        groups = [groups]
+
+                    if len(groups) == 1:
+                        vulnerabilities["ESC13"] = (
+                            f"Template allows client authentication "
+                            f"and issuance policy is linked to group {groups[0]!r}."
+                        )
+                    else:
+                        vulnerabilities["ESC13"] = (
+                            f"Template allows client authentication "
+                            f"and issuance policy is linked to groups {groups!r}."
+                        )
 
                 # ESC15: Schema v1 template with enrollee-supplied subject (CVE-2024-49019)
                 if (
