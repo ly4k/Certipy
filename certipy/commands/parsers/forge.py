@@ -44,20 +44,19 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     # Create the forge subparser with description
     subparser = subparsers.add_parser(
         NAME,
-        help="Create Golden Certificates",
+        help="Create Golden Certificates or self-signed certificates",
         description=(
-            "Forge certificates using a compromised CA certificate. "
-            "This allows creating certificates for any identity in the domain."
+            "Forge certificates using a compromised CA certificate or generate a self-signed CA. "
+            "This allows creating certificates for any identity in the domain or creating standalone certificate chains."
         ),
     )
 
-    # CA certificate (required)
+    # CA certificate (optional, if not specified a self-signed root CA will be generated)
     subparser.add_argument(
         "-ca-pfx",
         action="store",
         metavar="pfx/p12 file name",
-        help="Path to CA certificate and private key (PFX/P12 format)",
-        required=True,
+        help="Path to CA certificate and private key (PFX/P12 format). If not specified, a self-signed root CA will be generated",
     )
 
     # CA certificate password

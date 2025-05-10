@@ -128,12 +128,6 @@ def add_argument_group(
         ),
     )
     _ = auth_group.add_argument(
-        "-simple-auth",
-        action="store_true",
-        dest="do_simple",
-        help="Use SIMPLE LDAP authentication instead of NTLM",
-    )
-    _ = auth_group.add_argument(
         "-aes",
         action="store",
         metavar="hex key",
@@ -163,9 +157,20 @@ def add_argument_group(
         help="Port for LDAP communication (default: 636 for ldaps, 389 for ldap)",
     )
     _ = ldap_group.add_argument(
-        "-ldap-channel-binding",
+        "-no-ldap-channel-binding",
         action="store_true",
-        help="Use LDAP channel binding for LDAP communication (LDAPS only)",
+        help="Don't use LDAP channel binding for LDAP communication (LDAPS only)",
+    )
+    _ = ldap_group.add_argument(
+        "-no-ldap-signing",
+        action="store_true",
+        help="Don't use LDAP signing for LDAP communication (LDAP only)",
+    )
+    _ = ldap_group.add_argument(
+        "-ldap-simple-auth",
+        action="store_true",
+        dest="do_simple",
+        help="Use SIMPLE LDAP authentication instead of NTLM",
     )
     _ = ldap_group.add_argument(
         "-ldap-user-dn",

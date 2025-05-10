@@ -49,7 +49,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Manage certificate templates",
         description=(
             "Manipulate certificate templates in Active Directory. "
-            "This command allows modifying template configurations."
+            "This command allows viewing and modifying template configurations for privilege escalation testing or remediation."
         ),
     )
 
@@ -59,25 +59,55 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         action="store",
         metavar="template name",
         required=True,
-        help="Name of the certificate template to operate on",
+        help="Name of the certificate template to operate on (case-sensitive)",
     )
 
     # Group configuration-related options
     config_group = subparser.add_argument_group("configuration options")
     config_group.add_argument(
-        "-configuration",
+        "-write-configuration",
         action="store",
         metavar="configuration file",
         help=(
-            "Configuration to apply to the certificate template. "
-            "If omitted, a default vulnerable configuration (ESC1) will be applied. "
-            "Useful for restoring an old configuration or applying custom settings."
+            "Apply configuration from a JSON file to the certificate template. "
+            "Use this option to restore a previous configuration or apply custom settings. "
+            "The file should contain the template configuration in valid JSON format."
         ),
     )
     config_group.add_argument(
-        "-save-old",
+        "-write-default-configuration",
         action="store_true",
-        help="Save the old configuration to a file before applying changes",
+        help=(
+            "Apply the default Certipy ESC1 configuration to the certificate template. "
+            "This configures the template to be vulnerable to ESC1 attack."
+        ),
+    )
+
+    config_group.add_argument(
+        "-save-configuration",
+        action="store",
+        metavar="configuration file",
+        help=(
+            "Save the current template configuration to a JSON file. "
+            "This creates a backup before making changes or documents the current settings. "
+            "If not specified when using -write-configuration or -write-default-configuration, a backup will still be created."
+        ),
+    )
+    config_group.add_argument(
+        "-no-save",
+        action="store_true",
+        help=(
+            "Skip saving the current template configuration before applying changes. "
+            "Use this option to apply modifications without creating a backup file."
+        ),
+    )
+    config_group.add_argument(
+        "-force",
+        action="store_true",
+        help=(
+            "Don't prompt for confirmation before applying changes. "
+            "Use this option to apply modifications without user interaction."
+        ),
     )
 
     # Add standard target arguments (domain, username, etc.) from shared module

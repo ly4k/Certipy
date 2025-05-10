@@ -136,6 +136,12 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         metavar="cax cert file",
         help="Specify CAX Certificate for Key Archival. You can request the cax cert with 'certipy req -cax-cert'",
     )
+    cert_group.add_argument(
+        "-pfx-password",
+        action="store",
+        metavar="PFX file password",
+        help="Password for the PFX file",
+    )
 
     # Advanced certificate options
     cert_group.add_argument(

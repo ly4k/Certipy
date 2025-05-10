@@ -26,6 +26,7 @@ from certipy.lib.certificate import (
     pem_to_cert,
     pem_to_key,
 )
+from certipy.lib.errors import handle_error
 from certipy.lib.logger import logging
 
 
@@ -50,6 +51,9 @@ def load_certificate_file(file_path: str) -> bytes:
     except IOError as e:
         logging.error(f"Error reading certificate file: {e}")
         raise
+    except Exception as e:
+        logging.error(f"Unexpected error reading certificate file: {e}")
+        raise
 
 
 def load_key_file(file_path: str) -> bytes:
@@ -72,6 +76,9 @@ def load_key_file(file_path: str) -> bytes:
         raise
     except IOError as e:
         logging.error(f"Error reading private key file: {e}")
+        raise
+    except Exception as e:
+        logging.error(f"Unexpected error reading private key file: {e}")
         raise
 
 
@@ -137,6 +144,9 @@ def write_output(data: Union[bytes, str], output_path: Optional[str] = None) -> 
         except IOError as e:
             logging.error(f"Error writing output file: {e}")
             raise
+        except Exception as e:
+            logging.error(f"Unexpected error writing output file: {e}")
+            raise
     else:
         # Write to stdout
         if isinstance(data, bytes):
@@ -178,6 +188,7 @@ def entry(options: argparse.Namespace) -> None:
             key, cert = load_pfx(pfx, password)
         except Exception as e:
             logging.error(f"Failed to load PFX file: {e}")
+            handle_error()
             return
 
     # Process certificate input if provided
@@ -187,6 +198,7 @@ def entry(options: argparse.Namespace) -> None:
             cert = parse_certificate(cert_data)
         except Exception as e:
             logging.error(f"Failed to process certificate: {e}")
+            handle_error()
             return
 
     # Process private key input if provided
@@ -196,6 +208,7 @@ def entry(options: argparse.Namespace) -> None:
             key = parse_key(key_data)
         except Exception as e:
             logging.error(f"Failed to process private key: {e}")
+            handle_error()
             return
 
     # Export in PFX format
@@ -211,6 +224,7 @@ def entry(options: argparse.Namespace) -> None:
             write_output(pfx, options.out)
         except Exception as e:
             logging.error(f"Failed to create PFX: {e}")
+            handle_error()
             return
     # Export in PEM format
     else:
@@ -244,3 +258,4 @@ def entry(options: argparse.Namespace) -> None:
                 logging.info(f"Writing {log_str} to {options.out!r}")
         except Exception as e:
             logging.error(f"Failed to write output: {e}")
+            handle_error()

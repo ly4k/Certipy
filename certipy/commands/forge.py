@@ -30,7 +30,9 @@ from pyasn1.codec.der import encoder
 from certipy.lib.certificate import (
     APPLICATION_POLICIES,
     NTDS_CA_SECURITY_EXT,
+    OID_NTDS_OBJECTSID,
     PRINCIPAL_NAME,
+    SAN_URL_PREFIX,
     SMIME_CAPABILITIES,
     SMIME_MAP,
     UTF8String,
@@ -40,10 +42,10 @@ from certipy.lib.certificate import (
     generate_rsa_key,
     get_subject_from_str,
     load_pfx,
-    szOID_NTDS_OBJECTSID,
     x509,
 )
 from certipy.lib.constants import OID_TO_STR_NAME_MAP
+from certipy.lib.errors import handle_error
 from certipy.lib.files import try_to_save_file
 from certipy.lib.logger import logging
 
@@ -72,18 +74,21 @@ class Forge:
     def __init__(
         self,
         ca_pfx: Optional[str] = None,
+        ca_password: Optional[str] = None,
         upn: Optional[str] = None,
         dns: Optional[str] = None,
         sid: Optional[str] = None,
-        template: Optional[str] = None,
         subject: Optional[str] = None,
+        template: Optional[str] = None,
         application_policies: Optional[List[str]] = None,
         smime: Optional[str] = None,
         issuer: Optional[str] = None,
         crl: Optional[str] = None,
         serial: Optional[str] = None,
         key_size: int = 2048,
+        validity_period: int = 365,
         out: Optional[str] = None,
+        pfx_password: Optional[str] = None,
         **kwargs,  # type: ignore
     ):
         """
@@ -91,31 +96,37 @@ class Forge:
 
         Args:
             ca_pfx: Path to the CA certificate/private key in PFX format
+            ca_password: Password for the CA PFX file
             upn: User Principal Name for the certificate (e.g., user@domain.com)
             dns: DNS name for the certificate (e.g., computer.domain.com)
             sid: Security Identifier to include in the certificate
-            template: Path to an existing certificate to use as a template
             subject: Subject name (in DN format) for the certificate
+            template: Path to an existing certificate to use as a template
             application_policies: List of application policy OIDs
             smime: SMIME capability identifier
             issuer: Issuer name (in DN format) for the certificate
             crl: URI for the CRL distribution point
             serial: Custom serial number (in hex format, colons optional)
             key_size: RSA key size in bits for new certificates
+            validity_period: Validity period in days for new certificates
             out: Output file path for the forged certificate
+            pfx_password: Password for the PFX file
             kwargs: Additional arguments (not used)
         """
         self.ca_pfx = ca_pfx
+        self.ca_password = ca_password.encode() if ca_password else None
         self.alt_upn = upn
         self.alt_dns = dns
         self.alt_sid = sid
-        self.template = template
         self.subject = subject
+        self.template = template
         self.issuer = issuer
         self.crl = crl
         self.serial = serial
         self.key_size = key_size
+        self.validity_period = validity_period
         self.out = out
+        self.pfx_password = pfx_password
         self.kwargs = kwargs
 
         # Convert application policy names to OIDs
@@ -191,7 +202,7 @@ class Forge:
         with open(ca_pfx_path, "rb") as f:
             ca_pfx_data = f.read()
 
-        ca_key, ca_cert = load_pfx(ca_pfx_data)
+        ca_key, ca_cert = load_pfx(ca_pfx_data, self.ca_password)
 
         if ca_cert is None:
             raise Exception("Failed to load CA certificate")
@@ -237,7 +248,7 @@ class Forge:
             if isinstance(sid, bytes):
                 sid = sid.decode()
 
-            sid = f"tag:microsoft.com,2022-09-14:sid:{sid}"
+            sid = f"{SAN_URL_PREFIX}{sid}"
 
             sans.append(x509.UniformResourceIdentifier(sid))
 
@@ -262,7 +273,7 @@ class Forge:
                     {
                         "other_name": asn1x509.AnotherName(
                             {
-                                "type_id": szOID_NTDS_OBJECTSID,
+                                "type_id": OID_NTDS_OBJECTSID,
                                 "value": asn1x509.OctetString(sid_value).retag(
                                     {"explicit": 0}
                                 ),
@@ -475,7 +486,7 @@ class Forge:
         certificate = cert_builder.sign(ca_private_key, signature_hash_alg)
 
         # Create PFX
-        pfx_data = create_pfx(key, certificate)
+        pfx_data = create_pfx(key, certificate, self.pfx_password)
 
         return key, pfx_data
 
@@ -523,7 +534,7 @@ class Forge:
         ) - datetime.timedelta(days=1)
         not_valid_after = datetime.datetime.now(
             datetime.timezone.utc
-        ) + datetime.timedelta(days=365)
+        ) + datetime.timedelta(days=self.validity_period)
 
         # Start building certificate
         cert_builder = x509.CertificateBuilder()
@@ -593,7 +604,7 @@ class Forge:
         certificate = cert_builder.sign(ca_private_key, signature_hash_alg)
 
         # Create PFX
-        pfx_data = create_pfx(key, certificate)
+        pfx_data = create_pfx(key, certificate, self.pfx_password)
 
         return key, pfx_data
 
@@ -614,7 +625,7 @@ class Forge:
 
         # Try to generate filename from certificate ID
         name, _ = cert_id_to_parts([(id_type, id_value)])
-        if name is None:
+        if not name:
             logging.warning(
                 "Failed to generate output filename from certificate ID. Using current timestamp."
             )
@@ -656,6 +667,72 @@ class Forge:
         out_path = try_to_save_file(pfx, out_path)
         logging.info(f"Wrote forged certificate and private key to {out_path!r}")
 
+    def create_self_signed_ca(self) -> None:
+        """
+        Create a self-signed CA certificate.
+
+        This method generates a self-signed CA certificate and saves it to the specified output file.
+        """
+        # Generate new key pair
+        key = generate_rsa_key(self.key_size)
+
+        # Create self-signed CA certificate
+        subject = x509.Name(
+            [
+                x509.NameAttribute(x509.NameOID.COMMON_NAME, "Certipy CA"),
+            ]
+        )
+        if self.subject:
+            subject = get_subject_from_str(self.subject)
+        else:
+            logging.warning("No subject specified, using default: 'Certipy CA'")
+        issuer = subject
+
+        # Set serial number and validity period
+        serial_number = self.get_serial_number()
+        not_valid_before = datetime.datetime.now(
+            datetime.timezone.utc
+        ) - datetime.timedelta(days=1)
+        not_valid_after = datetime.datetime.now(
+            datetime.timezone.utc
+        ) + datetime.timedelta(days=self.validity_period)
+
+        # Start building certificate
+        cert_builder = x509.CertificateBuilder()
+        cert_builder = cert_builder.subject_name(subject)
+        cert_builder = cert_builder.issuer_name(issuer)
+        cert_builder = cert_builder.public_key(key.public_key())
+        cert_builder = cert_builder.serial_number(serial_number)
+        cert_builder = cert_builder.not_valid_before(not_valid_before)
+        cert_builder = cert_builder.not_valid_after(not_valid_after)
+
+        # Add key identifiers
+        cert_builder = cert_builder.add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()),
+            False,
+        )
+        cert_builder = cert_builder.add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
+            False,
+        )
+
+        # Sign the certificate
+        signature_hash_alg = hashes.SHA256()
+        certificate = cert_builder.sign(key, signature_hash_alg)
+
+        # Create PFX
+        pfx_data = create_pfx(key, certificate, self.pfx_password)
+
+        # Save PFX to file
+        out_path = self.out
+        if out_path is None:
+            out_path = "ca.pfx"
+        if not out_path.endswith(".pfx"):
+            out_path += ".pfx"
+        logging.info(f"Saving self-signed CA certificate to {out_path!r}")
+        out_path = try_to_save_file(pfx_data, out_path)
+        logging.info(f"Wrote self-signed CA certificate to {out_path!r}")
+
 
 def entry(options: argparse.Namespace) -> None:
     """
@@ -664,15 +741,14 @@ def entry(options: argparse.Namespace) -> None:
     Args:
         options: Command line arguments
     """
-    # Validate required parameters
-    if not options.ca_pfx:
-        logging.error("CA PFX file (-ca-pfx) must be specified")
-        return
-
     try:
         # Create and run the forger
         forge = Forge(**vars(options))
-        forge.forge()
+
+        if options.ca_pfx:
+            forge.forge()
+        else:
+            forge.create_self_signed_ca()
     except Exception as e:
         logging.error(f"Certificate forgery failed: {e}")
-        logging.debug("Detailed error:", exc_info=True)
+        handle_error()

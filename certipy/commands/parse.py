@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Iterator, List, Optional
 
 from certipy.commands import find
+from certipy.lib.errors import handle_error
 from certipy.lib.logger import logging
 from certipy.lib.registry import RegConnection, RegEntry
 
@@ -262,6 +263,8 @@ class ParseBof(Parse):
 
         except Exception as e:
             logging.error(f"Error parsing BOF file: {e}")
+            handle_error()
+            return []
 
         logging.info(f"Parsed {len(templates)} templates from BOF output")
         return templates
@@ -370,6 +373,8 @@ class ParseReg(Parse):
 
         except Exception as e:
             logging.error(f"Error parsing registry file: {e}")
+            handle_error()
+            return []
 
         logging.info(f"Parsed {len(templates)} templates from registry file")
         return templates
@@ -479,3 +484,4 @@ def entry(options: argparse.Namespace) -> None:
         )
     except Exception as e:
         logging.error(f"Parse failed: {e}")
+        handle_error()

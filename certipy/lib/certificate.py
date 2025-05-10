@@ -15,12 +15,10 @@ Key components:
 - Key management utilities
 """
 
-import argparse
 import base64
 import math
 import os
 import struct
-import sys
 from typing import List, Optional, Tuple, Union
 
 from asn1crypto import cms as asn1cms
@@ -53,7 +51,6 @@ from impacket.dcerpc.v5.nrpc import checkNullString
 from pyasn1.codec.der import decoder
 from pyasn1.type.char import UTF8String
 
-from certipy.lib.files import try_to_save_file
 from certipy.lib.logger import logging
 from certipy.lib.structs import (
     CMCAddAttributesInfo,
@@ -99,12 +96,13 @@ APPLICATION_POLICIES = x509.ObjectIdentifier("1.3.6.1.4.1.311.21.10")
 SMIME_CAPABILITIES = x509.ObjectIdentifier("1.2.840.113549.1.9.15")
 
 # Microsoft-specific ASN.1 OIDs
-szOID_RENEWAL_CERTIFICATE = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.13.1")
-szOID_ENCRYPTED_KEY_HASH = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.21.21")
-szOID_PRINCIPAL_NAME = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.20.2.3")
-szOID_CMC_ADD_ATTRIBUTES = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.10.10.1")
-szOID_NTDS_CA_SECURITY_EXT = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.25.2")
-szOID_NTDS_OBJECTSID = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.25.2.1")
+OID_ENCRYPTED_KEY_HASH = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.21.21")
+OID_PRINCIPAL_NAME = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.20.2.3")
+OID_CMC_ADD_ATTRIBUTES = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.10.10.1")
+OID_NTDS_OBJECTSID = asn1cms.ObjectIdentifier("1.3.6.1.4.1.311.25.2.1")
+
+# Microsoft-specific SAN URL prefix for SID
+SAN_URL_PREFIX = "tag:microsoft.com,2022-09-14:sid:"
 
 # Register Microsoft-specific extensions
 asn1x509.ExtensionId._map.update(
@@ -125,11 +123,11 @@ asn1x509.Extension._oid_specs.update(
     }
 )
 
-asn1x509.Extension._oid_specs.update(
-    {
-        "smime_capability": asn1core.ObjectIdentifier,  # type: ignore
-    }
-)  # type: ignore
+# asn1x509.Extension._oid_specs.update(
+#     {
+#         "smime_capability": asn1core.ObjectIdentifier,  # type: ignore
+#     }
+# )  # type: ignore
 
 # SMIME capabilities mapping
 SMIME_MAP = {
@@ -143,18 +141,18 @@ SMIME_MAP = {
 
 
 # =========================================================================
-# Certificate identification and parsing functions
+# Certificate identity and parsing functions
 # =========================================================================
 
 
 def cert_id_to_parts(
-    identifications: List[Tuple[Optional[str], Optional[str]]],
+    identities: List[Tuple[Optional[str], Optional[str]]],
 ) -> Tuple[Optional[str], Optional[str]]:
     """
-    Extract username and domain from certificate identifications.
+    Extract username and domain from certificate identities.
 
     Args:
-        identifications: List of (id_type, id_value) tuples from certificate
+        identities: List of (id_type, id_value) tuples from certificate
 
     Returns:
         Tuple of (username, domain)
@@ -162,11 +160,11 @@ def cert_id_to_parts(
     usernames: List[str] = []
     domains: List[str] = []
 
-    if len(identifications) == 0:
+    if len(identities) == 0:
         return (None, None)
 
-    for id_type, identification in identifications:
-        if id_type is None or identification is None:
+    for id_type, identity in identities:
+        if id_type is None or identity is None:
             continue
 
         if id_type != "DNS Host Name" and id_type != "UPN":
@@ -176,17 +174,17 @@ def cert_id_to_parts(
         cert_domain = ""
 
         if id_type == "DNS Host Name":
-            parts = identification.split(".")
+            parts = identity.split(".")
             if len(parts) == 1:
-                cert_username = identification
+                cert_username = identity
                 cert_domain = ""
             else:
                 cert_username = parts[0] + "$"
                 cert_domain = ".".join(parts[1:])
         elif id_type == "UPN":
-            parts = identification.split("@")
+            parts = identity.split("@")
             if len(parts) == 1:
-                cert_username = identification
+                cert_username = identity
                 cert_domain = ""
             else:
                 cert_username = "@".join(parts[:-1])
@@ -198,7 +196,69 @@ def cert_id_to_parts(
     return ("_".join(usernames), "_".join(domains))
 
 
-def get_identifications_from_certificate(
+def print_certificate_authentication_information(
+    certificate: x509.Certificate,
+) -> None:
+    """
+    Display all authentication-related information found in a certificate.
+
+    This function extracts and prints various identity methods used in a
+    certificate, including Subject Alternative Names (SAN), Security Identifiers (SID),
+    and other Microsoft-specific extensions that can be used for authentication.
+
+    Args:
+        certificate: X.509 certificate to analyze and display information for
+    """
+    # Extract all identity information
+    identities = get_identities_from_certificate(certificate)
+    san_url_sid = get_object_sid_from_certificate_san_url(certificate)
+    sid_extension_sid = get_object_sid_from_certificate_sid_extension(certificate)
+
+    # Print certificate identities with clear section header
+    logging.info("Certificate identities:")
+
+    # Case: No identities found
+    if len(identities) == 0 and not san_url_sid and not sid_extension_sid:
+        logging.info("    No identities found in this certificate")
+        return
+
+    # Print Subject Alternative Name entries
+    if identities:
+        for id_type, id_value in identities:
+            logging.info(f"    SAN {id_type}: {id_value!r}")
+
+    # Print SID from SAN URL (newer format)
+    if san_url_sid:
+        logging.info(f"    SAN URL SID: {san_url_sid!r}")
+
+    # Print SID from Security Extension (common format used by AD CS)
+    if sid_extension_sid:
+        logging.info(f"    Security Extension SID: {sid_extension_sid!r}")
+
+
+def print_certificate_identities(
+    identities: List[Tuple[str, str]],
+) -> None:
+    """
+    Print certificate identity information with appropriate formatting.
+
+    Args:
+        identities: List of tuples containing (identity_type, identity_value)
+    """
+    if len(identities) > 1:
+        logging.info("Got certificate with multiple identities")
+        for id_type, id_value in identities:
+            print(f"    {id_type}: {id_value!r}")
+
+    elif len(identities) == 1:
+        id_type, id_value = identities[0]
+        logging.info(f"Got certificate with {id_type} {id_value!r}")
+
+    else:
+        logging.info("Got certificate without identity")
+
+
+def get_identities_from_certificate(
     certificate: x509.Certificate,
 ) -> List[Tuple[str, str]]:
     """
@@ -210,7 +270,7 @@ def get_identifications_from_certificate(
     Returns:
         List of tuples with (id_type, id_value)
     """
-    identifications = []
+    identities = []
 
     try:
         # Get Subject Alternative Name extension
@@ -224,7 +284,7 @@ def get_identifications_from_certificate(
         # Extract UPN from OtherName fields
         for name in san.value.get_values_for_type(x509.OtherName):
             if name.type_id == PRINCIPAL_NAME:
-                identifications.append(
+                identities.append(
                     (
                         "UPN",
                         decoder.decode(name.value, asn1Spec=UTF8String)[0].decode(),
@@ -233,62 +293,62 @@ def get_identifications_from_certificate(
 
         # Extract DNS names
         for name in san.value.get_values_for_type(x509.DNSName):
-            identifications.append(("DNS Host Name", name))
+            identities.append(("DNS Host Name", name))
 
     except Exception:
-        pass  # Ignore errors if SAN is missing or malformed
+        pass
 
-    return identifications
-
-
-def get_san_url_sid(
-    certificate: x509.Certificate,
-) -> List[Tuple[str, str]]:
-    """
-    Extract identity information from a certificate.
-
-    Args:
-        certificate: X.509 certificate to analyze
-
-    Returns:
-        List of tuples with (id_type, id_value)
-    """
-    identifications = []
-
-    try:
-        # Get Subject Alternative Name extension
-        san = certificate.extensions.get_extension_for_oid(
-            ExtensionOID.SUBJECT_ALTERNATIVE_NAME
-        )
-
-        if not isinstance(san.value, SubjectAlternativeName):
-            raise ValueError("Invalid SAN value")
-
-        # Extract UPN from OtherName fields
-        for name in san.value.get_values_for_type(x509.OtherName):
-            if name.type_id == PRINCIPAL_NAME:
-                identifications.append(
-                    (
-                        "UPN",
-                        decoder.decode(name.value, asn1Spec=UTF8String)[0].decode(),
-                    )
-                )
-
-        # Extract DNS names
-        for name in san.value.get_values_for_type(x509.DNSName):
-            identifications.append(("DNS Host Name", name))
-
-    except Exception:
-        pass  # Ignore errors if SAN is missing or malformed
-
-    return identifications
+    return identities
 
 
-def get_object_sid_from_certificate(
+def get_object_sid_from_certificate_san_url(
     certificate: x509.Certificate,
 ) -> Optional[str]:
     """
-    Extract the object SID from a certificate.
+    Extract a Security Identifier (SID) from a certificate's Subject Alternative Name (SAN)
+    URL field.
+
+    Microsoft AD CS can include SIDs in certificates as URLs with a specific format:
+    tag:microsoft.com,2022-09-14:sid:{SID}
+
+    Args:
+        certificate: X.509 certificate to analyze
+
+    Returns:
+        Extracted Security Identifier as string, or None if not found
+    """
+    try:
+        # Get Subject Alternative Name extension
+        san = certificate.extensions.get_extension_for_oid(
+            ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
+
+        if not isinstance(san.value, SubjectAlternativeName):
+            raise ValueError("Invalid SAN value type")
+
+        # Search for SIDs in UniformResourceIdentifier fields
+        for name in san.value.get_values_for_type(x509.UniformResourceIdentifier):
+            if SAN_URL_PREFIX in name.lower():
+                # Extract the SID portion that follows the prefix
+                return name[
+                    name.lower().find(SAN_URL_PREFIX) + len(SAN_URL_PREFIX) :
+                ].strip()
+
+    except Exception:
+        pass
+
+    return None
+
+
+def get_object_sid_from_certificate_sid_extension(
+    certificate: x509.Certificate,
+) -> Optional[str]:
+    """
+    Extract a Security Identifier (SID) from a certificate's Microsoft-specific
+    NTDS_CA_SECURITY_EXT extension.
+
+    This extension is commonly used in Microsoft AD CS environments to associate
+    certificates with specific Active Directory objects.
 
     Args:
         certificate: X.509 certificate to analyze
@@ -302,17 +362,66 @@ def get_object_sid_from_certificate(
 
         if not isinstance(object_sid.value, x509.UnrecognizedExtension):
             raise ValueError(
-                f"Expected UnrecognizedExtension, got {type(object_sid.value)}"
+                f"Expected UnrecognizedExtension for security extension, got {type(object_sid.value)}"
             )
 
-        # Extract SID string
-        sid = object_sid.value.value
-        return sid[sid.find(b"S-1-5") :].decode()
+        # Extract SID string (format is binary with an S-1-5... SID string)
+        sid_value = object_sid.value.value
+        sid_start = sid_value.find(b"S-1-5")
+
+        if sid_start == -1:
+            logging.debug("Could not find SID pattern in security extension")
+            return None
+
+        return sid_value[sid_start:].decode().strip()
 
     except Exception:
-        pass  # Ignore errors if extension is missing or malformed
+        pass
 
     return None
+
+
+def get_object_sid_from_certificate(
+    certificate: x509.Certificate,
+) -> Optional[str]:
+    """
+    Extract a Security Identifier (SID) from a certificate using multiple methods.
+
+    This function attempts to find SIDs in both the Subject Alternative Name URL field
+    and the Microsoft-specific security extension. Different certificate templates may
+    use different approaches for storing SIDs, so both methods are tried.
+
+    The security extension SID is prioritized as Windows uses this value for
+    authentication purposes. If only the SAN URL SID is available, that will be returned.
+
+    Args:
+        certificate: X.509 certificate to analyze
+
+    Returns:
+        The security extension SID (preferred) or SAN URL SID if available, otherwise None
+    """
+    # Extract SIDs using both available methods
+    san_url_sid = get_object_sid_from_certificate_san_url(certificate)
+    sid_extension_sid = get_object_sid_from_certificate_sid_extension(certificate)
+
+    # Log debug information about found SIDs
+    if san_url_sid:
+        logging.debug(f"Found SID in SAN URL: {san_url_sid!r}")
+    if sid_extension_sid:
+        logging.debug(f"Found SID in security extension: {sid_extension_sid!r}")
+
+    # Log a warning if both methods found different SIDs
+    if san_url_sid and sid_extension_sid and san_url_sid != sid_extension_sid:
+        logging.warning(f"Conflicting SIDs found in certificate:")
+        logging.warning(f"    SAN URL:            {san_url_sid!r}")
+        logging.warning(f"    Security Extension: {sid_extension_sid!r}")
+        logging.warning(
+            "Windows will use the security extension SID for authentication purposes"
+        )
+
+    # Return the security extension SID if available (preferred by Windows),
+    # otherwise fall back to the SAN URL SID
+    return sid_extension_sid or san_url_sid
 
 
 # =========================================================================
@@ -737,7 +846,7 @@ def create_csr(
                     {
                         "other_name": asn1x509.AnotherName(
                             {
-                                "type_id": szOID_PRINCIPAL_NAME,
+                                "type_id": OID_PRINCIPAL_NAME,
                                 "value": asn1x509.UTF8String(alt_upn).retag(
                                     {"explicit": 0}
                                 ),
@@ -754,9 +863,7 @@ def create_csr(
 
             general_names.append(
                 asn1x509.GeneralName(
-                    {
-                        "uniform_resource_identifier": f"tag:microsoft.com,2022-09-14:sid:{alt_sid}"
-                    }
+                    {"uniform_resource_identifier": f"{SAN_URL_PREFIX}{alt_sid}"}
                 )
             )
 
@@ -776,7 +883,12 @@ def create_csr(
     if smime:
         # Create SMIME extension
         smime_extension = asn1x509.Extension(
-            {"extn_id": "smime_capability", "extn_value": SMIME_MAP[smime]}
+            {
+                "extn_id": "smime_capability",
+                "extn_value": asn1x509.ParsableOctetString(
+                    asn1core.ObjectIdentifier(SMIME_MAP[smime]).dump()
+                ),
+            }
         )
 
         # Add extension to CSR attributes
@@ -797,7 +909,7 @@ def create_csr(
                         {
                             "other_name": asn1x509.AnotherName(
                                 {
-                                    "type_id": szOID_NTDS_OBJECTSID,
+                                    "type_id": OID_NTDS_OBJECTSID,
                                     "value": asn1x509.OctetString(
                                         alt_sid.encode()
                                     ).retag({"explicit": 0}),
@@ -929,7 +1041,7 @@ def create_csr_attributes(
             if isinstance(alt_sid, bytes):
                 alt_sid = alt_sid.decode("utf-8")
             # Format SID as URL according to Microsoft's specifications
-            san_parts.append(f"url=tag:microsoft.com,2022-09-14:sid:{alt_sid}")
+            san_parts.append(f"url={SAN_URL_PREFIX}{alt_sid}")
 
         # Join all SAN parts with ampersands
         attributes.append(f"SAN:{'&'.join(san_parts)}")
@@ -1100,6 +1212,12 @@ def create_on_behalf_of(
     # Create signed attributes with requester name
     signed_attribs = asn1cms.CMSAttributes(
         [
+            asn1cms.CMSAttribute(
+                {
+                    "type": "1.3.6.1.4.1.311.21.10",
+                    "values": [asn1cms.ObjectIdentifier("1.3.6.1.5.5.7.3.2")],
+                }
+            ),
             asn1cms.CMSAttribute(
                 {"type": "1.3.6.1.4.1.311.13.2.1", "values": [requester_name]}
             ),
@@ -1280,7 +1398,7 @@ def create_key_archival(
         [
             asn1csr.Attribute(
                 {
-                    "type": szOID_ENCRYPTED_KEY_HASH,
+                    "type": OID_ENCRYPTED_KEY_HASH,
                     "values": [asn1core.OctetString(encrypted_key_hash)],
                 }
             )
@@ -1296,7 +1414,7 @@ def create_key_archival(
     tagged_attribute = TaggedAttribute(
         {
             "bodyPartID": 2,
-            "attrType": szOID_CMC_ADD_ATTRIBUTES,
+            "attrType": OID_CMC_ADD_ATTRIBUTES,
             "attrValues": [attributes_info],
         }
     )
@@ -1409,104 +1527,3 @@ def create_key_archival(
     )
 
     return cmc.dump()
-
-
-# =========================================================================
-# Command-line interface function
-# =========================================================================
-
-
-def entry(options: argparse.Namespace) -> None:
-    """
-    Command-line entry point for certificate operations.
-
-    Args:
-        options: Command line arguments
-    """
-    cert, key = None, None
-
-    # Validate input options
-    if not any([options.pfx, options.cert, options.key]):
-        logging.error("-pfx, -cert, or -key is required")
-        return
-
-    # Load from PFX if specified
-    if options.pfx:
-        password = None
-        if options.password:
-            logging.debug(
-                f"Loading PFX {options.pfx!r} with password {options.password!r}"
-            )
-            password = options.password.encode()
-        else:
-            logging.debug(f"Loading PFX {options.pfx!r} without password")
-
-        with open(options.pfx, "rb") as f:
-            pfx = f.read()
-
-        key, cert = load_pfx(pfx, password)
-
-    # Load certificate if specified
-    if options.cert:
-        logging.debug(f"Loading certificate from {options.cert!r}")
-
-        with open(options.cert, "rb") as f:
-            cert_data = f.read()
-        try:
-            cert = pem_to_cert(cert_data)
-        except Exception:
-            cert = der_to_cert(cert_data)
-
-    # Load private key if specified
-    if options.key:
-        logging.debug(f"Loading private key from {options.key!r}")
-
-        with open(options.key, "rb") as f:
-            key_data = f.read()
-        try:
-            key = pem_to_key(key_data)
-        except Exception:
-            key = der_to_key(key_data)
-
-    # Export as PFX if requested
-    if options.export:
-        if not key:
-            logging.error("Private key is required for export")
-            return
-
-        if not cert:
-            logging.error("Certificate is required for export")
-            return
-
-        pfx = create_pfx(key, cert)
-        if options.out:
-            logging.info(f"Saving certificate and private key to {options.out!r}")
-            output_path = try_to_save_file(pfx, options.out)
-            logging.info(f"Wrote certificate and private key to {output_path!r}")
-        else:
-            _ = sys.stdout.buffer.write(pfx)
-    else:
-        # Export as PEM
-        output = ""
-        log_str = ""
-
-        if cert and not options.nocert:
-            output += cert_to_pem(cert).decode()
-            log_str += "certificate"
-            if key and not options.nokey:
-                log_str += " and "
-
-        if key and not options.nokey:
-            output += key_to_pem(key).decode()
-            log_str += "private key"
-
-        if len(output) == 0:
-            logging.error("Output is empty")
-            return
-
-        if options.out:
-            logging.info(f"Saving {log_str} to {options.out!r}")
-            output_path = try_to_save_file(output.encode(), options.out)
-            logging.info(f"Wrote {log_str} to {output_path!r}")
-        else:
-            print(output)

@@ -23,6 +23,7 @@ from typing import Dict, Optional, Tuple
 from dns.resolver import Resolver
 from impacket.krb5.ccache import CCache
 
+from certipy.lib.errors import handle_error
 from certipy.lib.logger import logging
 
 
@@ -50,7 +51,8 @@ class Target:
         timeout: int = 5,
         ldap_scheme: str = "ldaps",
         ldap_port: Optional[int] = None,
-        ldap_channel_binding: bool = False,
+        ldap_channel_binding: bool = True,
+        ldap_signing: bool = True,
         ldap_user_dn: Optional[str] = None,
     ) -> None:
         """
@@ -75,6 +77,7 @@ class Target:
             ldap_scheme: LDAP scheme (default is ldaps)
             ldap_port: LDAP port to use
             ldap_channel_binding: Use LDAP channel binding
+            ldap_signing: Use LDAP signing
             ldap_user_dn: LDAP user distinguished name
         """
         self.resolver = resolver
@@ -96,6 +99,7 @@ class Target:
         self.ldap_scheme: str = ldap_scheme
         self.ldap_port: Optional[int] = ldap_port
         self.ldap_channel_binding: bool = ldap_channel_binding
+        self.ldap_signing: bool = ldap_signing
         self.ldap_user_dn: Optional[str] = ldap_user_dn
 
     @staticmethod
@@ -147,10 +151,13 @@ class Target:
             options.ldap_scheme if hasattr(options, "ldap_scheme") else "ldaps"
         )
         ldap_port = options.ldap_port if hasattr(options, "ldap_port") else None
-        ldap_channel_binding = (
-            options.ldap_channel_binding
-            if hasattr(options, "ldap_channel_binding")
+        no_ldap_channel_binding = (
+            options.no_ldap_channel_binding
+            if hasattr(options, "no_ldap_channel_binding")
             else False
+        )
+        no_ldap_signing = (
+            options.no_ldap_signing if hasattr(options, "no_ldap_signing") else False
         )
         ldap_user_dn = (
             options.ldap_user_dn if hasattr(options, "ldap_user_dn") else None
@@ -285,7 +292,8 @@ class Target:
             target_ip=target_ip,
             timeout=timeout,
             ldap_scheme=ldap_scheme,
-            ldap_channel_binding=ldap_channel_binding,
+            ldap_channel_binding=not no_ldap_channel_binding,
+            ldap_signing=not no_ldap_signing,
             ldap_port=ldap_port,
             ldap_user_dn=ldap_user_dn,
         )
@@ -411,7 +419,9 @@ class DnsResolver:
             answers = self.resolver.resolve(hostname, tcp=self.use_tcp)
             if answers:
                 ip_addr = str(answers[0])
-        except Exception:
+        except Exception as e:
+            logging.warning(f"DNS resolution failed: {e}")
+            handle_error(True)
             pass
 
         # Fall back to socket resolution

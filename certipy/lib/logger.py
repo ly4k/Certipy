@@ -11,6 +11,30 @@ from typing import Dict
 
 # from impacket.examples import logger as _impacket_logger
 
+_IS_VERBOSE = False  # Flag to control verbosity of logging output
+
+
+def set_verbose(is_verbose: bool) -> None:
+    """
+    Set the verbosity level for logging.
+
+    Args:
+        is_verbose: Boolean indicating whether to enable verbose logging
+    """
+    global _IS_VERBOSE
+    _IS_VERBOSE = is_verbose  # type: ignore
+
+
+def is_verbose() -> bool:
+    """
+    Check if verbose logging is enabled.
+
+    Returns:
+        Boolean indicating whether verbose logging is enabled
+    """
+    return _IS_VERBOSE
+
+
 # Bullet point mapping for different log levels
 BULLET_POINTS: Dict[int, str] = {
     _logging.INFO: "[*]",

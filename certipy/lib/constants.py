@@ -132,97 +132,206 @@ WELLKNOWN_RIDS = {
 # =========================================================================
 
 
-# Certificate name flags
-# Source: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-crtd/1192823c-d839-4bc3-9b6b-fa8c53507ae1
-class MS_PKI_CERTIFICATE_NAME_FLAG(IntFlag):
-    """Flags controlling certificate subject creation."""
+# Template flags
+# Source: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-crtd/6cc7eb79-3e84-477a-b398-b0ff2b68a6c0
+class TemplateFlags(IntFlag):
+    """
+    Certificate template flags that control template behavior.
+
+    These flags define how certificate templates operate in Active Directory
+    Certificate Services, including enrollment options, certificate type,
+    and template modification restrictions.
+
+    Reference: MS-CRTD 2.4 flags Attribute
+    """
 
     NONE = 0x00000000
-    ENROLLEE_SUPPLIES_SUBJECT = 0x00000001
-    ADD_EMAIL = 0x00000002
-    ADD_OBJ_GUID = 0x00000004
-    OLD_CERT_SUPPLIES_SUBJECT_AND_ALT_NAME = 0x00000008
-    ADD_DIRECTORY_PATH = 0x00000100
-    ENROLLEE_SUPPLIES_SUBJECT_ALT_NAME = 0x00010000
-    SUBJECT_ALT_REQUIRE_DOMAIN_DNS = 0x00400000
-    SUBJECT_ALT_REQUIRE_SPN = 0x00800000
-    SUBJECT_ALT_REQUIRE_DIRECTORY_GUID = 0x01000000
-    SUBJECT_ALT_REQUIRE_UPN = 0x02000000
-    SUBJECT_ALT_REQUIRE_EMAIL = 0x04000000
-    SUBJECT_ALT_REQUIRE_DNS = 0x08000000
-    SUBJECT_REQUIRE_DNS_AS_CN = 0x10000000
-    SUBJECT_REQUIRE_EMAIL = 0x20000000
-    SUBJECT_REQUIRE_COMMON_NAME = 0x40000000
-    SUBJECT_REQUIRE_DIRECTORY_PATH = 0x80000000
+
+    # Reserved flags (must be ignored by all protocols)
+    ADD_EMAIL = 0x00000002  # Include email in certificate
+    PUBLISH_TO_DS = 0x00000008  # Publish certificate to directory
+    EXPORTABLE_KEY = 0x00000010  # Allow private key export
+
+    # Enrollment flags
+    AUTO_ENROLLMENT = 0x00000020  # Template supports auto-enrollment
+
+    # Certificate type flags
+    MACHINE_TYPE = 0x00000040  # Certificate for machine authentication
+    IS_CA = 0x00000080  # Certificate for CA issuance
+    IS_CROSS_CA = 0x00000800  # Certificate for cross-certification
+
+    # Certificate content flags
+    ADD_TEMPLATE_NAME = 0x00000200  # Include template name in certificate extension
+
+    # Database flags
+    DO_NOT_PERSIST_IN_DB = 0x00001000  # Don't persist request in CA database
+
+    # Template management flags
+    IS_DEFAULT = 0x00010000  # Template should not be modified
+    IS_MODIFIED = 0x00020000  # Template may be modified if required
 
 
 # Enrollment flags
 # Source: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-crtd/ec71fd43-61c2-407b-83c9-b52272dec8a1
-class MS_PKI_ENROLLMENT_FLAG(IntFlag):
-    """Flags controlling certificate enrollment behavior."""
+class EnrollmentFlag(IntFlag):
+    """
+    Flags controlling certificate enrollment behavior.
 
-    NONE = 0x00000000
-    INCLUDE_SYMMETRIC_ALGORITHMS = 0x00000001
-    PEND_ALL_REQUESTS = 0x00000002
-    PUBLISH_TO_KRA_CONTAINER = 0x00000004
-    PUBLISH_TO_DS = 0x00000008
-    AUTO_ENROLLMENT_CHECK_USER_DS_CERTIFICATE = 0x00000010
-    AUTO_ENROLLMENT = 0x00000020
-    CT_FLAG_DOMAIN_AUTHENTICATION_NOT_REQUIRED = 0x80
-    PREVIOUS_APPROVAL_VALIDATE_REENROLLMENT = 0x00000040
-    USER_INTERACTION_REQUIRED = 0x00000100
-    ADD_TEMPLATE_NAME = 0x200
-    REMOVE_INVALID_CERTIFICATE_FROM_PERSONAL_STORE = 0x00000400
-    ALLOW_ENROLL_ON_BEHALF_OF = 0x00000800
-    ADD_OCSP_NOCHECK = 0x00001000
-    ENABLE_KEY_REUSE_ON_NT_TOKEN_KEYSET_STORAGE_FULL = 0x00002000
-    NOREVOCATIONINFOINISSUEDCERTS = 0x00004000
-    INCLUDE_BASIC_CONSTRAINTS_FOR_EE_CERTS = 0x00008000
-    ALLOW_PREVIOUS_APPROVAL_KEYBASEDRENEWAL_VALIDATE_REENROLLMENT = 0x00010000
-    ISSUANCE_POLICIES_FROM_REQUEST = 0x00020000
-    SKIP_AUTO_RENEWAL = 0x00040000
-    NO_SECURITY_EXTENSION = 0x00080000
+    These flags determine how certificates are enrolled, published, and managed
+    throughout their lifecycle in Active Directory Certificate Services.
+
+    Reference: MS-CRTD 2.26 msPKI-Enrollment-Flag Attribute
+    """
+
+    # Base value
+    NONE = 0x00000000  # No special enrollment behavior
+
+    # Enrollment processing options
+    INCLUDE_SYMMETRIC_ALGORITHMS = (
+        0x00000001  # Include symmetric algorithms in requests
+    )
+    PEND_ALL_REQUESTS = 0x00000002  # All requests must be manually approved
+    USER_INTERACTION_REQUIRED = (
+        0x00000100  # User interaction required during enrollment
+    )
+
+    # Publication options
+    PUBLISH_TO_KRA_CONTAINER = (
+        0x00000004  # Publish certificates to Key Recovery Agent container
+    )
+    PUBLISH_TO_DS = 0x00000008  # Publish certificates to Active Directory
+    ADD_TEMPLATE_NAME = 0x00000200  # Add template name to issued certificates
+    ADD_OCSP_NOCHECK = 0x00001000  # Add OCSP NoCheck extension
+
+    # Auto-enrollment options
+    AUTO_ENROLLMENT_CHECK_USER_DS_CERTIFICATE = (
+        0x00000010  # Check DS for existing certificate before auto-enrollment
+    )
+    AUTO_ENROLLMENT = 0x00000020  # Enable auto-enrollment for this template
+    SKIP_AUTO_RENEWAL = 0x00040000  # Skip auto-renewal even if otherwise enabled
+
+    # Authentication options
+    CT_FLAG_DOMAIN_AUTHENTICATION_NOT_REQUIRED = (
+        0x00000080  # Domain authentication not required for enrollment
+    )
+    PREVIOUS_APPROVAL_VALIDATE_REENROLLMENT = (
+        0x00000040  # Validate re-enrollment requests requiring approval
+    )
+    ALLOW_ENROLL_ON_BEHALF_OF = (
+        0x00000800  # Allow enrollment on behalf of another user/computer
+    )
+    ALLOW_PREVIOUS_APPROVAL_KEYBASEDRENEWAL_VALIDATE_REENROLLMENT = (
+        0x00010000  # Allow key-based renewal with previous approval
+    )
+
+    # Certificate store management
+    REMOVE_INVALID_CERTIFICATE_FROM_PERSONAL_STORE = (
+        0x00000400  # Remove invalid certificates from personal store
+    )
+    ENABLE_KEY_REUSE_ON_NT_TOKEN_KEYSET_STORAGE_FULL = (
+        0x00002000  # Enable key reuse when token storage is full
+    )
+
+    # Certificate content options
+    NOREVOCATIONINFOINISSUEDCERTS = (
+        0x00004000  # Don't include revocation info in certificates
+    )
+    INCLUDE_BASIC_CONSTRAINTS_FOR_EE_CERTS = (
+        0x00008000  # Include Basic Constraints for end-entity certs
+    )
+    ISSUANCE_POLICIES_FROM_REQUEST = 0x00020000  # Obtain issuance policies from request
+    NO_SECURITY_EXTENSION = 0x00080000  # Don't include security extension
 
 
 # Private key flags
 # Source: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-crtd/f6122d87-b999-4b92-bff8-f465e8949667
-class MS_PKI_PRIVATE_KEY_FLAG(IntFlag):
-    """Flags controlling certificate private key behavior."""
+class PrivateKeyFlag(IntFlag):
+    """
+    Flags controlling certificate private key behavior.
+
+    These flags define the handling, storage, and restrictions of private keys
+    associated with certificates issued from a template.
+
+    Reference: MS-CRTD 2.27 msPKI-Private-Key-Flag Attribute
+    """
+
+    # Default value
+    NONE = 0x00000000  # No special private key handling
 
     # Key archival and export settings
-    REQUIRE_PRIVATE_KEY_ARCHIVAL = 0x00000001
-    EXPORTABLE_KEY = 0x00000010
-    STRONG_KEY_PROTECTION_REQUIRED = 0x00000020
+    REQUIRE_PRIVATE_KEY_ARCHIVAL = 0x00000001  # Require private key archival to KRA
+    EXPORTABLE_KEY = 0x00000010  # Private key can be exported
+    STRONG_KEY_PROTECTION_REQUIRED = (
+        0x00000020  # Require strong key protection (password)
+    )
 
     # Key algorithm settings
-    REQUIRE_ALTERNATE_SIGNATURE_ALGORITHM = 0x00000040
-    REQUIRE_SAME_KEY_RENEWAL = 0x00000080
-    USE_LEGACY_PROVIDER = 0x00000100
+    REQUIRE_ALTERNATE_SIGNATURE_ALGORITHM = (
+        0x00000040  # Require alternate signature algorithm
+    )
+    REQUIRE_SAME_KEY_RENEWAL = 0x00000080  # Require same key for renewal
+    USE_LEGACY_PROVIDER = 0x00000100  # Use legacy cryptographic provider
 
-    # Key attestation flags
-    ATTEST_NONE = 0x00000000
-    ATTEST_REQUIRED = 0x00002000
-    ATTEST_PREFERRED = 0x00001000
-    ATTESTATION_WITHOUT_POLICY = 0x00004000
+    # Key attestation levels
+    ATTEST_NONE = 0x00000000  # No attestation required
+    ATTEST_PREFERRED = 0x00001000  # Attestation preferred but not required
+    ATTEST_REQUIRED = 0x00002000  # Attestation required
+    ATTESTATION_WITHOUT_POLICY = 0x00004000  # Attestation without specific policy
 
     # Endorsement key options
-    EK_TRUST_ON_USE = 0x00000200
-    EK_VALIDATE_CERT = 0x00000400
-    EK_VALIDATE_KEY = 0x00000800
+    EK_TRUST_ON_USE = 0x00000200  # Trust endorsement key on first use
+    EK_VALIDATE_CERT = 0x00000400  # Validate endorsement key certificate
+    EK_VALIDATE_KEY = 0x00000800  # Validate endorsement key itself
 
     # Special key types
-    HELLO_LOGON_KEY = 0x00200000
+    HELLO_LOGON_KEY = 0x00200000  # Key for Hello logon/Windows Hello
 
 
-# Certificate authority flags
-# Source: https://github.com/GhostPack/Certify/blob/2b1530309c0c5eaf41b2505dfd5a68c83403d031/Certify/Domain/CertificateAuthority.cs#L23
-class MS_PKI_CERTIFICATE_AUTHORITY_FLAG(IntFlag):
-    """Flags defining certificate authority capabilities."""
+# Certificate name flags
+# Source: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-crtd/1192823c-d839-4bc3-9b6b-fa8c53507ae1
+class CertificateNameFlag(IntFlag):
+    """
+    Flags controlling certificate subject name creation and validation.
 
-    NO_TEMPLATE_SUPPORT = 0x00000001
-    SUPPORTS_NT_AUTHENTICATION = 0x00000002
-    CA_SUPPORTS_MANUAL_AUTHENTICATION = 0x00000004
-    CA_SERVERTYPE_ADVANCED = 0x00000008
+    These flags define how subject names and subject alternative names (SANs) are created,
+    what information is included in certificates, and what naming constraints are enforced
+    during certificate enrollment.
+
+    Reference: MS-CRTD 2.28 msPKI-Certificate-Name-Flag Attribute
+    """
+
+    # Base value
+    NONE = 0x00000000  # No special naming behavior
+
+    # Subject name source options
+    ENROLLEE_SUPPLIES_SUBJECT = 0x00000001  # Enrollee can specify subject name
+    OLD_CERT_SUPPLIES_SUBJECT_AND_ALT_NAME = (
+        0x00000008  # Use subject from previous cert during renewal
+    )
+
+    # Subject content inclusion options
+    ADD_EMAIL = 0x00000002  # Include email address in subject name
+    ADD_OBJ_GUID = 0x00000004  # Include Active Directory object GUID in SAN
+    ADD_DIRECTORY_PATH = 0x00000100  # Include directory path (DN) in subject name
+
+    # Subject alternative name options
+    ENROLLEE_SUPPLIES_SUBJECT_ALT_NAME = (
+        0x00010000  # Enrollee can specify subject alternative names
+    )
+
+    # Subject alternative name requirements
+    SUBJECT_ALT_REQUIRE_DOMAIN_DNS = 0x00400000  # Require domain DNS name in SAN
+    SUBJECT_ALT_REQUIRE_SPN = 0x00800000  # Require Service Principal Name in SAN
+    SUBJECT_ALT_REQUIRE_DIRECTORY_GUID = 0x01000000  # Require directory GUID in SAN
+    SUBJECT_ALT_REQUIRE_UPN = 0x02000000  # Require User Principal Name in SAN
+    SUBJECT_ALT_REQUIRE_EMAIL = 0x04000000  # Require email address in SAN
+    SUBJECT_ALT_REQUIRE_DNS = 0x08000000  # Require DNS name in SAN
+
+    # Subject name requirements
+    SUBJECT_REQUIRE_DNS_AS_CN = 0x10000000  # Require DNS name as common name (CN)
+    SUBJECT_REQUIRE_EMAIL = 0x20000000  # Require email in subject name
+    SUBJECT_REQUIRE_COMMON_NAME = 0x40000000  # Require common name (CN) in subject
+    SUBJECT_REQUIRE_DIRECTORY_PATH = 0x80000000  # Require directory path in subject
 
 
 # =========================================================================
@@ -232,7 +341,7 @@ class MS_PKI_CERTIFICATE_AUTHORITY_FLAG(IntFlag):
 
 # Access control types
 # Source: https://docs.microsoft.com/en-us/dotnet/api/system.security.accesscontrol.accesscontroltype?view=net-5.0
-class ACCESS_CONTROL_TYPE(IntFlag):
+class AccessControlType(IntFlag):
     """Access control types for access control entries."""
 
     ALLOW = 0
@@ -241,7 +350,7 @@ class ACCESS_CONTROL_TYPE(IntFlag):
 
 # Active Directory rights
 # Source: https://docs.microsoft.com/en-us/dotnet/api/system.directoryservices.activedirectoryrights?view=net-5.0
-class ACTIVE_DIRECTORY_RIGHTS(IntFlag):
+class ActiveDirectoryRights(IntFlag):
     """Rights applicable to Active Directory objects."""
 
     # Object-level rights
@@ -271,7 +380,7 @@ class ACTIVE_DIRECTORY_RIGHTS(IntFlag):
 
 
 # Certificate rights
-class CERTIFICATE_RIGHTS(IntFlag):
+class CertificateRights(IntFlag):
     """Rights applicable to certificate templates and related objects."""
 
     WRITE_PROPERTY = 32
@@ -283,7 +392,7 @@ class CERTIFICATE_RIGHTS(IntFlag):
 
 
 # Certificate issuance policy rights
-class ISSUANCE_POLICY_RIGHTS(IntFlag):
+class IssuancePolicyRights(IntFlag):
     """Rights applicable to certificate issuance policies."""
 
     WRITE_PROPERTY = 32
@@ -293,9 +402,9 @@ class ISSUANCE_POLICY_RIGHTS(IntFlag):
     GENERIC_ALL = 983551
 
 
-# Certification authority rights
+# Certificate authority rights
 # Source: https://github.com/GhostPack/Certify/blob/2b1530309c0c5eaf41b2505dfd5a68c83403d031/Certify/Domain/CertificateAuthority.cs#L11
-class CERTIFICATION_AUTHORITY_RIGHTS(IntFlag):
+class CertificateAuthorityRights(IntFlag):
     """Rights applicable to certification authorities."""
 
     MANAGE_CA = 1

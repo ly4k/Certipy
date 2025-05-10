@@ -12,8 +12,9 @@ from impacket import uuid
 from impacket.dcerpc.v5 import epm, rpcrt, transport
 from impacket.dcerpc.v5.dcomrt import DCOMConnection
 
-from certipy.lib.kerberos import get_TGS
-from certipy.lib.logger import logging
+from certipy.lib.errors import handle_error
+from certipy.lib.kerberos import get_tgs
+from certipy.lib.logger import is_verbose, logging
 from certipy.lib.target import Target
 
 
@@ -41,7 +42,7 @@ def get_dcom_connection(target: Target) -> DCOMConnection:
         if not target.remote_name:
             logging.warning("Target remote name is not set.")
 
-        kdc_rep, cipher, session_key, username, domain = get_TGS(
+        kdc_rep, cipher, session_key, username, domain = get_tgs(
             target,
             target_name=target.remote_name,
         )
@@ -109,7 +110,7 @@ def get_dce_rpc_from_string_binding(
         if not remote_name:
             logging.warning("Target remote name is not set.")
 
-        kdc_rep, cipher, session_key, username, domain = get_TGS(
+        kdc_rep, cipher, session_key, username, domain = get_tgs(
             target,
             target_name=remote_name,
         )
@@ -165,6 +166,7 @@ def get_dynamic_endpoint(
         dce.connect()
     except Exception as e:
         logging.warning(f"Failed to connect to endpoint mapper: {e}")
+        handle_error(True)
         return None
 
     # Try to resolve endpoint
@@ -172,8 +174,9 @@ def get_dynamic_endpoint(
         endpoint = epm.hept_map(target, interface, protocol="ncacn_ip_tcp", dce=dce)
         logging.debug(f"Resolved dynamic endpoint {interface_str} to {endpoint}")
         return endpoint
-    except Exception:
-        logging.debug(f"Failed to resolve dynamic endpoint {interface_str}")
+    except Exception as e:
+        logging.warning(f"Failed to resolve dynamic endpoint {interface_str}: {e}")
+        handle_error(True)
         return None
 
 
@@ -183,7 +186,6 @@ def get_dce_rpc(
     target: Target,
     timeout: int = 5,
     dynamic: bool = False,
-    verbose: bool = False,
     auth_level_np: int = rpcrt.RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
     auth_level_dyn: int = rpcrt.RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
 ) -> Optional[rpcrt.DCERPC_v5]:
@@ -199,7 +201,6 @@ def get_dce_rpc(
         target: Target object containing connection parameters
         timeout: Connection timeout in seconds
         dynamic: If True, try dynamic endpoint first, otherwise try named pipe first
-        verbose: Whether to log warnings for connection failures
         auth_level_np: Authentication level for named pipe connections
         auth_level_dyn: Authentication level for dynamic endpoint connections
 
@@ -217,8 +218,9 @@ def get_dce_rpc(
         try:
             dce.connect()
         except Exception as e:
-            if verbose:
+            if is_verbose():
                 logging.warning(f"Failed to connect to endpoint {string_binding}: {e}")
+                handle_error(True)
             return None
 
         logging.debug(f"Connected to endpoint: {string_binding}")
@@ -228,8 +230,9 @@ def get_dce_rpc(
             _ = dce.bind(interface)
             return dce
         except Exception as e:
-            if verbose:
+            if is_verbose():
                 logging.warning(f"Failed to bind to interface: {e}")
+                handle_error(True)
             return None
 
     def _try_np() -> Optional[rpcrt.DCERPC_v5]:

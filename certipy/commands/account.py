@@ -48,7 +48,6 @@ class Account:
         group: Optional[str] = None,
         connection: Optional[LDAPConnection] = None,
         timeout: int = 5,
-        debug: bool = False,
         **kwargs,  # type: ignore
     ):
         """
@@ -66,7 +65,6 @@ class Account:
             scheme: LDAP connection scheme (ldap or ldaps)
             connection: Existing LDAP connection to reuse
             timeout: Connection timeout in seconds
-            debug: Enable verbose debug output
             **kwargs: Additional arguments
         """
         self.target = target
@@ -79,7 +77,6 @@ class Account:
         self.group = group
         self._connection = connection
         self.timeout = timeout
-        self.verbose = debug
         self.kwargs = kwargs
 
     @property
@@ -114,8 +111,8 @@ class Account:
             logging.warning(
                 "The parameter -sam overrides the -user parameter for the create operation"
             )
-            res = input("Do you want to continue? (Y/n) ").rstrip("\n")
-            if res.lower() == "n":
+            res = input("Do you want to continue? (Y/n): ")
+            if res.strip().lower() == "n":
                 return False
 
             username = self.sam
@@ -352,8 +349,8 @@ class Account:
         # Confirm deletion
         account_name = user.get("sAMAccountName")
         logging.warning(f"You are about to delete {account_name!r}")
-        res = input("Are you sure? (y/N) ").rstrip("\n")
-        if res.lower() != "y":
+        res = input("Are you sure? (y/N): ")
+        if res.strip().lower() != "y":
             logging.info("Deletion canceled")
             return False
 

@@ -25,16 +25,20 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install black isort pyright
+          pip install black isort pyright flake8 pep8-naming
+
+      - name: Lint with flake8 (style and naming)
+        run: |
+          flake8 ./certipy || (echo 'flake8 found issues. Run it locally with `flake8 .`' && exit 1)
 
       - name: Check import order with isort (black-compatible)
         run: |
-          isort . --check-only
+          isort . --check-only || (echo 'isort found issues. Run `isort .` to fix.' && exit 1)
 
       - name: Check formatting with black
         run: |
-          black . --check
+          black . --check || (echo 'black found formatting issues. Run `black .` to fix.' && exit 1)
 
       - name: Type check with pyright
         run: |
-          npx pyright
+          pyright . || (echo 'pyright found type issues. Run `pyright .` to fix.' && exit 1)

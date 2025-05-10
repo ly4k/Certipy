@@ -33,14 +33,14 @@ from certipy.lib.certificate import (
     x509,
 )
 from certipy.lib.structs import (
-    AS_REQ,
-    KDC_REQ_BODY,
-    NAME_TYPE,
-    PA_PAC_REQUEST,
-    PA_PK_AS_REQ,
+    AsReq,
     AuthPack,
-    Enctype,
+    EncType,
     KDCOptions,
+    KdcReqBody,
+    NameType,
+    PaPacRequest,
+    PaPkAsReq,
     PKAuthenticator,
     PrincipalName,
     e2i,
@@ -246,22 +246,22 @@ def build_pkinit_as_req(
     kdc_req_body_data = {
         "kdc-options": KDCOptions({"forwardable", "renewable", "renewable-ok"}),
         "cname": PrincipalName(
-            {"name-type": NAME_TYPE.PRINCIPAL, "name-string": [username]}
+            {"name-type": NameType.PRINCIPAL, "name-string": [username]}
         ),
         "realm": domain.upper(),
         "sname": PrincipalName(
             {
-                "name-type": NAME_TYPE.SRV_INST,
+                "name-type": NameType.SRV_INST,
                 "name-string": ["krbtgt", domain.upper()],
             }
         ),
         "till": (now + datetime.timedelta(days=1)).replace(microsecond=0),
         "rtime": (now + datetime.timedelta(days=1)).replace(microsecond=0),
         "nonce": getrandbits(31),
-        "etype": [Enctype.AES256, Enctype.AES128],  # Prefer stronger ciphers
+        "etype": [EncType.AES256, EncType.AES128],  # Prefer stronger ciphers
     }
 
-    kdc_req_body = KDC_REQ_BODY(kdc_req_body_data)
+    kdc_req_body = KdcReqBody(kdc_req_body_data)
 
     # Calculate checksum of the KDC-REQ-BODY
     checksum = hash_digest(kdc_req_body.dump(), hashes.SHA1)
@@ -308,14 +308,14 @@ def build_pkinit_as_req(
     signed_authpack = sign_authpack(authpack.dump(), key, cert)
 
     # Build PA-PK-AS-REQ
-    pa_pk_as_req = PA_PK_AS_REQ()
+    pa_pk_as_req = PaPkAsReq()
     pa_pk_as_req["signedAuthPack"] = signed_authpack
 
     # Prepare PA-DATA entries
     # PA-PAC-REQUEST to request a PAC
     pa_data_pac = {
         "padata-type": e2i(constants.PreAuthenticationDataTypes.PA_PAC_REQUEST),
-        "padata-value": PA_PAC_REQUEST({"include-pac": True}).dump(),
+        "padata-value": PaPacRequest({"include-pac": True}).dump(),
     }
 
     # PA-PK-AS-REQ for PKINIT
@@ -333,4 +333,4 @@ def build_pkinit_as_req(
     }
 
     # Return the encoded AS-REQ and the Diffie-Hellman object
-    return AS_REQ(asreq).dump(), diffie
+    return AsReq(asreq).dump(), diffie

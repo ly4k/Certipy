@@ -9,10 +9,13 @@ Functions:
     translate_error_code: Convert a Windows error code to a readable message
 """
 
+import traceback
 from typing import Dict, Tuple
 
 from impacket import hresult_errors
 from impacket.krb5.kerberosv5 import constants as krb5_constants
+
+from certipy.lib.logger import is_verbose, logging
 
 # Import Kerberos error message dictionary for easier access
 KRB5_ERROR_MESSAGES: Dict[int, Tuple[str, str]] = krb5_constants.ERROR_MESSAGES
@@ -45,3 +48,21 @@ def translate_error_code(error_code: int) -> str:
     else:
         # Handle unknown error codes
         return f"unknown error code: 0x{masked_code:x}"
+
+
+def handle_error(is_warning: bool = False) -> None:
+    """
+    Handle errors by printing the error message and exiting the program.
+
+    This function is a placeholder for error handling logic. It can be extended
+    to include logging, user notifications, or other actions as needed.
+    """
+    if is_verbose():
+        # Print the full traceback for debugging
+        traceback.print_exc()
+    else:
+        msg = "Use -debug to print a stacktrace"
+        if is_warning:
+            logging.warning(msg)
+        else:
+            logging.error(msg)

@@ -279,7 +279,7 @@ class SequenceOfTicket(core.SequenceOf):
     _child_spec = Ticket
 
 
-class PA_DATA(core.Sequence):
+class PaData(core.Sequence):
     """
     Pre-authentication data structure.
 
@@ -292,13 +292,13 @@ class PA_DATA(core.Sequence):
     ]
 
 
-class METHOD_DATA(core.SequenceOf):
+class MethodData(core.SequenceOf):
     """Collection of pre-authentication data elements."""
 
-    _child_spec = PA_DATA
+    _child_spec = PaData
 
 
-class KDC_REQ_BODY(core.Sequence):
+class KdcReqBody(core.Sequence):
     """
     KDC request body structure.
 
@@ -333,7 +333,7 @@ class KDC_REQ_BODY(core.Sequence):
     ]
 
 
-class KDC_REQ(core.Sequence):
+class KdcReq(core.Sequence):
     """
     Base KDC request structure.
 
@@ -343,12 +343,12 @@ class KDC_REQ(core.Sequence):
     _fields = [
         ("pvno", core.Integer, {"tag_type": TAG, "tag": 1}),
         ("msg-type", core.Integer, {"tag_type": TAG, "tag": 2}),
-        ("padata", METHOD_DATA, {"tag_type": TAG, "tag": 3, "optional": True}),
-        ("req-body", KDC_REQ_BODY, {"tag_type": TAG, "tag": 4}),
+        ("padata", MethodData, {"tag_type": TAG, "tag": 3, "optional": True}),
+        ("req-body", KdcReqBody, {"tag_type": TAG, "tag": 4}),
     ]
 
 
-class AS_REQ(KDC_REQ):
+class AsReq(KdcReq):
     """
     Authentication Service Request (AS-REQ).
 
@@ -358,7 +358,7 @@ class AS_REQ(KDC_REQ):
     explicit = (APPLICATION, 10)
 
 
-class PA_PAC_REQUEST(core.Sequence):
+class PaPacRequest(core.Sequence):
     """
     Microsoft PAC request pre-authentication data.
 
@@ -375,7 +375,7 @@ class PA_PAC_REQUEST(core.Sequence):
 # =========================================================================
 
 
-class NAME_TYPE:
+class NameType:
     """Kerberos name types from RFC 4120."""
 
     UNKNOWN = 0  # Name type not known
@@ -394,7 +394,7 @@ class NAME_TYPE:
     NTLM = -1200  # NTLM name, realm is domain
 
 
-class Enctype(enum.IntEnum):
+class EncType(enum.IntEnum):
     """Kerberos encryption types."""
 
     DES_CRC = 1
@@ -467,7 +467,7 @@ class DHRepInfo(core.Sequence):
     ]
 
 
-class PA_PK_AS_REQ(core.Sequence):
+class PaPkAsReq(core.Sequence):
     """PKINIT request structure."""
 
     _fields = [
@@ -485,7 +485,7 @@ class PA_PK_AS_REQ(core.Sequence):
     ]
 
 
-class PA_PK_AS_REP(core.Choice):
+class PaPkAsRep(core.Choice):
     """PKINIT response structure."""
 
     _alternatives = [

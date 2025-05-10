@@ -30,7 +30,7 @@ from dsinternals.system.Guid import Guid
 from certipy.lib.certificate import create_pfx, der_to_cert, der_to_key, x509
 from certipy.lib.files import try_to_save_file
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
-from certipy.lib.logger import logging
+from certipy.lib.logger import is_verbose, logging
 from certipy.lib.target import Target
 
 from .auth import Authenticate
@@ -56,7 +56,6 @@ class Shadow:
         device_id: Optional[str] = None,
         out: Optional[str] = None,
         connection: Optional[LDAPConnection] = None,
-        debug: bool = False,
         **kwargs,  # type: ignore
     ):
         """
@@ -69,14 +68,12 @@ class Shadow:
             out: Output file path for saving PFX files
             scheme: LDAP connection scheme (ldap or ldaps)
             connection: Optional existing LDAP connection
-            debug: Enable verbose debug output
             kwargs: Additional arguments
         """
         self.target = target
         self.account = account
         self.device_id = device_id
         self.out = out
-        self.verbose = debug
         self.kwargs = kwargs
 
         self._connection = connection
@@ -233,7 +230,7 @@ class Shadow:
         )
 
         # Show detailed info in verbose mode
-        if self.verbose:
+        if is_verbose():
             key_credential.fromDNWithBinary(key_credential.toDNWithBinary()).show()
         logging.debug(f"Key Credential: {key_credential.toDNWithBinary().toString()}")
 

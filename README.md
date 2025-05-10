@@ -4,7 +4,7 @@
 ![Python](https://img.shields.io/badge/python-3.12+-blue.svg)
 ![License](https://img.shields.io/github/license/ly4k/Certipy)
 
-**Certipy** is a powerful offensive and defensive toolkit for enumerating and abusing Active Directory Certificate Services (AD CS). It helps red teamers, penetration testers, and defenders assess AD CS misconfigurations — including full support for identifying and exploiting all known **ESC1–ESC15** attack paths (excluding ESC5).
+**Certipy** is a powerful offensive and defensive toolkit for enumerating and abusing Active Directory Certificate Services (AD CS). It helps red teamers, penetration testers, and defenders assess AD CS misconfigurations — including full support for identifying and exploiting all known **ESC1–ESC16** attack paths.
 
 > [!WARNING]
 > Use only in environments where you have explicit authorization. Unauthorized use may be illegal.
@@ -14,7 +14,7 @@
 ## 🔍 Features
 
 - 🔎 Discover Enterprise Certificate Authorities and Templates
-- 🚩 Identify misconfigurations (e.g., ESC1–ESC15)
+- 🚩 Identify misconfigurations (e.g., ESC1–ESC16)
 - 🔐 Request and forge certificates
 - 🎭 Perform authentication using certificates (PKINIT/Schannel)
 - 📡 Relay NTLM authentication to AD CS HTTP/RPC endpoints
@@ -100,7 +100,7 @@ certipy relay -ca http://ca.corp.local -template DomainController
 
 ## ✅ Supported ESC Vulnerabilities
 
-Certipy provides comprehensive support for detecting and exploiting AD CS vulnerabilities **ESC1 – ESC15** (excluding ESC5)
+Certipy provides comprehensive support for detecting and exploiting AD CS vulnerabilities **ESC1 – ESC16**
 
 For detailed explanations, exploitation steps, and mitigation strategies, refer to the [Certipy Wiki](https://github.com/ly4k/Certipy/wiki).
 

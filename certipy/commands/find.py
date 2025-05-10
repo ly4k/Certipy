@@ -17,9 +17,7 @@ import copy
 import csv
 import io
 import json
-import struct
 import time
-import traceback
 from collections import OrderedDict
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
@@ -30,23 +28,24 @@ from asn1crypto import x509
 from impacket.dcerpc.v5 import rpcrt, rrp
 
 from certipy.lib.constants import (
-    ACTIVE_DIRECTORY_RIGHTS,
-    CERTIFICATE_RIGHTS,
-    CERTIFICATION_AUTHORITY_RIGHTS,
     EXTENDED_RIGHTS_MAP,
     EXTENDED_RIGHTS_NAME_MAP,
-    ISSUANCE_POLICY_RIGHTS,
-    MS_PKI_CERTIFICATE_NAME_FLAG,
-    MS_PKI_ENROLLMENT_FLAG,
-    MS_PKI_PRIVATE_KEY_FLAG,
     OID_TO_STR_MAP,
     USER_AGENT,
+    ActiveDirectoryRights,
+    CertificateAuthorityRights,
+    CertificateNameFlag,
+    CertificateRights,
+    EnrollmentFlag,
+    IssuancePolicyRights,
+    PrivateKeyFlag,
 )
+from certipy.lib.errors import handle_error
 from certipy.lib.files import try_to_save_file
 from certipy.lib.formatting import pretty_print
 from certipy.lib.kerberos import HttpxKerberosAuth
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
-from certipy.lib.logger import logging
+from certipy.lib.logger import is_verbose, logging
 from certipy.lib.ntlm import HttpxNtlmAuth
 from certipy.lib.rpc import get_dce_rpc_from_string_binding
 from certipy.lib.security import (
@@ -55,78 +54,9 @@ from certipy.lib.security import (
     is_admin_sid,
 )
 from certipy.lib.target import Target
+from certipy.lib.time import filetime_to_str
 
 from .ca import CA
-
-# =========================================================================
-# Time Conversion Functions
-# =========================================================================
-
-
-def filetime_to_span(filetime: bytes) -> int:
-    """
-    Convert Windows FILETIME to time span in seconds.
-
-    Args:
-        filetime: Windows FILETIME as bytes
-
-    Returns:
-        Time span in seconds
-    """
-    (span,) = struct.unpack("<q", filetime)
-    span *= -0.0000001
-    return int(span)
-
-
-def span_to_str(span: int) -> str:
-    """
-    Convert a time span in seconds to human-readable string.
-
-    Args:
-        span: Time span in seconds
-
-    Returns:
-        Human-readable time span (e.g., "1 year", "2 months")
-    """
-    # Years
-    if (span % 31536000 == 0) and (span // 31536000) >= 1:
-        years = span // 31536000
-        return "1 year" if years == 1 else f"{years} years"
-
-    # Months
-    elif (span % 2592000 == 0) and (span // 2592000) >= 1:
-        months = span // 2592000
-        return "1 month" if months == 1 else f"{months} months"
-
-    # Weeks
-    elif (span % 604800 == 0) and (span // 604800) >= 1:
-        weeks = span // 604800
-        return "1 week" if weeks == 1 else f"{weeks} weeks"
-
-    # Days
-    elif (span % 86400 == 0) and (span // 86400) >= 1:
-        days = span // 86400
-        return "1 day" if days == 1 else f"{days} days"
-
-    # Hours
-    elif (span % 3600 == 0) and (span // 3600) >= 1:
-        hours = span // 3600
-        return "1 hour" if hours == 1 else f"{hours} hours"
-
-    return ""
-
-
-def filetime_to_str(filetime: bytes) -> str:
-    """
-    Convert Windows FILETIME to human-readable time span.
-
-    Args:
-        filetime: Windows FILETIME as bytes
-
-    Returns:
-        Human-readable time span string
-    """
-    return span_to_str(filetime_to_span(filetime))
 
 
 class Find:
@@ -147,7 +77,6 @@ class Find:
         dn: Optional[str] = None,
         dc_only: bool = False,
         connection: Optional[LDAPConnection] = None,
-        debug: bool = False,
         **kwargs,  # type: ignore
     ):
         self.target = target
@@ -164,7 +93,6 @@ class Find:
         self.sid = sid
         self.dn = dn
         self.dc_only = dc_only
-        self.verbose = debug
         self.kwargs = kwargs
 
         self._connection = connection
@@ -241,7 +169,7 @@ class Find:
                     )
                     time.sleep(2)
                 else:
-                    raise e
+                    raise
 
         logging.warning("Failed to connect to remote registry after 3 attempts")
         return None
@@ -349,7 +277,7 @@ class Find:
         if self.vuln:
             sids = self.user_sids
 
-            if self.verbose:
+            if is_verbose():
                 logging.debug("List of current user's SIDs:")
                 for sid in sids:
                     sid_info = self.connection.lookup_sid(sid)
@@ -607,6 +535,8 @@ class Find:
                 # TODO: Map to human-readable format
                 disabled_extensions = ca_configuration.disable_extension_list
 
+                security = ca_configuration.security
+
             # Update properties
             ca_properties.update(
                 {
@@ -623,10 +553,7 @@ class Find:
             logging.warning(
                 f"Failed to get CA security and configuration for {ca_name!r}: {e}"
             )
-            if self.verbose:
-                traceback.print_exc()
-            else:
-                logging.warning("Use -debug to print a stacktrace")
+            handle_error(True)
 
         # Check web enrollment
         logging.info(f"Checking web enrollment for CA {ca_name!r} @ {ca_remote_name!r}")
@@ -652,10 +579,7 @@ class Find:
 
         except Exception as e:
             logging.warning(f"Failed to check Web Enrollment for CA {ca_name!r}: {e}")
-            if self.verbose:
-                traceback.print_exc()
-            else:
-                logging.warning("Use -debug to print a stacktrace")
+            handle_error(True)
 
         return ca_properties
 
@@ -695,10 +619,7 @@ class Find:
             logging.warning(
                 f"Could not parse CA certificate for {ca.get('name')!r}: {e}"
             )
-            if self.verbose:
-                traceback.print_exc()
-            else:
-                logging.warning("Use -debug to print a stacktrace")
+            handle_error(True)
 
     def check_web_enrollment(self, ca: LDAPEntry, channel: str) -> bool:
         """
@@ -747,10 +668,7 @@ class Find:
 
         except Exception as e:
             logging.warning(f"Error checking web enrollment: {e}")
-            if self.verbose:
-                traceback.print_exc()
-            else:
-                logging.warning("Use -debug to print a stacktrace")
+            handle_error(True)
 
         return False
 
@@ -849,10 +767,7 @@ class Find:
 
         except Exception as e:
             logging.warning(f"Failed to check channel binding: {e}")
-            if self.verbose:
-                traceback.print_exc()
-            else:
-                logging.warning("Use -debug to print a stacktrace")
+            handle_error(True)
             return None
 
     # =========================================================================
@@ -914,27 +829,25 @@ class Find:
         # Process certificate name flags
         certificate_name_flag = template.get("msPKI-Certificate-Name-Flag")
         if certificate_name_flag is not None:
-            certificate_name_flag = MS_PKI_CERTIFICATE_NAME_FLAG(
-                int(certificate_name_flag)
-            )
+            certificate_name_flag = CertificateNameFlag(int(certificate_name_flag))
         else:
-            certificate_name_flag = MS_PKI_CERTIFICATE_NAME_FLAG(0)
+            certificate_name_flag = CertificateNameFlag(0)
         template.set("certificate_name_flag", certificate_name_flag.to_list())
 
         # Process enrollment flags
         enrollment_flag = template.get("msPKI-Enrollment-Flag")
         if enrollment_flag is not None:
-            enrollment_flag = MS_PKI_ENROLLMENT_FLAG(int(enrollment_flag))
+            enrollment_flag = EnrollmentFlag(int(enrollment_flag))
         else:
-            enrollment_flag = MS_PKI_ENROLLMENT_FLAG(0)
+            enrollment_flag = EnrollmentFlag(0)
         template.set("enrollment_flag", enrollment_flag.to_list())
 
         # Process private key flags
         private_key_flag = template.get("msPKI-Private-Key-Flag")
         if private_key_flag is not None:
-            private_key_flag = MS_PKI_PRIVATE_KEY_FLAG(int(private_key_flag))
+            private_key_flag = PrivateKeyFlag(int(private_key_flag))
         else:
-            private_key_flag = MS_PKI_PRIVATE_KEY_FLAG(0)
+            private_key_flag = PrivateKeyFlag(0)
         template.set("private_key_flag", private_key_flag.to_list())
 
         # Process signature requirements
@@ -1019,28 +932,24 @@ class Find:
         # Check if enrollee can supply subject
         certificate_name_flag = template.get("certificate_name_flag", [])
         enrollee_supplies_subject = any(
-            MS_PKI_CERTIFICATE_NAME_FLAG.ENROLLEE_SUPPLIES_SUBJECT in flag
+            CertificateNameFlag.ENROLLEE_SUPPLIES_SUBJECT in flag
             for flag in certificate_name_flag
         )
         template.set("enrollee_supplies_subject", enrollee_supplies_subject)
 
         # Check if template requires manager approval
         enrollment_flag = template.get("enrollment_flag", [])
-        requires_manager_approval = (
-            MS_PKI_ENROLLMENT_FLAG.PEND_ALL_REQUESTS in enrollment_flag
-        )
+        requires_manager_approval = EnrollmentFlag.PEND_ALL_REQUESTS in enrollment_flag
         template.set("requires_manager_approval", requires_manager_approval)
 
         # Check if template has no security extension
-        no_security_extension = (
-            MS_PKI_ENROLLMENT_FLAG.NO_SECURITY_EXTENSION in enrollment_flag
-        )
+        no_security_extension = EnrollmentFlag.NO_SECURITY_EXTENSION in enrollment_flag
         template.set("no_security_extension", no_security_extension)
 
         # Check if template requires key archival
         private_key_flag = template.get("private_key_flag", [])
         requires_key_archival = (
-            MS_PKI_PRIVATE_KEY_FLAG.REQUIRE_PRIVATE_KEY_ARCHIVAL in private_key_flag
+            PrivateKeyFlag.REQUIRE_PRIVATE_KEY_ARCHIVAL in private_key_flag
         )
         template.set("requires_key_archival", requires_key_archival)
 
@@ -1158,7 +1067,9 @@ class Find:
                 continue
 
             # Get template vulnerabilities
-            (vulnerabilities, remarks) = self.get_template_vulnerabilities(template)
+            (vulnerabilities, remarks, enrollable_principals, acl_principals) = (
+                self.get_template_vulnerabilities(template)
+            )
 
             # Skip if only showing vulnerable templates and this one isn't
             if self.vuln and not vulnerabilities:
@@ -1173,12 +1084,20 @@ class Find:
             if permissions:
                 entry["Permissions"] = permissions
 
+            # Add enrollable principals
+            if enrollable_principals:
+                entry["[+] User Enrollable Principals"] = enrollable_principals
+
+            # Add ACL principals
+            if acl_principals:
+                entry["[+] User ACL Principals"] = acl_principals
+
             # Add vulnerabilities
             if vulnerabilities:
                 entry["[!] Vulnerabilities"] = vulnerabilities
 
             if remarks:
-                entry["[i] Remarks"] = remarks
+                entry["[*] Remarks"] = remarks
 
             # Add entry to collection
             template_entries[len(template_entries)] = entry
@@ -1195,11 +1114,25 @@ class Find:
                 entry["Permissions"] = permissions
 
             # Add vulnerabilities
-            (vulnerabilities, remarks) = self.get_ca_vulnerabilities(ca)
+            (vulnerabilities, remarks, enrollable_principals, acl_principals) = (
+                self.get_ca_vulnerabilities(ca)
+            )
+
+            # Add enrollable principals
+            if acl_principals:
+                entry["[+] User Enrollable Principals"] = enrollable_principals
+
+            # Add ACL principals
+            if acl_principals:
+                entry["[+] User ACL Principals"] = acl_principals
+
+            # Add vulnerabilities
             if vulnerabilities:
                 entry["[!] Vulnerabilities"] = vulnerabilities
+
+            # Add CA certificate properties
             if remarks:
-                entry["[i] Remarks"] = remarks
+                entry["[*] Remarks"] = remarks
 
             # Add entry to collection
             ca_entries[len(ca_entries)] = entry
@@ -1208,7 +1141,7 @@ class Find:
         if self.oids:
             for oid in oids:
                 # Get OID vulnerabilities
-                vulnerabilities = self.get_oid_vulnerabilities(oid)
+                (vulnerabilities, acl_principals) = self.get_oid_vulnerabilities(oid)
 
                 # Skip if only showing vulnerable OIDs and this one isn't
                 if self.vuln and not vulnerabilities:
@@ -1222,6 +1155,10 @@ class Find:
                 permissions = self.get_oid_permissions(oid)
                 if permissions:
                     entry["Permissions"] = permissions
+
+                # Add ACL principals
+                if acl_principals:
+                    entry["[+] User ACL Principals"] = acl_principals
 
                 # Add vulnerabilities
                 if vulnerabilities:
@@ -1269,9 +1206,6 @@ class Find:
 
         Returns:
             String containing CSV-formatted data
-
-        Raises:
-            ValueError: If CA data is malformed or missing
         """
         # Column order for the CSV output (determines which fields to include and their order)
         column_order = [
@@ -1324,10 +1258,7 @@ class Find:
 
         except Exception as e:
             logging.error(f"Error generating CA CSV data: {e}")
-            if self.verbose:
-                import traceback
-
-                traceback.print_exc()
+            handle_error()
             return csvfile.getvalue()
 
     def _flatten_ca_data(self, ca_entry: Dict[str, Any]) -> Dict[str, str]:
@@ -1505,10 +1436,7 @@ class Find:
 
         except Exception as e:
             logging.error(f"Error generating CSV data: {e}")
-            if self.verbose:
-                import traceback
-
-                traceback.print_exc()
+            handle_error()
             return csvfile.getvalue()
 
     def _flatten_template_data(self, template_entry: Dict[str, Any]) -> Dict[str, str]:
@@ -1723,15 +1651,15 @@ class Find:
                 continue
 
             # Check for Enroll right
-            has_enroll = (
-                rights["rights"] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT
-            ) and (EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"])
+            has_enroll = (rights["rights"] & ActiveDirectoryRights.EXTENDED_RIGHT) and (
+                EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"]
+            )
             if has_enroll:
                 enrollment_rights.append(self.connection.lookup_sid(sid).get("name"))
 
             # Check for All-Extended-Rights
             has_all_rights = (
-                rights["rights"] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT
+                rights["rights"] & ActiveDirectoryRights.EXTENDED_RIGHT
             ) and (
                 EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"]
                 in rights["extended_rights"]
@@ -1762,9 +1690,9 @@ class Find:
 
         # Add rights mappings
         rights_mapping = [
-            (CERTIFICATE_RIGHTS.GENERIC_ALL, [], "Full Control Principals"),
-            (CERTIFICATE_RIGHTS.WRITE_OWNER, [], "Write Owner Principals"),
-            (CERTIFICATE_RIGHTS.WRITE_DACL, [], "Write Dacl Principals"),
+            (CertificateRights.GENERIC_ALL, [], "Full Control Principals"),
+            (CertificateRights.WRITE_OWNER, [], "Write Owner Principals"),
+            (CertificateRights.WRITE_DACL, [], "Write Dacl Principals"),
         ]
 
         # Process write property permissions
@@ -1782,13 +1710,13 @@ class Find:
             # Check for each standard right type
             for right, principal_list, _ in rights_mapping:
                 if right in ad_rights and (
-                    ad_rights & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT
+                    ad_rights & ActiveDirectoryRights.EXTENDED_RIGHT
                 ):
                     principal_list.append(principal_name)
 
             # Check for write property rights
-            can_write_property = (CERTIFICATE_RIGHTS.WRITE_PROPERTY in ad_rights) and (
-                ad_rights & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT
+            can_write_property = (CertificateRights.WRITE_PROPERTY in ad_rights) and (
+                ad_rights & ActiveDirectoryRights.EXTENDED_RIGHT
             )
             if can_write_property:
                 for extended_right in extended_rights:
@@ -1807,7 +1735,7 @@ class Find:
         for extended_right, principal_list in write_permissions.items():
             rights_mapping.append(
                 (
-                    CERTIFICATE_RIGHTS.WRITE_PROPERTY,
+                    CertificateRights.WRITE_PROPERTY,
                     principal_list,
                     f"Write Property {extended_right}",
                 )
@@ -1928,7 +1856,7 @@ class Find:
 
     def get_template_vulnerabilities(
         self, template: LDAPEntry
-    ) -> Tuple[Dict[str, str], Dict[str, str]]:
+    ) -> Tuple[Dict[str, str], Dict[str, str], List[str], List[str]]:
         """
         Detect vulnerabilities in certificate templates.
 
@@ -1945,7 +1873,7 @@ class Find:
             template: Certificate template to analyze
 
         Returns:
-            Tuple of detected vulnerabilities and remarks
+            Tuple of detected vulnerabilities, remarks, enrollable principals, and ACL principals
         """
         # Return cached vulnerabilities if already processed
         if template.get("vulnerabilities"):
@@ -1953,6 +1881,8 @@ class Find:
 
         vulnerabilities = {}
         remarks = {}
+        enrollable_principals = []
+        acl_principals = []
         user_can_enroll, enrollable_sids = self.can_user_enroll_in_template(template)
         is_enabled = template.get("enabled", False)
 
@@ -1963,28 +1893,82 @@ class Find:
             or template.get("authorized_signatures_required", 0) > 0
         )
 
-        if is_enabled and user_can_enroll and not requires_approval:
+        if is_enabled and user_can_enroll:
             enrollable_principals = self.format_principals(enrollable_sids)
 
-            # ESC1: Client authentication with enrollee-supplied subject
-            if template.get("enrollee_supplies_subject") and template.get(
-                "client_authentication"
+            if not requires_approval:
+                # ESC1: Client authentication with enrollee-supplied subject
+                if template.get("enrollee_supplies_subject") and template.get(
+                    "client_authentication"
+                ):
+                    vulnerabilities["ESC1"] = (
+                        f"Enrollee supplies subject "
+                        "and template allows client authentication."
+                    )
+
+                # ESC2: Any purpose template
+                if template.get("any_purpose"):
+                    vulnerabilities["ESC2"] = f"Template can be used for any purpose."
+
+                # ESC3: Certificate Request Agent
+                if template.get("enrollment_agent"):
+                    vulnerabilities["ESC3"] = (
+                        f"Template has Certificate Request Agent EKU set."
+                    )
+
+                # ESC9: No security extension
+                if template.get("no_security_extension") and template.get(
+                    "client_authentication"
+                ):
+                    vulnerabilities["ESC9"] = f"Template has no security extension."
+                    remarks["ESC9"] = (
+                        "Other prerequisites may be required for this to be exploitable. See "
+                        "the wiki for more details."
+                    )
+
+                # ESC13: Template with issuance policy linked to a group
+                if (
+                    template.get("client_authentication")
+                    and template.get("msPKI-Certificate-Policy")
+                    and template.get("issuance_policies_linked_groups")
+                ):
+                    vulnerabilities["ESC13"] = (
+                        f"Template allows client authentication "
+                        f"and issuance policy is linked to group {template.get('issuance_policies_linked_groups')!r}."
+                    )
+
+                # ESC15: Schema v1 template with enrollee-supplied subject (CVE-2024-49019)
+                if (
+                    template.get("enrollee_supplies_subject")
+                    and template.get("msPKI-Template-Schema-Version") == 1
+                ):
+                    vulnerabilities["ESC15"] = (
+                        f"Enrollee supplies subject and " "schema version is 1."
+                    )
+                    remarks["ESC15"] = (
+                        f"Only applicable if the environment has not been patched. "
+                        "See CVE-2024-49019 or the wiki for more details."
+                    )
+
+            # ESC2 Target: Schema v1 or requires Any Purpose signature
+            if template.get("client_authentication") and (
+                template.get("schema_version") == 1
+                or (
+                    template.get("schema_version") > 1
+                    and template.get("authorized_signatures_required") > 0
+                    and template.get("application_policies") is not None
+                    and "Any Purpose" in template.get("application_policies")
+                )
             ):
-                vulnerabilities["ESC1"] = (
-                    f"{enrollable_principals} can enroll, enrollee supplies subject "
-                    "and template allows client authentication."
-                )
+                reason = "has schema version 1"
+                if template.get("schema_version") != 1:
+                    reason = (
+                        "requires a signature with the Any Purpose application policy"
+                    )
 
-            # ESC2: Any purpose template
-            if template.get("any_purpose"):
-                vulnerabilities["ESC2"] = (
-                    f"{enrollable_principals} can enroll and template can be used for any purpose."
-                )
-
-            # ESC3: Certificate Request Agent
-            if template.get("enrollment_agent"):
-                vulnerabilities["ESC3"] = (
-                    f"{enrollable_principals} can enroll and template has Certificate Request Agent EKU set."
+                remarks["ESC2 Target Template"] = (
+                    "Template can be targeted as part of ESC2 exploitation. This is not a vulnerability "
+                    f"by itself. See the wiki for more details. Template {reason}."
                 )
 
             # ESC3 Target: Schema v1 or requires Certificate Request Agent signature
@@ -1998,48 +1982,13 @@ class Find:
                     in template.get("application_policies")
                 )
             ):
+                reason = "has schema version 1"
+                if template.get("schema_version") != 1:
+                    reason = "requires a signature with the Certificate Request Agent application policy"
+
                 remarks["ESC3 Target Template"] = (
                     "Template can be targeted as part of ESC3 exploitation. This is not a vulnerability "
-                    f"by itself. See the wiki for more details. {enrollable_principals} "
-                    "can enroll and template has schema version 1 or requires a Certificate Request Agent "
-                    "signature."
-                )
-
-            # ESC9: No security extension
-            if template.get("no_security_extension") and template.get(
-                "client_authentication"
-            ):
-                vulnerabilities["ESC9"] = (
-                    f"{enrollable_principals} can enroll and template has no security extension."
-                )
-                remarks["ESC9"] = (
-                    "Other prerequisites may be required for this to be a vulnerability. See "
-                    "the wiki for more details."
-                )
-
-            # ESC13: Template with issuance policy linked to a group
-            if (
-                template.get("client_authentication")
-                and template.get("msPKI-Certificate-Policy")
-                and template.get("issuance_policies_linked_groups")
-            ):
-                vulnerabilities["ESC13"] = (
-                    f"{enrollable_principals} can enroll, template allows client authentication "
-                    f"and issuance policy is linked to group {template.get('issuance_policies_linked_groups')}."
-                )
-
-            # ESC15: Schema v1 template with enrollee-supplied subject (CVE-2024-49019)
-            if (
-                template.get("enrollee_supplies_subject")
-                and template.get("msPKI-Template-Schema-Version") == 1
-            ):
-                vulnerabilities["ESC15"] = (
-                    f"{enrollable_principals} can enroll, enrollee supplies subject and "
-                    "schema version is 1."
-                )
-                remarks["ESC15"] = (
-                    f"Only applicable if the environment has not been patched. "
-                    "See CVE-2024-49019 for more details."
+                    f"by itself. See the wiki for more details. Template {reason}."
                 )
 
         # ESC4: Template ownership or vulnerable ACL
@@ -2051,18 +2000,18 @@ class Find:
         # Check if user owns the template
         if security.owner in user_sids:
             owner_name = self.connection.lookup_sid(security.owner).get("name")
-            vulnerabilities["ESC4"] = f"Template is owned by {owner_name}"
+            acl_principals = [owner_name]
+            vulnerabilities["ESC4"] = f"Template is owned by user."
         else:
             # Check for vulnerable permissions if not already owner
             has_vulnerable_acl, vulnerable_acl_sids = self.template_has_vulnerable_acl(
                 template
             )
+            acl_principals = self.format_principals(vulnerable_acl_sids)
             if has_vulnerable_acl:
-                vulnerabilities["ESC4"] = (
-                    f"{self.format_principals(vulnerable_acl_sids)} has dangerous permissions"
-                )
+                vulnerabilities["ESC4"] = "User has dangerous permissions."
 
-        return (vulnerabilities, remarks)
+        return (vulnerabilities, remarks, enrollable_principals, acl_principals)
 
     def template_has_vulnerable_acl(
         self, template: LDAPEntry
@@ -2095,10 +2044,10 @@ class Find:
 
             # Check for dangerous permissions
             dangerous_rights = [
-                CERTIFICATE_RIGHTS.GENERIC_ALL,
-                CERTIFICATE_RIGHTS.WRITE_OWNER,
-                CERTIFICATE_RIGHTS.WRITE_DACL,
-                CERTIFICATE_RIGHTS.GENERIC_WRITE,
+                CertificateRights.GENERIC_ALL,
+                CertificateRights.WRITE_OWNER,
+                CertificateRights.WRITE_DACL,
+                CertificateRights.GENERIC_WRITE,
             ]
 
             if any(right in ad_rights for right in dangerous_rights):
@@ -2108,9 +2057,9 @@ class Find:
 
             # WRITE_PROPERTY is only dangerous if you can write the entire object
             if (
-                CERTIFICATE_RIGHTS.WRITE_PROPERTY in ad_rights
+                CertificateRights.WRITE_PROPERTY in ad_rights
                 and "00000000-0000-0000-0000-000000000000" in ad_extended_rights
-                and ad_rights & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT
+                and ad_rights & ActiveDirectoryRights.EXTENDED_RIGHT
             ):
                 vulnerable_acl_sids.append(sid)
                 has_vulnerable_acl = True
@@ -2147,13 +2096,13 @@ class Find:
                 (
                     EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"]
                     in rights["extended_rights"]
-                    and rights["rights"] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT
+                    and rights["rights"] & ActiveDirectoryRights.EXTENDED_RIGHT
                 )
                 or (
                     EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"]
-                    and rights["rights"] & ACTIVE_DIRECTORY_RIGHTS.EXTENDED_RIGHT
+                    and rights["rights"] & ActiveDirectoryRights.EXTENDED_RIGHT
                 )
-                or CERTIFICATE_RIGHTS.GENERIC_ALL in rights["rights"]
+                or CertificateRights.GENERIC_ALL in rights["rights"]
             ):
                 enrollable_sids.append(sid)
                 user_can_enroll = True
@@ -2162,7 +2111,7 @@ class Find:
 
     def get_ca_vulnerabilities(
         self, ca: LDAPEntry
-    ) -> Tuple[Dict[str, str], Dict[str, str]]:
+    ) -> Tuple[Dict[str, str], Dict[str, str], List[str], List[str]]:
         """
         Detect vulnerabilities in certificate authorities.
 
@@ -2176,7 +2125,7 @@ class Find:
             ca: Certificate authority to analyze
 
         Returns:
-            Tuple of detected vulnerabilities and remarks
+            Tuple of detected vulnerabilities, remarks, enrollable principals, and ACL principals
         """
         # Return cached vulnerabilities if already processed
         if ca.get("vulnerabilities"):
@@ -2184,14 +2133,19 @@ class Find:
 
         vulnerabilities = {}
         remarks = {}
+        acl_principals = []
         request_disposition = ca.get("request_disposition")
         will_issue = request_disposition in ["Issue", "Unknown"]
+        user_can_enroll, enrollable_sids = self.can_user_enroll_in_ca(ca)
+
+        enrollable_principals = self.format_principals(enrollable_sids)
 
         # ESC6: User-specified SAN with auto-issuance
-        if ca.get("user_specified_san") == "Enabled" and will_issue:
-            vulnerabilities["ESC6"] = (
-                "Enrollees can specify SAN and Request Disposition is set to Issue. "
-                "Requires ESC9 or ESC16 to be exploitable."
+        if ca.get("user_specified_san") == "Enabled" and will_issue and user_can_enroll:
+            vulnerabilities["ESC6"] = "Enrollee can specify SAN."
+            remarks["ESC6"] = (
+                "Other prerequisites may be required for this to be exploitable. See "
+                "the wiki for more details."
             )
 
         if ca.get("active_policy") != "CertificateAuthority_MicrosoftDefault.Policy":
@@ -2200,9 +2154,8 @@ class Find:
         # ESC7: CA with dangerous permissions
         has_vulnerable_acl, vulnerable_acl_sids = self.ca_has_vulnerable_acl(ca)
         if has_vulnerable_acl:
-            vulnerabilities["ESC7"] = (
-                f"{self.format_principals(vulnerable_acl_sids)} has dangerous permissions."
-            )
+            acl_principals = self.format_principals(vulnerable_acl_sids)
+            vulnerabilities["ESC7"] = f"User has dangerous permissions."
 
         # ESC8: Insecure web enrollment
         web_enrollment = ca.get("web_enrollment")
@@ -2222,45 +2175,38 @@ class Find:
             # Determine vulnerability based on protocol and channel binding
             if http_enabled and https_enabled and not channel_binding_enforced:
                 vulnerabilities["ESC8"] = (
-                    f"Web Enrollment is enabled over HTTP and HTTPS, Channel Binding is disabled "
-                    f"and Request Disposition is set to {request_disposition}."
+                    f"Web Enrollment is enabled over HTTP and HTTPS, and Channel Binding is disabled."
                 )
             elif http_enabled:
-                vulnerabilities["ESC8"] = (
-                    f"Web Enrollment is enabled over HTTP and Request Disposition is set to "
-                    f"{request_disposition}."
-                )
+                vulnerabilities["ESC8"] = f"Web Enrollment is enabled over HTTP."
             elif https_enabled and not channel_binding_enforced:
                 vulnerabilities["ESC8"] = (
-                    f"Web Enrollment is enabled over HTTPS, Channel Binding is disabled and "
-                    f"Request Disposition is set to {request_disposition}."
+                    f"Web Enrollment is enabled over HTTPS and Channel Binding is disabled."
                 )
             elif https_enabled and channel_binding_enforced == "Unknown":
                 remarks["ESC8"] = (
-                    "Channel Binding could not be determined for HTTPS Web Enrollment. "
-                    "Please check manually by requesting a certificate via HTTPS, and disabling "
-                    "Channel Binding in the request."
+                    "Channel Binding couldn't be verified for HTTPS Web Enrollment. "
+                    "For manual verification, request a certificate via HTTPS with Channel Binding disabled "
+                    "and observe if the request succeeds or is rejected."
                 )
 
         # ESC11: Unencrypted certificate requests
         if ca.get("enforce_encrypt_icertrequest") == "Disabled" and will_issue:
             vulnerabilities["ESC11"] = (
-                "Encryption is not enforced for ICPR requests and Request Disposition is set to Issue."
+                "Encryption is not enforced for ICPR (RPC) requests."
             )
 
         # ESC16: Security extension disabled (similar to ESC9)
         disabled_extensions = ca.get("disabled_extensions")
-        if disabled_extensions and will_issue:
+        if disabled_extensions and will_issue and user_can_enroll:
             if "1.3.6.1.4.1.311.25.2" in disabled_extensions:
-                vulnerabilities["ESC16"] = (
-                    "The security extension is disabled for the CA. Similar to ESC9."
-                )
+                vulnerabilities["ESC16"] = "Security Extension is disabled."
                 remarks["ESC16"] = (
-                    "Other prerequisites may be required for this to be a vulnerability. See "
+                    "Other prerequisites may be required for this to be exploitable. See "
                     "the wiki for more details."
                 )
 
-        return (vulnerabilities, remarks)
+        return (vulnerabilities, remarks, enrollable_principals, acl_principals)
 
     def ca_has_vulnerable_acl(self, ca: LDAPEntry) -> Tuple[bool, List[str]]:
         """
@@ -2293,8 +2239,8 @@ class Find:
 
             # Check for dangerous CA permissions
             dangerous_rights = [
-                CERTIFICATION_AUTHORITY_RIGHTS.MANAGE_CA,
-                CERTIFICATION_AUTHORITY_RIGHTS.MANAGE_CERTIFICATES,
+                CertificateAuthorityRights.MANAGE_CA,
+                CertificateAuthorityRights.MANAGE_CERTIFICATES,
             ]
 
             if any(right in ad_rights for right in dangerous_rights):
@@ -2303,7 +2249,41 @@ class Find:
 
         return has_vulnerable_acl, list(set(vulnerable_acl_sids))  # Deduplicate SIDs
 
-    def get_oid_vulnerabilities(self, oid: LDAPEntry) -> Dict[str, str]:
+    def can_user_enroll_in_ca(self, ca: LDAPEntry) -> Tuple[Optional[bool], List[str]]:
+        """
+        Check if the current user can enroll in the CA.
+
+        Args:
+            ca: CA to analyze
+
+        Returns:
+            Tuple of (can_enroll, list_of_enrollable_sids)
+        """
+        security = ca.get("security")
+        if security is None:
+            return None, []
+
+        user_sids = self.connection.get_user_sids(
+            self.target.username, self.sid, self.dn
+        )
+
+        enrollable_sids = []
+        user_can_enroll = False
+
+        # Process ACEs
+        for sid, rights in security.aces.items():
+            if sid not in user_sids:
+                continue
+
+            if CertificateAuthorityRights.ENROLL in rights["rights"]:
+                enrollable_sids.append(sid)
+                user_can_enroll = True
+
+        return user_can_enroll, list(set(enrollable_sids))  # Deduplicate SIDs
+
+    def get_oid_vulnerabilities(
+        self, oid: LDAPEntry
+    ) -> Tuple[Dict[str, str], List[str]]:
         """
         Detect vulnerabilities in issuance policy OIDs.
 
@@ -2314,13 +2294,14 @@ class Find:
             oid: Issuance policy OID to analyze
 
         Returns:
-            Dictionary of detected vulnerabilities with descriptions
+            Tuple of detected vulnerabilities and ACL principals
         """
         # Return cached vulnerabilities if already processed
         if oid.get("vulnerabilities"):
             return oid.get("vulnerabilities")
 
         vulnerabilities = {}
+        acl_principals = []
 
         # ESC13: OID ownership or vulnerable ACL
         security = IssuancePolicySecurity(oid.get("nTSecurityDescriptor"))
@@ -2331,16 +2312,16 @@ class Find:
         # Check if user owns the OID
         if security.owner in user_sids:
             owner_name = self.connection.lookup_sid(security.owner).get("name")
-            vulnerabilities["ESC13"] = f"Issuance Policy OID is owned by {owner_name}"
+            acl_principals = [owner_name]
+            vulnerabilities["ESC13"] = f"Issuance Policy OID is owned by user."
         else:
             # Check for vulnerable permissions if not already owner
             has_vulnerable_acl, vulnerable_acl_sids = self.oid_has_vulnerable_acl(oid)
             if has_vulnerable_acl:
-                vulnerabilities["ESC13"] = (
-                    f"{self.format_principals(vulnerable_acl_sids)} has dangerous permissions"
-                )
+                acl_principals = self.format_principals(vulnerable_acl_sids)
+                vulnerabilities["ESC13"] = f"User has dangerous permissions."
 
-        return vulnerabilities
+        return (vulnerabilities, acl_principals)
 
     def oid_has_vulnerable_acl(self, oid: LDAPEntry) -> Tuple[bool, List[str]]:
         """
@@ -2370,10 +2351,10 @@ class Find:
 
             # Check for dangerous OID permissions
             dangerous_rights = [
-                ISSUANCE_POLICY_RIGHTS.GENERIC_ALL,
-                ISSUANCE_POLICY_RIGHTS.WRITE_OWNER,
-                ISSUANCE_POLICY_RIGHTS.WRITE_DACL,
-                ISSUANCE_POLICY_RIGHTS.WRITE_PROPERTY,
+                IssuancePolicyRights.GENERIC_ALL,
+                IssuancePolicyRights.WRITE_OWNER,
+                IssuancePolicyRights.WRITE_DACL,
+                IssuancePolicyRights.WRITE_PROPERTY,
             ]
 
             if any(right in ad_rights for right in dangerous_rights):
@@ -2382,7 +2363,7 @@ class Find:
 
         return has_vulnerable_acl, list(set(vulnerable_acl_sids))  # Deduplicate SIDs
 
-    def format_principals(self, sids: List[str]) -> str:
+    def format_principals(self, sids: List[str]) -> List[str]:
         """
         Format a list of SIDs into a human-readable string.
 
@@ -2390,16 +2371,9 @@ class Find:
             sids: List of SIDs to format
 
         Returns:
-            Formatted string of principal names
+            List of principal names
         """
-        principal_names = [
-            repr(self.connection.lookup_sid(sid).get("name")) for sid in sids
-        ]
-
-        if len(principal_names) == 1:
-            return principal_names[0]
-
-        return ", ".join(principal_names[:-1]) + " and " + principal_names[-1]
+        return [self.connection.lookup_sid(sid).get("name") for sid in sids]
 
 
 def entry(options: argparse.Namespace) -> None:

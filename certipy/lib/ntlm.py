@@ -7,9 +7,11 @@ import time
 from typing import Generator, Optional, Tuple, cast
 
 import httpx
+from Cryptodome.Cipher import ARC4
 from impacket.ntlm import (
     AV_PAIRS,
     KXKEY,
+    MAC,
     NTLMSSP_AV_DNS_HOSTNAME,
     NTLMSSP_AV_TARGET_NAME,
     NTLMSSP_AV_TIME,
@@ -25,9 +27,13 @@ from impacket.ntlm import (
     NTLMSSP_NEGOTIATE_UNICODE,
     NTLMSSP_NEGOTIATE_VERSION,
     NTLMSSP_REQUEST_TARGET,
+    SEAL,
+    SEALKEY,
+    SIGNKEY,
     NTLMAuthChallenge,
     NTLMAuthChallengeResponse,
     NTLMAuthNegotiate,
+    NTLMMessageSignature,
     NTOWFv2,
     generateEncryptedSessionKey,
     hmac_md5,
@@ -189,7 +195,7 @@ def ntlm_authenticate(
     channel_binding_data: Optional[bytes] = None,
     service: str = "HOST",
     version: Optional[bytes] = None,
-) -> Tuple[NTLMAuthChallengeResponse, bytes]:
+) -> Tuple[NTLMAuthChallengeResponse, bytes, int]:
     """
     Generate an NTLMSSP Type 3 authentication message in response to a server challenge.
 
@@ -208,6 +214,7 @@ def ntlm_authenticate(
         Tuple containing:
         - NTLMAuthChallengeResponse object (Type 3 message)
         - Exported session key for further operations
+        - Negotiated flags
     """
     # Get response flags from the initial negotiate message
     response_flags = type1["flags"]
@@ -288,7 +295,7 @@ def ntlm_authenticate(
     if encrypted_random_session_key:
         challenge_response["session_key"] = encrypted_random_session_key
 
-    return challenge_response, exported_session_key
+    return challenge_response, exported_session_key, response_flags
 
 
 class HttpxNtlmAuth(httpx.Auth):
@@ -433,8 +440,8 @@ class HttpxNtlmAuth(httpx.Auth):
             and struct.unpack("B", server_challenge[:1])[0]
             == SPNEGO_NegTokenResp.SPNEGO_NEG_TOKEN_RESP
         ):
-            respToken2 = SPNEGO_NegTokenResp(server_challenge)
-            type2 = respToken2["ResponseToken"]
+            resp = SPNEGO_NegTokenResp(server_challenge)
+            type2 = resp["ResponseToken"]
         else:
             type2 = server_challenge
 
@@ -453,7 +460,7 @@ class HttpxNtlmAuth(httpx.Auth):
             channel_binding_data = get_channel_binding_data_from_response(response)
 
         # Step 3: Generate Type 3 (Authentication) message
-        type3, _ = ntlm_authenticate(
+        type3, _, _ = ntlm_authenticate(
             type1,
             challenge,
             self.target.username,
@@ -470,3 +477,75 @@ class HttpxNtlmAuth(httpx.Auth):
 
         # Send authenticated request
         yield request
+
+
+class NTLMCipher:
+    def __init__(self, flags: int, session_key: bytes):
+        self.flags = flags
+
+        # Same key for everything
+        self.client_sign_key = session_key
+        self.server_sign_key = session_key
+        self.client_seal_key = session_key
+        self.client_seal_key = session_key
+        cipher = ARC4.new(self.client_sign_key)
+        self.client_seal = cipher.encrypt
+        self.server_seal = cipher.encrypt
+
+        if self.flags & NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
+            self.client_sign_key = cast(bytes, SIGNKEY(self.flags, session_key))
+            self.server_sign_key = cast(
+                bytes, SIGNKEY(self.flags, session_key, "Server")
+            )
+            self.client_seal_key = SEALKEY(self.flags, session_key)
+            self.server_seal_key = SEALKEY(self.flags, session_key, "Server")
+
+            client_cipher = ARC4.new(self.client_seal_key)
+            self.client_seal = client_cipher.encrypt
+            server_cipher = ARC4.new(self.server_seal_key)
+            self.server_seal = server_cipher.encrypt
+
+        self.sequence = 0
+
+    def encrypt(self, plain_data: bytes) -> Tuple[NTLMMessageSignature, bytes]:
+        message, signature = SEAL(
+            self.flags,
+            self.client_sign_key,
+            self.client_seal_key,
+            plain_data,
+            plain_data,
+            self.sequence,
+            self.client_seal,
+        )
+
+        self.sequence += 1
+
+        return signature, message
+
+    def decrypt(self, answer: bytes) -> Tuple[NTLMMessageSignature, bytes]:
+        answer, signature = SEAL(
+            self.flags,
+            self.server_sign_key,
+            self.server_seal_key,
+            answer[:16],
+            answer[16:],
+            self.sequence,
+            self.server_seal,
+        )
+
+        return signature, answer
+
+    def sign(self, data: bytes, seq: int = 0, reset_cipher: bool = False):
+        signature = MAC(self.flags, self.client_seal, self.client_sign_key, seq, data)
+        if reset_cipher:
+            if self.flags & NTLMSSP_NEGOTIATE_EXTENDED_SESSIONSECURITY:
+                client_cipher = ARC4.new(self.client_seal_key)
+                self.client_seal = client_cipher.encrypt
+                server_cipher = ARC4.new(self.server_seal_key)
+                self.server_seal = server_cipher.encrypt
+            else:
+                cipher = ARC4.new(self.client_sign_key)
+                self.client_seal = cipher.encrypt
+                self.server_seal = cipher.encrypt
+        self.sequence += 1
+        return signature

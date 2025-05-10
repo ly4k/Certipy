@@ -1,11 +1,11 @@
 import argparse
 import logging
 import sys
-import traceback
 
 from certipy import version
 from certipy.commands.parsers import ENTRY_PARSERS
 from certipy.lib import logger
+from certipy.lib.errors import handle_error
 
 
 def main() -> None:
@@ -60,17 +60,15 @@ def main() -> None:
 
     if options.debug:
         logger.logging.setLevel(logging.DEBUG)
+        logger.set_verbose(True)
     else:
         logger.logging.setLevel(logging.INFO)
 
     try:
         actions[options.action](options)
     except Exception as e:
-        logger.logging.error("Got error: %s" % e)
-        if options.debug:
-            traceback.print_exc()
-        else:
-            logger.logging.error("Use -debug to print a stacktrace")
+        logger.logging.error(f"Got error: {e}")
+        handle_error()
 
 
 if __name__ == "__main__":

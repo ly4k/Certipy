@@ -2,18 +2,15 @@
 Formatting utilities for Certipy.
 
 This module provides functions for formatting data into human-readable formats,
-including pretty printing dictionaries, case conversion, and certificate information display.
+including pretty printing dictionaries, and case conversion.
 """
 
 import datetime
-from typing import Any, Callable, Dict, List, Tuple
-
-from certipy.lib.logger import logging
+from typing import Any, Callable, Dict
 
 # Type aliases for better readability
 PrintFunc = Callable[..., Any]
 JsonLike = Dict[str, Any]
-CertIdentification = Tuple[str, str]
 
 
 def to_pascal_case(snake_str: str) -> str:
@@ -125,25 +122,3 @@ def pretty_print(
             raise TypeError(
                 f"Unsupported type for pretty printing: {type(value).__name__}"
             )
-
-
-def print_certificate_identifications(
-    identifications: List[CertIdentification],
-) -> None:
-    """
-    Print certificate identification information with appropriate formatting.
-
-    Args:
-        identifications: List of tuples containing (identification_type, identification_value)
-    """
-    if len(identifications) > 1:
-        logging.info("Got certificate with multiple identifications")
-        for id_type, id_value in identifications:
-            print(f"    {id_type}: {id_value!r}")
-
-    elif len(identifications) == 1:
-        id_type, id_value = identifications[0]
-        logging.info(f"Got certificate with {id_type} {id_value!r}")
-
-    else:
-        logging.info("Got certificate without identification")

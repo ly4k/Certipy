@@ -60,19 +60,20 @@ from pyasn1.type.univ import noValue
 from certipy.lib.certificate import (
     cert_id_to_parts,
     cert_to_pem,
-    get_identifications_from_certificate,
+    get_identities_from_certificate,
     get_object_sid_from_certificate,
     hash_digest,
     hashes,
     key_to_pem,
     load_pfx,
+    print_certificate_authentication_information,
     x509,
 )
-from certipy.lib.errors import KRB5_ERROR_MESSAGES
+from certipy.lib.errors import KRB5_ERROR_MESSAGES, handle_error
 from certipy.lib.files import try_to_save_file
 from certipy.lib.logger import logging
 from certipy.lib.pkinit import build_pkinit_as_req
-from certipy.lib.structs import PA_PK_AS_REP, Enctype, KDCDHKeyInfo, e2i
+from certipy.lib.structs import EncType, KDCDHKeyInfo, PaPkAsRep, e2i
 from certipy.lib.target import Target
 
 
@@ -196,7 +197,6 @@ class Authenticate:
         print: bool = False,
         kirbi: bool = False,
         ldap_shell: bool = False,
-        debug: bool = False,
         **kwargs,  # type: ignore
     ):
         """
@@ -217,7 +217,6 @@ class Authenticate:
             ldap_scheme: LDAP scheme (ldap or ldaps)
             ldap_user_dn: LDAP user distinguished name
             user_dn: User distinguished name
-            debug: Enable verbose debugging
             **kwargs: Additional parameters
         """
         self.target = target
@@ -230,7 +229,6 @@ class Authenticate:
         self.print = print
         self.kirbi = kirbi
         self.ldap_shell = ldap_shell
-        self.verbose = debug
         self.kwargs = kwargs
 
         # These will be populated during authentication
@@ -272,6 +270,12 @@ class Authenticate:
         Returns:
             NT hash if extracted, True if successful, False if failed, None if error
         """
+        if not self.cert:
+            raise ValueError("Certificate is not specified and no PFX was provided")
+
+        # Print authentication information present in the certificate
+        print_certificate_authentication_information(self.cert)
+
         # Resolve username and domain from target if not provided
         if username is None:
             username = self.target.username
@@ -283,110 +287,163 @@ class Authenticate:
         if self.ldap_shell:
             return self.ldap_authentication(domain)
 
-        # Extract identification information from certificate if needed
+        # Extract identity information from certificate if needed
         id_type = None
-        identification = None
+        identity = None
         object_sid = None
+        cert_username = None
+        cert_domain = None
 
+        # Skip certificate parsing for key credentials
         if not is_key_credential:
-            if self.cert is None:
-                raise ValueError("Certificate is not specified and no PFX was provided")
+            # Extract identity information from certificate
+            identities = get_identities_from_certificate(self.cert)
 
-            identifications = get_identifications_from_certificate(self.cert)
-
-            # Handle multiple identifications in the certificate
-            if len(identifications) > 1:
-                logging.info("Found multiple identifications in certificate")
-
-                while True:
-                    logging.info("Please select one:")
-                    for i, identification_pair in enumerate(identifications):
-                        id_t, id_value = identification_pair
-                        print(f"    [{i}] {id_t}: {id_value!r}")
-
-                    try:
-                        idx = int(input("> "))
-                        if idx >= len(identifications):
-                            logging.warning("Invalid index")
-                        else:
-                            id_type, identification = identifications[idx]
-                            break
-                    except ValueError:
-                        logging.warning("Invalid input, enter a number")
-
-            elif len(identifications) == 1:
-                id_type, identification = identifications[0]
-            else:
-                id_type, identification = None, None
-
-            # Parse username and domain from certificate
-            cert_username, cert_domain = cert_id_to_parts([(id_type, identification)])
+            # Get the object SID from the certificate if available
             object_sid = get_object_sid_from_certificate(self.cert)
 
-            # Warn if no identification found
-            if not any([cert_username, cert_domain]):
-                logging.warning(
-                    "Could not find identification in the provided certificate"
-                )
+            # No identities found in the certificate
+            if not identities:
+                logging.warning("Could not find identity in the provided certificate")
 
-            # Use certificate-provided username if not specified
-            if not username:
-                username = cert_username
-            elif cert_username:
-                # Warn if provided username doesn't match certificate
-                if username.lower() not in [
-                    cert_username.lower(),
-                    cert_username.lower() + "$",
-                ]:
-                    logging.warning(
-                        "The provided username does not match the identification "
-                        f"found in the provided certificate: {username!r} - {cert_username!r}"
-                    )
-                    res = input("Do you want to continue? (Y/n) ").rstrip("\n")
-                    if res.lower() == "n":
-                        return False
+            # Single identity found - use it directly
+            elif len(identities) == 1:
+                id_type, identity = identities[0]
+                cert_username, cert_domain = cert_id_to_parts([(id_type, identity)])
 
-            # Use certificate-provided domain if not specified
-            if not domain:
-                domain = cert_domain
-            elif cert_domain:
-                # Warn if provided domain doesn't match certificate
-                if (
-                    domain.lower() != cert_domain.lower()
-                    and not cert_domain.lower().startswith(
-                        domain.lower().rstrip(".") + "."
-                    )
-                ):
-                    logging.warning(
-                        "The provided domain does not match the identification "
-                        f"found in the provided certificate: {domain!r} - {cert_domain!r}"
-                    )
-                    res = input("Do you want to continue? (Y/n) ").rstrip("\n")
-                    if res.lower() == "n":
-                        return False
+            # Multiple identities found - handle based on input parameters
+            else:
+                logging.info("Found multiple identities in certificate")
+
+                # Case 1: If username is provided, try to find a matching identity
+                if username:
+                    matching_ids = []
+                    for idx, (id_t, id_val) in enumerate(identities):
+                        u, d = cert_id_to_parts([(id_t, id_val)])
+                        if u and (
+                            u.lower() == username.lower()
+                            or u.lower() + "$" == username.lower()
+                        ):
+                            matching_ids.append((idx, id_t, id_val, u, d))
+
+                    # Found exactly one match for the username
+                    if len(matching_ids) == 1:
+                        idx, id_type, identity, cert_username, cert_domain = (
+                            matching_ids[0]
+                        )
+                        logging.info(f"Using identity: {id_type}: {identity}")
+
+                    # Found multiple matches - prompt user to select one
+                    elif len(matching_ids) > 1:
+                        logging.info(
+                            f"Found multiple identities for username '{username}'"
+                        )
+                        logging.info("Please select one:")
+
+                        for i, (idx, id_t, id_val, u, d) in enumerate(matching_ids):
+                            print(f"    [{i}] {id_t}: {id_val!r} ({u}@{d})")
+
+                        while True:
+                            try:
+                                choice = int(input("> "))
+                                if 0 <= choice < len(matching_ids):
+                                    (
+                                        idx,
+                                        id_type,
+                                        identity,
+                                        cert_username,
+                                        cert_domain,
+                                    ) = matching_ids[choice]
+                                    break
+                                logging.warning("Invalid index")
+                            except ValueError:
+                                logging.warning("Invalid input, enter a number")
+
+                    # No matches found - prompt user to select from all identities
+                    else:
+                        logging.warning(f"No identities match username '{username}'")
+                        logging.info("Please select an identity:")
+
+                        for i, (id_t, id_val) in enumerate(identities):
+                            u, d = cert_id_to_parts([(id_t, id_val)])
+                            print(
+                                f"    [{i}] {id_t}: {id_val!r} ({u or 'unknown'}@{d or 'unknown'})"
+                            )
+
+                        while True:
+                            try:
+                                idx = int(input("> "))
+                                if 0 <= idx < len(identities):
+                                    id_type, identity = identities[idx]
+                                    cert_username, cert_domain = cert_id_to_parts(
+                                        [(id_type, identity)]
+                                    )
+                                    break
+                                logging.warning("Invalid index")
+                            except ValueError:
+                                logging.warning("Invalid input, enter a number")
+
+                # Case 2: No username provided - prompt user to select an identity
+                else:
+                    logging.info("Please select an identity:")
+
+                    for i, (id_t, id_val) in enumerate(identities):
+                        u, d = cert_id_to_parts([(id_t, id_val)])
+                        print(
+                            f"    [{i}] {id_t}: {id_val!r} ({u or 'unknown'}@{d or 'unknown'})"
+                        )
+
+                    while True:
+                        try:
+                            idx = int(input("> "))
+                            if 0 <= idx < len(identities):
+                                id_type, identity = identities[idx]
+                                cert_username, cert_domain = cert_id_to_parts(
+                                    [(id_type, identity)]
+                                )
+                                break
+                            logging.warning("Invalid index")
+                        except ValueError:
+                            logging.warning("Invalid input, enter a number")
+
+        # Resolve username and domain
+        if not username:
+            username = cert_username
+
+        if not domain:
+            domain = cert_domain
+
+        # Check for mismatches between certificate and provided identity
+        if (
+            self._check_identity_mismatches(
+                username, domain, cert_username, cert_domain
+            )
+            is False
+        ):
+            return False
 
         # Ensure we have both username and domain
         if not all([username, domain]) and not is_key_credential:
             logging.error(
-                "Username or domain is not specified, and identification "
+                "Username or domain is not specified, and identity "
                 "information was not found in the certificate"
             )
             return False
 
-        if not any([len(username or ""), len(domain or "")]):
+        if not username or not domain:
             logging.error(f"Username or domain is invalid: {username}@{domain}")
             return False
 
         # Normalize domain and username
-        domain = (domain or "").lower()
-        username = (username or "").lower()
+        domain = domain.lower()
+        username = username.lower()
         upn = f"{username}@{domain}"
 
         # Resolve target IP if needed
         if self.target and self.target.resolver and self.target.target_ip is None:
             self.target.target_ip = self.target.resolver.resolve(domain)
 
-        logging.info(f"Using principal: {upn}")
+        logging.info(f"Using principal: {upn!r}")
 
         # Perform Kerberos authentication
         return self.kerberos_authentication(
@@ -394,10 +451,61 @@ class Authenticate:
             domain,
             is_key_credential,
             id_type,
-            identification,
+            identity,
             object_sid,
             upn,
         )
+
+    def _check_identity_mismatches(
+        self,
+        username: Optional[str],
+        domain: Optional[str],
+        cert_username: Optional[str],
+        cert_domain: Optional[str],
+    ) -> Optional[bool]:
+        """
+        Check for mismatches between provided identity and certificate identity.
+
+        Args:
+            username: Provided username
+            domain: Provided domain
+            cert_username: Username from certificate
+            cert_domain: Domain from certificate
+
+        Returns:
+            None if checks passed, False if should abort
+        """
+        # Check username mismatch (accounting for computer accounts with $)
+        if (
+            cert_username
+            and username
+            and cert_username.lower() != username.lower()
+            and cert_username.lower() + "$" != username.lower()
+        ):
+            logging.warning(
+                f"The provided username does not match the identity "
+                f"found in the certificate: {username!r} - {cert_username!r}"
+            )
+            res = input("Do you want to continue? (Y/n): ")
+            if res.strip().lower() == "n":
+                return False
+
+        # Check domain mismatch (accounting for subdomains)
+        if (
+            cert_domain
+            and domain
+            and domain.lower() != cert_domain.lower()
+            and not cert_domain.lower().startswith(domain.lower().rstrip(".") + ".")
+        ):
+            logging.warning(
+                f"The provided domain does not match the identity "
+                f"found in the certificate: {domain!r} - {cert_domain!r}"
+            )
+            res = input("Do you want to continue? (Y/n): ")
+            if res.strip().lower() == "n":
+                return False
+
+        return None
 
     def ldap_authentication(self, domain: Optional[str] = None) -> bool:
         """
@@ -478,9 +586,8 @@ class Authenticate:
                     **conn_kwargs,  # type: ignore
                 )
             except LDAPUnavailableResult as e:
-                logging.error("LDAP not configured for SSL/TLS connections")
-                if self.verbose:
-                    raise e
+                logging.error(f"LDAP not configured for SSL/TLS connections: {e}")
+                handle_error()
                 return False
 
             # Establish connection
@@ -489,6 +596,12 @@ class Authenticate:
 
             # Get authenticated identity
             who_am_i = ldap_conn.extend.standard.who_am_i()
+            if not who_am_i:
+                logging.error(
+                    "Failed to retrieve authenticated identity. Authentication failed"
+                )
+                return False
+
             logging.info(f"Authenticated to {self.target.target_ip!r} as: {who_am_i}")
 
             # Launch interactive shell
@@ -508,7 +621,7 @@ class Authenticate:
             try:
                 os.unlink(key_file.name)
                 os.unlink(cert_file.name)
-            except Exception:
+            except Exception as e:
                 pass
 
     def kerberos_authentication(
@@ -517,7 +630,7 @@ class Authenticate:
         domain: str,
         is_key_credential: bool = False,
         id_type: Optional[str] = None,
-        identification: Optional[str] = None,
+        identity: Optional[str] = None,
         object_sid: Optional[str] = None,
         upn: Optional[str] = None,
     ) -> Union[str, bool, None]:
@@ -528,8 +641,8 @@ class Authenticate:
             username: Username to authenticate as
             domain: Domain to authenticate to
             is_key_credential: Whether we're using a key credential
-            id_type: Type of identification in certificate
-            identification: Identification value from certificate
+            id_type: Type of identity in certificate
+            identity: identity value from certificate
             object_sid: SID from certificate
             upn: User Principal Name
 
@@ -543,7 +656,9 @@ class Authenticate:
             raise ValueError("Certificate is not specified and no PFX was provided")
 
         if not isinstance(self.key, rsa.RSAPrivateKey):
-            raise ValueError("Currently only RSA private keys are supported.")
+            raise ValueError(
+                "Currently only RSA private keys are supported. Try using -ldap-shell instead"
+            )
 
         # Create AS-REQ for PKINIT
         as_req, diffie = build_pkinit_as_req(username, domain, self.key, self.cert)
@@ -570,13 +685,13 @@ class Authenticate:
                 )
                 if id_type is not None:
                     logging.error(
-                        f"Verify that the username {username!r} matches the certificate {id_type}: {identification}"
+                        f"Verify that the username {username!r} matches the certificate {id_type}: {identity}"
                     )
             elif "KDC_ERR_WRONG_REALM" in str(e) and not is_key_credential:
                 logging.error(f"Wrong domain name specified {domain!r}")
                 if id_type is not None:
                     logging.error(
-                        f"Verify that the domain {domain!r} matches the certificate {id_type}: {identification}"
+                        f"Verify that the domain {domain!r} matches the certificate {id_type}: {identity}"
                     )
             elif "KDC_ERR_CERTIFICATE_MISMATCH" in str(e) and not is_key_credential:
                 logging.error(
@@ -586,8 +701,20 @@ class Authenticate:
                     logging.error(
                         f"Verify that user {username!r} has object SID {object_sid!r}"
                     )
+
+            elif "KDC_ERR_INCONSISTENT_KEY_PURPOSE" in str(e):
+                logging.error("Certificate is not valid for client authentication")
+                logging.error(
+                    "Check the certificate template and ensure it has the correct EKU(s)"
+                )
+                logging.error(
+                    "If you recently changed the certificate template, wait a few minutes for the change to propagate"
+                )
             else:
-                logging.error(f"Got error while trying to request TGT: {str(e)}")
+                logging.error(f"Got error while trying to request TGT: {e}")
+                handle_error()
+
+            logging.error("See the wiki for more information")
 
             return False
 
@@ -599,7 +726,7 @@ class Authenticate:
         # Extract PA-PK-AS-REP
         for pa in as_rep["padata"]:
             if pa["padata-type"] == 17:  # PA-PK-AS-REP
-                pk_as_rep = PA_PK_AS_REP.load(bytes(pa["padata-value"])).native
+                pk_as_rep = PaPkAsRep.load(bytes(pa["padata-value"])).native
                 break
         else:
             logging.error("PA_PK_AS_REP was not found in AS_REP")
@@ -631,9 +758,9 @@ class Authenticate:
         etype = as_rep["enc-part"]["etype"]
         cipher = _enctype_table[etype]
 
-        if etype == Enctype.AES256:
+        if etype == EncType.AES256:
             t_key = truncate_key(full_key, 32)
-        elif etype == Enctype.AES128:
+        elif etype == EncType.AES128:
             t_key = truncate_key(full_key, 16)
         else:
             logging.error("Unexpected encryption type in AS_REP")
@@ -845,10 +972,7 @@ class Authenticate:
 
             except Exception as e:
                 logging.error(f"Failed to extract NT hash: {e}")
-                if self.verbose:
-                    import traceback
-
-                    traceback.print_exc()
+                handle_error()
                 return False
 
         # Authentication succeeded
@@ -877,8 +1001,5 @@ def entry(options: argparse.Namespace) -> None:
             sys.exit(1)
     except Exception as e:
         logging.error(f"Authentication failed: {e}")
-        if options.debug:
-            import traceback
-
-            traceback.print_exc()
+        handle_error()
         sys.exit(1)

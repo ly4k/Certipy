@@ -14,7 +14,6 @@ It serves as a comprehensive tool for CA administration and security assessment.
 import argparse
 import copy
 import time
-import traceback
 from typing import Any, List, Optional, Union
 
 from impacket.dcerpc.v5 import rpcrt, rrp, scmr
@@ -29,10 +28,10 @@ from impacket.smbconnection import SMBConnection
 from impacket.uuid import string_to_bin, uuidtup_to_bin
 
 from certipy.lib.certificate import NameOID, create_pfx, der_to_cert, load_pfx, x509
-from certipy.lib.constants import CERTIFICATION_AUTHORITY_RIGHTS
-from certipy.lib.errors import translate_error_code
+from certipy.lib.constants import CertificateAuthorityRights
+from certipy.lib.errors import handle_error, translate_error_code
 from certipy.lib.files import try_to_save_file
-from certipy.lib.kerberos import get_TGS
+from certipy.lib.kerberos import get_tgs
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import logging
 from certipy.lib.rpc import (
@@ -97,7 +96,7 @@ class CERTTRANSBLOB(NDRSTRUCT):
 # =========================================================================
 
 
-class ICertAdminD_ResubmitRequest(DCOMCALL):
+class ICertAdminDResubmitRequest(DCOMCALL):
     """
     RPC interface for resubmitting certificate requests.
     Used to approve pending requests.
@@ -111,11 +110,11 @@ class ICertAdminD_ResubmitRequest(DCOMCALL):
     )
 
 
-class ICertAdminD_ResubmitRequestResponse(DCOMANSWER):
+class ICertAdminDResubmitRequestResponse(DCOMANSWER):
     structure = (("pdwDisposition", ULONG),)
 
 
-class ICertAdminD_DenyRequest(DCOMCALL):
+class ICertAdminDDenyRequest(DCOMCALL):
     """
     RPC interface for denying certificate requests.
     """
@@ -127,11 +126,11 @@ class ICertAdminD_DenyRequest(DCOMCALL):
     )
 
 
-class ICertAdminD_DenyRequestResponse(DCOMANSWER):
+class ICertAdminDDenyRequestResponse(DCOMANSWER):
     structure = (("ErrorCode", ULONG),)
 
 
-class ICertRequestD2_GetCAProperty(DCOMCALL):
+class ICertRequestD2GetCAProperty(DCOMCALL):
     """
     RPC interface for retrieving CA properties.
     """
@@ -145,11 +144,11 @@ class ICertRequestD2_GetCAProperty(DCOMCALL):
     )
 
 
-class ICertRequestD2_GetCAPropertyResponse(DCOMANSWER):
+class ICertRequestD2GetCAPropertyResponse(DCOMANSWER):
     structure = (("pctbPropertyValue", CERTTRANSBLOB),)
 
 
-class ICertAdminD2_GetCAProperty(DCOMCALL):
+class ICertAdminD2GetCAProperty(DCOMCALL):
     """
     RPC interface for retrieving CA properties.
     """
@@ -163,11 +162,11 @@ class ICertAdminD2_GetCAProperty(DCOMCALL):
     )
 
 
-class ICertAdminD2_GetCAPropertyResponse(DCOMANSWER):
+class ICertAdminD2GetCAPropertyResponse(DCOMANSWER):
     structure = (("pctbPropertyValue", CERTTRANSBLOB),)
 
 
-class ICertAdminD2_SetCAProperty(DCOMCALL):
+class ICertAdminD2SetCAProperty(DCOMCALL):
     """
     RPC interface for setting CA properties.
     """
@@ -182,11 +181,11 @@ class ICertAdminD2_SetCAProperty(DCOMCALL):
     )
 
 
-class ICertAdminD2_SetCAPropertyResponse(DCOMANSWER):
+class ICertAdminD2SetCAPropertyResponse(DCOMANSWER):
     structure = (("ErrorCode", ULONG),)
 
 
-class ICertAdminD2_GetCASecurity(DCOMCALL):
+class ICertAdminD2GetCASecurity(DCOMCALL):
     """
     RPC interface for retrieving CA security settings.
     """
@@ -195,11 +194,11 @@ class ICertAdminD2_GetCASecurity(DCOMCALL):
     structure = (("pwszAuthority", LPWSTR),)
 
 
-class ICertAdminD2_GetCASecurityResponse(DCOMANSWER):
+class ICertAdminD2GetCASecurityResponse(DCOMANSWER):
     structure = (("pctbSD", CERTTRANSBLOB),)
 
 
-class ICertAdminD2_SetCASecurity(DCOMCALL):
+class ICertAdminD2SetCASecurity(DCOMCALL):
     """
     RPC interface for setting CA security settings.
     """
@@ -208,11 +207,11 @@ class ICertAdminD2_SetCASecurity(DCOMCALL):
     structure = (("pwszAuthority", LPWSTR), ("pctbSD", CERTTRANSBLOB))
 
 
-class ICertAdminD2_SetCASecurityResponse(DCOMANSWER):
+class ICertAdminD2SetCASecurityResponse(DCOMANSWER):
     structure = (("ErrorCode", LONG),)
 
 
-class ICertAdminD2_GetConfigEntry(DCOMCALL):
+class ICertAdminD2GetConfigEntry(DCOMCALL):
     """
     RPC interface for retrieving CA configuration entries.
     """
@@ -225,7 +224,7 @@ class ICertAdminD2_GetConfigEntry(DCOMCALL):
     )
 
 
-class ICertAdminD2_GetConfigEntryResponse(DCOMANSWER):
+class ICertAdminD2GetConfigEntryResponse(DCOMANSWER):
     structure = (("pVariant", VARIANT),)
 
 
@@ -336,7 +335,6 @@ class CA:
         dynamic: bool = False,
         config: Optional[str] = None,
         timeout: int = 5,
-        debug: bool = False,
         **kwargs,  # type: ignore
     ):
         """
@@ -354,7 +352,6 @@ class CA:
             dynamic: Use dynamic port allocation
             config: CA configuration string
             timeout: Connection timeout in seconds
-            debug: Enable verbose debugging
             **kwargs: Additional arguments
         """
         self.target = target
@@ -366,7 +363,6 @@ class CA:
         self.dynamic = dynamic
         self.config = config
         self.timeout = timeout
-        self.verbose = debug
         self.kwargs = kwargs
 
         # Initialize connection objects
@@ -423,9 +419,9 @@ class CA:
             return self._cert_admin
 
         dcom = get_dcom_connection(self.target)
-        iInterface = dcom.CoCreateInstanceEx(CLSID_ICertAdminD, IID_ICertAdminD)
-        iInterface.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)  # type: ignore
-        self._cert_admin = ICertAdminD(iInterface)
+        interface = dcom.CoCreateInstanceEx(CLSID_ICertAdminD, IID_ICertAdminD)
+        interface.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)  # type: ignore
+        self._cert_admin = ICertAdminD(interface)
         return self._cert_admin
 
     @property
@@ -440,9 +436,9 @@ class CA:
             return self._cert_admin2
 
         dcom = get_dcom_connection(self.target)
-        iInterface = dcom.CoCreateInstanceEx(CLSID_ICertAdminD, IID_ICertAdminD2)
-        iInterface.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)  # type: ignore
-        self._cert_admin2 = ICertAdminD2(iInterface)
+        interface = dcom.CoCreateInstanceEx(CLSID_ICertAdminD, IID_ICertAdminD2)
+        interface.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)  # type: ignore
+        self._cert_admin2 = ICertAdminD2(interface)
 
         return self._cert_admin2
 
@@ -458,9 +454,9 @@ class CA:
             return self._cert_request2
 
         dcom = get_dcom_connection(self.target)
-        iInterface = dcom.CoCreateInstanceEx(CLSID_CCertRequestD, IID_ICertRequestD2)
-        iInterface.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)  # type: ignore
-        self._cert_request2 = ICertRequestD2(iInterface)
+        interface = dcom.CoCreateInstanceEx(CLSID_CCertRequestD, IID_ICertRequestD2)
+        interface.get_cinstance().set_auth_level(RPC_C_AUTHN_LEVEL_PKT_PRIVACY)  # type: ignore
+        self._cert_request2 = ICertRequestD2(interface)
 
         return self._cert_request2
 
@@ -495,7 +491,9 @@ class CA:
                     )
                     time.sleep(1)
                 else:
-                    raise e
+                    logging.error(f"Failed to connect to remote registry: {e}")
+                    handle_error()
+                    return None
         else:
             logging.warning("Failed to connect to remote registry after 3 attempts")
             return None
@@ -517,7 +515,7 @@ class CA:
         Raises:
             Exception: If the certificate retrieval fails
         """
-        request = ICertRequestD2_GetCAProperty()
+        request = ICertRequestD2GetCAProperty()
         request["pwszAuthority"] = checkNullString(self.ca)
         request["PropId"] = 0x0000000F  # Exchange certificate property ID
         request["PropIndex"] = 0
@@ -675,10 +673,9 @@ class CA:
             return result
         except Exception as e:
             logging.warning(
-                f"Failed to get CA configuration for {self.ca!r} via RRP: {str(e)}"
+                f"Failed to get CA configuration for {self.ca!r} via RRP: {e}"
             )
-            if self.verbose:
-                logging.debug(traceback.format_exc())
+            handle_error(True)
 
             logging.warning(f"Could not retrieve configuration for {self.ca!r}")
             return None
@@ -700,7 +697,7 @@ class CA:
             )
             return False
 
-        request = ICertAdminD_ResubmitRequest()
+        request = ICertAdminDResubmitRequest()
         request["pwszAuthority"] = checkNullString(self.ca)
         request["pdwRequestId"] = int(self.request_id)
         request["pwszExtensionName"] = checkNullString(None)  # No extension
@@ -713,7 +710,11 @@ class CA:
                     "Access denied: Insufficient permissions to issue certificate"
                 )
                 return False
-            raise e
+            logging.error(
+                f"Failed to issue certificate request ID {self.request_id}: {e}"
+            )
+            handle_error()
+            return False
 
         error_code = resp["pdwDisposition"]
 
@@ -740,7 +741,7 @@ class CA:
             )
             return False
 
-        request = ICertAdminD_DenyRequest()
+        request = ICertAdminDDenyRequest()
         request["pwszAuthority"] = checkNullString(self.ca)
         request["pdwRequestId"] = int(self.request_id)
 
@@ -752,7 +753,11 @@ class CA:
                     "Access denied: Insufficient permissions to deny certificate request"
                 )
                 return False
-            raise
+            logging.error(
+                f"Failed to deny certificate request ID {self.request_id}: {e}"
+            )
+            handle_error()
+            return False
 
         error_code = resp["ErrorCode"]
 
@@ -782,7 +787,7 @@ class CA:
             logging.error("A CA (-ca) is required")
             return None
 
-        request = ICertAdminD2_GetCAProperty()
+        request = ICertAdminD2GetCAProperty()
         request["pwszAuthority"] = checkNullString(self.ca)
         request["PropId"] = CR_PROP_TEMPLATES
         request["PropIndex"] = 0
@@ -796,7 +801,9 @@ class CA:
                     "Access denied: Insufficient permissions to get templates"
                 )
                 return None
-            raise e
+            logging.error(f"Failed to get certificate templates: {e}")
+            handle_error()
+            return None
 
         # Parse templates (format is name\noid\nname\noid...)
         certificate_templates = (
@@ -881,7 +888,7 @@ class CA:
         ]
 
         # Update CA property
-        request = ICertAdminD2_SetCAProperty()
+        request = ICertAdminD2SetCAProperty()
         request["pwszAuthority"] = checkNullString(self.ca)
         request["PropId"] = CR_PROP_TEMPLATES
         request["PropIndex"] = 0
@@ -897,7 +904,11 @@ class CA:
                     f"Access denied: Insufficient permissions to {action} template"
                 )
                 return False
-            raise e
+            logging.error(
+                f"Failed to {action} certificate template {template.get('cn')!r}: {e}"
+            )
+            handle_error()
+            return False
 
         error_code = resp["ErrorCode"]
         if error_code == 0:
@@ -950,7 +961,7 @@ class CA:
         sid = ldaptypes.LDAP_SID(data=user_obj.get_raw("objectSid")[0])
 
         # Get current CA security descriptor
-        request = ICertAdminD2_GetCASecurity()
+        request = ICertAdminD2GetCASecurity()
         request["pwszAuthority"] = checkNullString(self.ca)
 
         try:
@@ -961,7 +972,9 @@ class CA:
                     "Access denied: Insufficient permissions to get CA security"
                 )
                 return False
-            raise e
+            logging.error(f"Failed to get CA security descriptor: {e}")
+            handle_error()
+            return False
 
         # Parse security descriptor
         sd = ldaptypes.SR_SECURITY_DESCRIPTOR()
@@ -1032,7 +1045,7 @@ class CA:
         sd_bytes = [bytes([c]) for c in sd.getData()]
 
         # Set updated security descriptor
-        request = ICertAdminD2_SetCASecurity()
+        request = ICertAdminD2SetCASecurity()
         request["pwszAuthority"] = checkNullString(self.ca)
         request["pctbSD"]["cb"] = len(sd_bytes)
         request["pctbSD"]["pb"] = sd_bytes
@@ -1040,13 +1053,15 @@ class CA:
         try:
             resp = self.cert_admin2.request(request)
         except DCERPCSessionError as e:
+            action = "remove" if remove else "add"
             if "E_ACCESSDENIED" in str(e):
-                action = "remove" if remove else "add"
                 logging.error(
                     f"Access denied: Insufficient permissions to {action} {right_type}"
                 )
                 return False
-            raise e
+            logging.error(f"Failed to {action} {right_type}: {e}")
+            handle_error()
+            return False
 
         error_code = resp["ErrorCode"]
         if error_code == 0:
@@ -1102,7 +1117,7 @@ class CA:
             True if successful, False if failed, None if user not found
         """
         return self.add(
-            officer, CERTIFICATION_AUTHORITY_RIGHTS.MANAGE_CERTIFICATES.value, "officer"
+            officer, CertificateAuthorityRights.MANAGE_CERTIFICATES.value, "officer"
         )
 
     def remove_officer(self, officer: str) -> Union[bool, None]:
@@ -1116,7 +1131,7 @@ class CA:
             True if successful, False if failed, None if user not found
         """
         return self.remove(
-            officer, CERTIFICATION_AUTHORITY_RIGHTS.MANAGE_CERTIFICATES.value, "officer"
+            officer, CertificateAuthorityRights.MANAGE_CERTIFICATES.value, "officer"
         )
 
     def add_manager(self, manager: str) -> Union[bool, None]:
@@ -1130,9 +1145,7 @@ class CA:
         Returns:
             True if successful, False if failed, None if user not found
         """
-        return self.add(
-            manager, CERTIFICATION_AUTHORITY_RIGHTS.MANAGE_CA.value, "manager"
-        )
+        return self.add(manager, CertificateAuthorityRights.MANAGE_CA.value, "manager")
 
     def remove_manager(self, manager: str) -> Union[bool, None]:
         """
@@ -1145,7 +1158,7 @@ class CA:
             True if successful, False if failed, None if user not found
         """
         return self.remove(
-            manager, CERTIFICATION_AUTHORITY_RIGHTS.MANAGE_CA.value, "manager"
+            manager, CertificateAuthorityRights.MANAGE_CA.value, "manager"
         )
 
     # =========================================================================
@@ -1204,11 +1217,11 @@ class CA:
 
         # Authenticate with appropriate method
         if self.target.do_kerberos:
-            tgs, cipher, session_key, username, domain = get_TGS(
+            kdc_rep, cipher, session_key, username, domain = get_tgs(
                 self.target, self.target.remote_name, "cifs"
             )
 
-            TGS = {"KDC_REP": tgs, "cipher": cipher, "sessionKey": session_key}
+            tgs = {"KDC_REP": kdc_rep, "cipher": cipher, "sessionKey": session_key}
 
             _ = smbclient.kerberosLogin(
                 username,
@@ -1217,7 +1230,7 @@ class CA:
                 self.target.lmhash,
                 self.target.nthash,
                 kdcHost=self.target.dc_ip,
-                TGS=TGS,
+                TGS=tgs,
             )
         else:
             _ = smbclient.login(
@@ -1241,7 +1254,7 @@ class CA:
             if "STATUS_BAD_NETWORK_NAME" in str(e):
                 tid = None
             else:
-                raise e
+                raise
 
         # Fall back to ADMIN$ if C$ fails
         if tid is None:
@@ -1255,7 +1268,7 @@ class CA:
                         f"Could not connect to 'C$' or 'ADMIN$' on {self.target.target_ip!r}"
                     )
                 else:
-                    raise e
+                    raise
 
         pfx = None
 
@@ -1273,13 +1286,17 @@ class CA:
                 logging.error(
                     "Could not find the certificate and private key. This most likely means that the backup failed"
                 )
+                return None
+            logging.error(f"Failed to retrieve certificate and private key: {e}")
+            handle_error()
+            return None
 
         # Clean up by deleting the temporary file
         try:
             _ = smbclient.deleteFile(share, file_path)
-        except Exception:
-            logging.debug(
-                f"Failed to delete {file_path} - it may have already been deleted"
+        except Exception as e:
+            logging.info(
+                f"Failed to delete {file_path} - it may have already been deleted: {e}"
             )
 
         return pfx
@@ -1298,7 +1315,6 @@ class CA:
             self.target,
             timeout=self.timeout,
             dynamic=self.dynamic,
-            verbose=self.verbose,
             auth_level_np=rpcrt.RPC_C_AUTHN_LEVEL_NONE,
         )
 
@@ -1346,7 +1362,9 @@ class CA:
                     lpBinaryPathName=backup_cmd,  # type: ignore
                 )
             else:
-                raise e
+                logging.error(f"Failed to create service: {e}")
+                handle_error()
+                return False
 
         logging.info("Creating backup")
         try:
@@ -1354,7 +1372,7 @@ class CA:
             scmr.hRStartServiceW(dce, service_handle)
         except Exception as e:
             # Ignore service-specific errors (usually means it's already running)
-            logging.debug(f"Service start returned: {str(e)}")
+            logging.debug(f"Service start returned: {e}")
 
         logging.info("Retrieving backup")
         try:
@@ -1396,6 +1414,7 @@ class CA:
                 logging.info(f"Wrote certificate and private key to {path!r}")
         except Exception as e:
             logging.error(f"Backup failed: {e}")
+            handle_error()
             return False
 
         logging.info("Cleaning up")
