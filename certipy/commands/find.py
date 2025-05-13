@@ -447,10 +447,11 @@ class Find:
                     "enforce_encrypt_icertrequest": "Unknown",
                     "security": None,
                     "web_enrollment": {
-                        "http": {"enabled": None},
-                        "https": {"enabled": None, "channel_binding": None},
+                        "http": {"enabled": "Unknown"},
+                        "https": {"enabled": "Unknown", "channel_binding": None},
                     },
                 }
+
             else:
                 # Connect to CA and get configuration
                 ca_properties = self._get_ca_config_and_web_enrollment(ca)
@@ -480,7 +481,7 @@ class Find:
             "security": None,
             "web_enrollment": {
                 "http": {"enabled": "Unknown"},
-                "https": {"enabled": "Unknown"},
+                "https": {"enabled": "Unknown", "channel_binding": None},
             },
         }
 
@@ -2169,15 +2170,19 @@ class Find:
         web_enrollment = ca.get("web_enrollment")
         if web_enrollment and will_issue:
             http_enabled = (
-                web_enrollment["http"] is not None and web_enrollment["http"]["enabled"]
+                web_enrollment["http"] is not None
+                and web_enrollment["http"]["enabled"]
+                and web_enrollment["http"]["enabled"] != "Unknown"
             )
             https_enabled = (
                 web_enrollment["https"] is not None
                 and web_enrollment["https"]["enabled"]
+                and web_enrollment["https"]["enabled"] != "Unknown"
             )
             channel_binding_enforced = (
                 web_enrollment["https"] is not None
                 and web_enrollment["https"]["channel_binding"]
+                and web_enrollment["https"]["channel_binding"] != "Unknown"
             )
 
             # Determine vulnerability based on protocol and channel binding
