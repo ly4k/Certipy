@@ -1524,7 +1524,7 @@ class Find:
             "extended_key_usage": "Extended Key Usage",
             "requires_manager_approval": "Requires Manager Approval",
             "requires_key_archival": "Requires Key Archival",
-            "application_policies": "Application Policies",
+            "application_policies": "RA Application Policies",
             "authorized_signatures_required": "Authorized Signatures Required",
             "schema_version": "Schema Version",
             "validity_period": "Validity Period",
