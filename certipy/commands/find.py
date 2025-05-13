@@ -207,7 +207,6 @@ class Find:
                 "objectGUID",
                 "whenCreated",
                 "whenChanged",
-                "msPKI-Template-Schema-Version",
             ],
             query_sd=True,
         )
@@ -1532,7 +1531,6 @@ class Find:
             "msPKI-Minimal-Key-Size": "Minimum RSA Key Length",
             "whenCreated": "Template Created",
             "whenChanged": "Template Last Modified",
-            "msPKI-Template-Schema-Version": "Template Schema Version",
             "msPKI-Certificate-Policy": "Issuance Policies",
             "issuance_policies_linked_groups": "Linked Groups",
         }
@@ -1950,7 +1948,7 @@ class Find:
                 # ESC15: Schema v1 template with enrollee-supplied subject (CVE-2024-49019)
                 if (
                     template.get("enrollee_supplies_subject")
-                    and template.get("msPKI-Template-Schema-Version") == 1
+                    and template.get("schema_version") == 1
                 ):
                     vulnerabilities["ESC15"] = (
                         f"Enrollee supplies subject and " "schema version is 1."
