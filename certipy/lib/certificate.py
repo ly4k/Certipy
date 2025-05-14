@@ -944,7 +944,6 @@ def create_csr(
 
     # Add Microsoft Application Policies if requested
     if application_policies:
-        print("Adding application policies to CSR")
         # Convert each policy OID string to PolicyIdentifier
         application_policy_oids = [
             asn1x509.PolicyInformation(
