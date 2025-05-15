@@ -1,0 +1,26 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: 📚 Certipy Wiki
+    url: https://github.com/ly4k/Certipy/wiki
+    about: Full documentation for usage, ESCs, and AD CS attack paths.
+
+  - name: 🗣️ Certipy Discussions
+    url: https://github.com/ly4k/Certipy/discussions
+    about: Ask questions, share ideas, and discuss Certipy with the community.
+
+issue_templates:
+  - name: 🐞 Bug Report
+    description: Report an error, crash, or unexpected behavior in Certipy.
+    labels: ["bug", "triage"]
+    file: bug_report.yml
+
+  - name: 🙋 Help / Usage Question
+    description: Ask for help with setup, usage, or general questions about Certipy or AD CS attacks.
+    labels: ["help wanted"]
+    file: help_request.yml
+
+  - name: ✨ Feature Request
+    description: Suggest a new feature or improvement to Certipy.
+    labels: ["enhancement"]
+    file: feature_request.yml

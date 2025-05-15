@@ -1,0 +1,20 @@
+name: Close stale issues
+
+on:
+  schedule:
+    - cron: "0 2 * * *"  # Runs every day at 2 AM UTC
+  workflow_dispatch:     # Allow manual trigger
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          stale-issue-message: "This issue has been automatically marked as stale due to inactivity. It will be closed in 7 days if no further activity occurs."
+          close-issue-message: "Closing this issue due to prolonged inactivity."
+          days-before-stale: 30
+          days-before-close: 7
+          any-of-labels: help wanted,not planned,wontfix,duplicate,invalid,out of scope,discussion needed,cannot reproduce,needs more info,not a bug
+          exempt-issue-labels: pinned,keep open

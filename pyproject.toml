@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "certipy-ad"
+version = "5.0.0"
+description = "Active Directory Certificate Services enumeration and abuse"
+readme = "README.md"
+authors = [
+    {name = "ly4k"}
+]
+license = {text = "MIT"}
+requires-python = ">=3.12"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "asn1crypto~=1.5.1",
+    "cryptography~=42.0.8",
+    "impacket~=0.12.0",
+    "ldap3~=2.9.1",
+    "pyasn1~=0.6.1",
+    "dnspython~=2.7.0",
+    "dsinternals~=1.2.4",
+    "pyopenssl~=24.0.0",
+    "requests~=2.32.3",
+    "pycryptodome~=3.22.0",
+    "bs4~=0.0.2",
+    "httpx~=0.28.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/ly4k/Certipy"
+"Bug Tracker" = "https://github.com/ly4k/Certipy/issues"
+
+[project.scripts]
+certipy = "certipy.entry:main"
+
+[tool.setuptools]
+packages = [
+    "certipy",
+    "certipy.commands",
+    "certipy.commands.parsers",
+    "certipy.lib",
+]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+
+[tool.black]
+line-length = 88
+target-version = ['py312']

@@ -1,0 +1,51 @@
+name: ✨ Feature Request
+description: Suggest a new feature, enhancement, or quality-of-life improvement for Certipy.
+title: "[Feature] Brief description of the feature"
+labels: ["enhancement"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a new feature for Certipy! Please describe your idea clearly so it can be evaluated and discussed by the community.
+
+  - type: textarea
+    id: feature_description
+    attributes:
+      label: ✨ Feature Description
+      description: What would you like Certipy to do that it doesn't currently do?
+      placeholder: |
+        Example:
+        I'd like Certipy to be able to extract EKUs directly from a PFX file and show them clearly when listing issued certs.
+
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: 🚀 Why is this feature important?
+      description: How would this feature improve your workflow or Certipy's usefulness?
+      placeholder: |
+        - Saves time during post-exploitation enumeration
+        - Avoids needing to decode certs manually with OpenSSL or other tools
+
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 🔄 Alternatives or Workarounds
+      description: Are there other ways you're currently achieving this, or related tools that already do it?
+      placeholder: |
+        - Right now I'm exporting the cert with OpenSSL and parsing it manually.
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: 📎 Additional Context or Mockups
+      description: Include examples, CLI suggestions, related issues, or rough pseudocode if helpful.
+      placeholder: |
+        Suggested CLI:
+        certipy show -pfx mycert.pfx
