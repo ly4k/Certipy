@@ -96,6 +96,7 @@ class Find:
         self.kwargs = kwargs
 
         self._connection = connection
+        self._user_sids = None
 
     # =========================================================================
     # Connection Handling
