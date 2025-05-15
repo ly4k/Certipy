@@ -1,6 +1,6 @@
 # 🤝 Contributing to Certipy
 
-Thank you for your interest in contributing to **Certipy**! Whether you're reporting a bug, improving documentation, or submitting a pull request — your help is appreciated.
+Thank you for your interest in contributing to **Certipy**! Whether you're reporting a bug, improving documentation, or submitting a pull request - your help is appreciated.
 
 ---
 
@@ -82,7 +82,7 @@ You can help improve the documentation! To do so:
 
 ## 💬 Need Help?
 
-Feel free to open a [Help Request](https://github.com/ly4k/Certipy/issues/new/choose) — just be clear about what you’re trying to accomplish and what you’ve tried.
+Feel free to open a [Help Request](https://github.com/ly4k/Certipy/issues/new/choose) - just be clear about what you’re trying to accomplish and what you’ve tried.
 
 ---
 
