@@ -1,6 +1,6 @@
 # Certipy - AD CS Attack & Enumeration Toolkit
 
-[![PyPI version](https://badge.fury.io/py/certipy-ad.svg)](https://badge.fury.io/py/certipy-ad)
+[![PyPI version](https://img.shields.io/pypi/v/certipy-ad)](https://pypi.org/project/certipy-ad/)
 ![Python](https://img.shields.io/badge/python-3.12+-blue.svg)
 ![License](https://img.shields.io/github/license/ly4k/Certipy)
 
