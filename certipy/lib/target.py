@@ -225,17 +225,30 @@ class Target:
                 "Target name (-target) not specified and Kerberos authentication is used. This might fail"
             )
 
-        if dc_as_target and not remote_name:
-            remote_name = domain
+        if dc_as_target:
+            if not remote_name and dc_host:
+                remote_name = dc_host
 
-        if dc_host is None:
-            if dc_as_target:
+            if not remote_name:
+                logging.debug(
+                    f"Target name (-target) and DC host (-dc-host) not specified. Using domain {domain!r} as target name. This might fail for cross-realm operations"
+                )
+                remote_name = domain
+
+            if not target_ip and dc_ip:
+                target_ip = dc_ip
+
+            if not dc_host:
                 dc_host = remote_name
-            elif domain:
+        else:
+            if not dc_host and domain:
                 if do_kerberos:
                     logging.warning(
                         "DC host (-dc-host) not specified and Kerberos authentication is used. This might fail"
                     )
+                logging.debug(
+                    "DC host (-dc-host) not specified. Using domain as DC host"
+                )
                 dc_host = domain
 
         if not remote_name:
@@ -264,6 +277,16 @@ class Target:
         # Handle target IP
         if is_ip(remote_name):
             target_ip = remote_name
+
+        ns = ns or dc_ip
+
+        logging.debug(f"Nameserver: {ns!r}")
+        logging.debug(f"DC IP: {dc_ip!r}")
+        logging.debug(f"DC Host: {dc_host!r}")
+        logging.debug(f"Target IP: {target_ip!r}")
+        logging.debug(f"Remote Name: {remote_name!r}")
+        logging.debug(f"Domain: {domain!r}")
+        logging.debug(f"Username: {username!r}")
 
         resolver = DnsResolver.create(ns=ns, dc_ip=dc_ip, dns_tcp=dns_tcp)
 
