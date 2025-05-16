@@ -19,6 +19,7 @@ from certipy.commands import find
 from certipy.lib.errors import handle_error
 from certipy.lib.logger import logging
 from certipy.lib.registry import RegConnection, RegEntry
+from certipy.lib.target import DnsResolver, Target
 
 
 class ParserType(Enum):
@@ -54,12 +55,15 @@ class Parse(find.Find):
             published: List of templates published by the CA
             kwargs: Additional arguments to pass to Find base class
         """
-        super().__init__(**kwargs)
 
         # Set up for offline analysis
-        self.dc_only = True
-        self.target.username = "unknown"
-        self.target.target_ip = "unknown"
+        target = Target(
+            DnsResolver.create(),
+            domain=domain,
+            username="unknown",
+            target_ip="unknown",
+        )
+        super().__init__(target, dc_only=True, **kwargs)
 
         # Store instance variables
         self.domain = domain
@@ -124,7 +128,7 @@ class Parse(find.Find):
                     "name": self.ca,
                     "dNSHostName": "localhost",
                     "cACertificateDN": "Unknown",
-                    "cACertificate": [b""],
+                    "cACertificate": None,
                     "certificateTemplates": self.published,
                     "objectGUID": "Unknown",
                 }
@@ -186,11 +190,15 @@ class ParseBof(Parse):
                 lines = iter(data.splitlines())
 
                 template = None
+                pending_line = None
                 registry_key_prefix = "HKEY_USERS\\.DEFAULT\\Software\\Microsoft\\Cryptography\\CertificateTemplateCache\\"
 
                 # Process each line
-                for line in lines:
+                while True:
                     try:
+                        line = pending_line if pending_line is not None else next(lines)
+                        pending_line = None
+
                         # Start of a new template
                         if registry_key_prefix in line:
                             if template is not None:
@@ -222,10 +230,7 @@ class ParseBof(Parse):
                                 data = line.split("REG_SZ")[1].strip()
                             elif datatype == "REG_MULTI_SZ":
                                 data = line.split("REG_MULTI_SZ")[1].strip()
-                                if data == "":
-                                    data = []
-                                else:
-                                    data = data.split("\\0")
+                                data = [] if data == "" else data.split("\\0")
                             elif datatype == "REG_BINARY":
                                 data = []
                                 # Binary data may span multiple lines
@@ -233,7 +238,8 @@ class ParseBof(Parse):
                                     try:
                                         next_line = next(lines)
                                         if not next_line.startswith(" "):
-                                            line = next_line  # Save for next iteration
+                                            # Save for next iteration
+                                            pending_line = next_line
                                             break
                                         else:
                                             data.extend(
@@ -244,7 +250,9 @@ class ParseBof(Parse):
 
                                 # Convert hex strings to bytes
                                 data = bytes.fromhex("".join(data))
-                                continue  # We've already read the next line
+                            else:
+                                logging.debug(f"Unknown value type: {datatype}")
+                                continue
 
                             # Map registry names to LDAP attributes if applicable
                             if name in self.mappings:
@@ -253,6 +261,9 @@ class ParseBof(Parse):
                             # Set the attribute in the template
                             if template is not None:
                                 template.set(name, data)
+
+                    except StopIteration:
+                        break
                     except Exception as e:
                         logging.debug(f"Error parsing line: {e}")
                         continue
@@ -347,11 +358,7 @@ class ParseReg(Parse):
                                 # REG_MULTI_SZ
                                 hex_data = self._parse_hex_data(raw_data[7:], lines)
                                 data = hex_data.decode("utf-16le").rstrip("\x00")
-
-                                if data == "":
-                                    data = []
-                                else:
-                                    data = data.split("\x00")
+                                data = [] if data == "" else data.split("\x00")
                             else:
                                 logging.debug(f"Unknown value type: {raw_data}")
                                 continue
