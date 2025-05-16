@@ -230,10 +230,7 @@ class ParseBof(Parse):
                                 data = line.split("REG_SZ")[1].strip()
                             elif datatype == "REG_MULTI_SZ":
                                 data = line.split("REG_MULTI_SZ")[1].strip()
-                                if data == "":
-                                    data = []
-                                else:
-                                    data = data.split("\\0")
+                                data = [] if data == "" else data.split("\\0")
                             elif datatype == "REG_BINARY":
                                 data = []
                                 # Binary data may span multiple lines
@@ -361,11 +358,7 @@ class ParseReg(Parse):
                                 # REG_MULTI_SZ
                                 hex_data = self._parse_hex_data(raw_data[7:], lines)
                                 data = hex_data.decode("utf-16le").rstrip("\x00")
-
-                                if data == "":
-                                    data = []
-                                else:
-                                    data = data.split("\x00")
+                                data = [] if data == "" else data.split("\x00")
                             else:
                                 logging.debug(f"Unknown value type: {raw_data}")
                                 continue
