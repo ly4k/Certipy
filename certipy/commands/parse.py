@@ -190,11 +190,15 @@ class ParseBof(Parse):
                 lines = iter(data.splitlines())
 
                 template = None
+                pending_line = None
                 registry_key_prefix = "HKEY_USERS\\.DEFAULT\\Software\\Microsoft\\Cryptography\\CertificateTemplateCache\\"
 
                 # Process each line
-                for line in lines:
+                while True:
                     try:
+                        line = pending_line if pending_line is not None else next(lines)
+                        pending_line = None
+
                         # Start of a new template
                         if registry_key_prefix in line:
                             if template is not None:
@@ -237,7 +241,8 @@ class ParseBof(Parse):
                                     try:
                                         next_line = next(lines)
                                         if not next_line.startswith(" "):
-                                            line = next_line  # Save for next iteration
+                                            # Save for next iteration
+                                            pending_line = next_line
                                             break
                                         else:
                                             data.extend(
@@ -248,7 +253,9 @@ class ParseBof(Parse):
 
                                 # Convert hex strings to bytes
                                 data = bytes.fromhex("".join(data))
-                                continue  # We've already read the next line
+                            else:
+                                logging.debug(f"Unknown value type: {datatype}")
+                                continue
 
                             # Map registry names to LDAP attributes if applicable
                             if name in self.mappings:
@@ -257,6 +264,9 @@ class ParseBof(Parse):
                             # Set the attribute in the template
                             if template is not None:
                                 template.set(name, data)
+
+                    except StopIteration:
+                        break
                     except Exception as e:
                         logging.debug(f"Error parsing line: {e}")
                         continue
