@@ -19,6 +19,7 @@ from certipy.commands import find
 from certipy.lib.errors import handle_error
 from certipy.lib.logger import logging
 from certipy.lib.registry import RegConnection, RegEntry
+from certipy.lib.target import DnsResolver, Target
 
 
 class ParserType(Enum):
@@ -54,12 +55,15 @@ class Parse(find.Find):
             published: List of templates published by the CA
             kwargs: Additional arguments to pass to Find base class
         """
-        super().__init__(**kwargs)
 
         # Set up for offline analysis
-        self.dc_only = True
-        self.target.username = "unknown"
-        self.target.target_ip = "unknown"
+        target = Target(
+            DnsResolver.create(),
+            domain=domain,
+            username="unknown",
+            target_ip="unknown",
+        )
+        super().__init__(target, dc_only=True, **kwargs)
 
         # Store instance variables
         self.domain = domain
@@ -124,7 +128,7 @@ class Parse(find.Find):
                     "name": self.ca,
                     "dNSHostName": "localhost",
                     "cACertificateDN": "Unknown",
-                    "cACertificate": [b""],
+                    "cACertificate": None,
                     "certificateTemplates": self.published,
                     "objectGUID": "Unknown",
                 }
