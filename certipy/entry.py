@@ -1,6 +1,9 @@
+# PYTHON_ARGCOMPLETE_OK
 import argparse
 import logging
 import sys
+
+import argcomplete
 
 from certipy import version
 from certipy.commands.parsers import ENTRY_PARSERS
@@ -51,6 +54,8 @@ def main() -> None:
     for entry_parser in ENTRY_PARSERS:
         action, entry = entry_parser.add_subparser(subparsers)
         actions[action] = entry
+
+    argcomplete.autocomplete(parser, always_complete_options=False)
 
     if len(sys.argv) == 1:
         parser.print_help()
