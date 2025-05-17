@@ -52,6 +52,7 @@ body:
     attributes:
       label: 🔍 Relevant `certipy find` Output (abbreviated and redacted)
       description: If this bug is related to vulnerability detection or escalation, please include redacted highlights from `certipy find`.
+      render: text
       placeholder: |
         Certificate Authorities
           0

@@ -32,6 +32,7 @@ body:
     attributes:
       label: 📥 Command Used
       description: Include the full (but redacted) command that triggered the issue
+      render: shell
       placeholder: |
         Example:
         certipy req -u user@redacted.local -p 'REDACTED' -ca CORP-CA -template ESC1 -upn admin@redacted.local
@@ -43,6 +44,7 @@ body:
     attributes:
       label: 🧯 Error Message / Unexpected Output
       description: Paste any output, error messages, or tracebacks (redacted if needed)
+      render: text
       placeholder: |
         Example:
         Traceback (most recent call last):
@@ -56,6 +58,7 @@ body:
     attributes:
       label: 🔍 Relevant `certipy find` Output (abbreviated and redacted)
       description: If this bug is related to vulnerability detection or escalation, please include redacted highlights from `certipy find`.
+      render: text
       placeholder: |
         Certificate Authorities
           0
