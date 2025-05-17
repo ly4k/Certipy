@@ -42,6 +42,7 @@ from impacket.spnego import SPNEGO_NegTokenResp
 
 from certipy.lib.channel_binding import get_channel_binding_data_from_response
 from certipy.lib.http import get_authentication_method
+from certipy.lib.logger import logging
 from certipy.lib.target import Target
 
 # Constants
@@ -298,6 +299,14 @@ def ntlm_authenticate(
     return challenge_response, exported_session_key, response_flags
 
 
+class NtlmNotSupportedError(Exception):
+    """
+    Exception raised when NTLM authentication is not supported.
+    """
+
+    pass
+
+
 class HttpxNtlmAuth(httpx.Auth):
     """
     HTTPX authentication class for NTLM authentication.
@@ -423,7 +432,7 @@ class HttpxNtlmAuth(httpx.Auth):
             ).strip()
         except Exception:
             raise ValueError(
-                f"Failed to parse authentication header: {authenticate_header}"
+                f"Failed to parse authentication header: {authenticate_header!r}"
             )
 
         # Decode the challenge
@@ -431,7 +440,7 @@ class HttpxNtlmAuth(httpx.Auth):
             server_challenge = base64.b64decode(server_challenge_base64)
         except Exception as e:
             raise ValueError(
-                f"Failed to decode server challenge: {authenticate_header} - {e}"
+                f"Failed to decode server challenge: {authenticate_header!r} - {e}"
             )
 
         # Check if challenge is wrapped in SPNEGO
@@ -445,13 +454,21 @@ class HttpxNtlmAuth(httpx.Auth):
         else:
             type2 = server_challenge
 
+        if not type2:
+            # This means that the server is not using NTLM
+            # and we should not continue with NTLM authentication
+            logging.debug(
+                "Server did not return a valid NTLM challenge. The server may have disabled NTLM authentication."
+            )
+            raise NtlmNotSupportedError("Server did not return a valid NTLM challenge.")
+
         # Parse Type 2 message
         challenge = NTLMAuthChallenge()
         try:
             challenge.fromString(type2)
         except Exception as e:
             raise ValueError(
-                f"Failed to parse server challenge: {authenticate_header} - {e}"
+                f"Failed to parse server challenge: {authenticate_header!r} - {e}"
             )
 
         # Get channel binding data if enabled

@@ -52,6 +52,7 @@ from certipy.lib.certificate import (
 from certipy.lib.constants import OID_TO_STR_NAME_MAP, USER_AGENT
 from certipy.lib.errors import handle_error
 from certipy.lib.logger import logging
+from certipy.lib.ntlm import NtlmNotSupportedError
 from certipy.lib.req import (
     MSRPC_UUID_ICPR,
     Request,
@@ -175,7 +176,7 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
             ).strip()
         except Exception:
             logging.error(
-                f"Failed to parse authentication header: {authenticate_header}"
+                f"Failed to parse authentication header: {authenticate_header!r}"
             )
             handle_error()
             return None
@@ -185,7 +186,7 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
             server_challenge = base64.b64decode(server_challenge_base64)
         except Exception as e:
             logging.error(
-                f"Failed to decode server challenge: {authenticate_header} - {e}"
+                f"Failed to decode server challenge: {authenticate_header!r} - {e}"
             )
             handle_error()
             return None
@@ -201,6 +202,14 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
         else:
             type2 = server_challenge
 
+        if not type2:
+            # This means that the server is not using NTLM
+            # and we should not continue with NTLM authentication
+            logging.warning(
+                "Server did not return a valid NTLM challenge. The server may have disabled NTLM authentication."
+            )
+            raise NtlmNotSupportedError("Server did not return a valid NTLM challenge.")
+
         # Parse Type 2 message
         challenge = NTLMAuthChallenge()
         try:
@@ -208,7 +217,7 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
             return challenge
         except Exception as e:
             logging.error(
-                f"Failed to parse server challenge: {authenticate_header} - {e}"
+                f"Failed to parse server challenge: {authenticate_header!r} - {e}"
             )
             handle_error()
 

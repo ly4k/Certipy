@@ -46,7 +46,7 @@ from certipy.lib.formatting import pretty_print
 from certipy.lib.kerberos import HttpxKerberosAuth
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import is_verbose, logging
-from certipy.lib.ntlm import HttpxNtlmAuth
+from certipy.lib.ntlm import HttpxNtlmAuth, NtlmNotSupportedError
 from certipy.lib.rpc import get_dce_rpc_from_string_binding
 from certipy.lib.security import (
     CertificateSecurity,
@@ -702,12 +702,13 @@ class Find:
             ca_target.remote_name = target_name
 
             # Select authentication method based on whether Kerberos is enabled
-            if self.target.do_kerberos:
-                no_cb_auth = HttpxKerberosAuth(ca_target, channel_binding=False)
-                cb_auth = HttpxKerberosAuth(ca_target, channel_binding=True)
-            else:
+            do_ntlm = not self.target.do_kerberos
+            if do_ntlm:
                 no_cb_auth = HttpxNtlmAuth(ca_target, channel_binding=False)
                 cb_auth = HttpxNtlmAuth(ca_target, channel_binding=True)
+            else:
+                no_cb_auth = HttpxKerberosAuth(ca_target, channel_binding=False)
+                cb_auth = HttpxKerberosAuth(ca_target, channel_binding=True)
 
             url = f"https://{target_ip}/certsrv/"
             headers = {"User-Agent": USER_AGENT, "Host": target_name}
@@ -765,7 +766,12 @@ class Find:
                     "Channel binding (EPA) produces the same response as without it. Perhaps invalid credentials?"
                 )
                 return None
-
+        except NtlmNotSupportedError:
+            # NTLM not supported, skip channel binding check
+            logging.warning(
+                "Failed to check channel binding: NTLM not supported. Try using Kerberos authentication (-k and -dc-host)."
+            )
+            return None
         except Exception as e:
             logging.warning(f"Failed to check channel binding: {e}")
             handle_error(True)
@@ -2158,7 +2164,12 @@ class Find:
                 "the wiki for more details."
             )
 
-        if ca.get("active_policy") != "CertificateAuthority_MicrosoftDefault.Policy":
+        policy = ca.get("active_policy")
+        if (
+            policy
+            and policy != "CertificateAuthority_MicrosoftDefault.Policy"
+            and policy != "Unknown"
+        ):
             remarks["Policy"] = "Not using the built-in Microsoft default policy."
 
         # ESC7: CA with dangerous permissions
@@ -2183,7 +2194,6 @@ class Find:
             channel_binding_enforced = (
                 web_enrollment["https"] is not None
                 and web_enrollment["https"]["channel_binding"]
-                and web_enrollment["https"]["channel_binding"] != "Unknown"
             )
 
             # Determine vulnerability based on protocol and channel binding
