@@ -20,7 +20,7 @@ classifiers = [
 dependencies = [
     "asn1crypto~=1.5.1",
     "cryptography~=42.0.8",
-    "impacket~=0.12.0",
+    "impacket @ git+https://github.com/blacklanternsecurity/impacket",
     "ldap3~=2.9.1",
     "pyasn1~=0.6.1",
     "dnspython~=2.7.0",
@@ -28,6 +28,7 @@ dependencies = [
     "pyopenssl~=24.0.0",
     "requests~=2.32.3",
     "pycryptodome~=3.22.0",
+    "unicrypto",
     "bs4~=0.0.2",
     "httpx~=0.28.1",
     "argcomplete~=3.6.2",
