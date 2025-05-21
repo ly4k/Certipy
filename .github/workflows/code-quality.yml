@@ -1,0 +1,48 @@
+name: Code Quality Check
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install black isort pyright flake8 pep8-naming
+
+      - name: Install Certipy
+        run: |
+          pip install -e .
+
+      - name: Lint with flake8 (style and naming)
+        run: |
+          flake8 ./certipy || (echo 'flake8 found issues. Run it locally with `flake8 .`' && exit 1)
+
+      - name: Check import order with isort (black-compatible)
+        run: |
+          isort . --check-only || (echo 'isort found issues. Run `isort .` to fix.' && exit 1)
+
+      - name: Check formatting with black
+        run: |
+          black . --check || (echo 'black found formatting issues. Run `black .` to fix.' && exit 1)
+
+      - name: Type check with pyright
+        run: |
+          pyright . || (echo 'pyright found type issues. Run `pyright .` to fix.' && exit 1)

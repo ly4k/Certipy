@@ -1,70 +1,68 @@
+"""
+Error code translation utilities for Certipy.
+
+This module provides functions for translating numeric error codes from Windows APIs
+and Kerberos services into human-readable messages. It acts as a wrapper around
+the error code mappings provided by the impacket library.
+
+Functions:
+    translate_error_code: Convert a Windows error code to a readable message
+"""
+
+import traceback
+from typing import Dict, Tuple
+
 from impacket import hresult_errors
 from impacket.krb5.kerberosv5 import constants as krb5_constants
 
-"""
-// RFC 4556
-77: "KDC_ERR_INCONSISTENT_KEY_PURPOSE"
-78: "KDC_ERR_DIGEST_IN_CERT_NOT_ACCEPTED"
-79: "KDC_ERR_PA_CHECKSUM_MUST_BE_INCLUDED"
-80: "KDC_ERR_DIGEST_IN_SIGNED_DATA_NOT_ACCEPTED"
-81: "KDC_ERR_PUBLIC_KEY_ENCRYPTION_NOT_SUPPORTED"
- // RFC 6113
-90: "KDC_ERR_PREAUTH_EXPIRED"
-91: "KDC_ERR_MORE_PREAUTH_DATA_REQUIRED"
-92: "KDC_ERR_PREAUTH_BAD_AUTHENTICATION_SET"
-93: "KDC_ERR_UNKNOWN_CRITICAL_FAST_OPTIONS"
-"""
+from certipy.lib.logger import is_verbose, logging
 
-KRB5_ERROR_MESSAGES = krb5_constants.ERROR_MESSAGES
-if 77 not in KRB5_ERROR_MESSAGES:
-    KRB5_ERROR_MESSAGES.update(
-        {
-            77: (
-                "KDC_ERR_INCONSISTENT_KEY_PURPOSE",
-                "Certificate cannot be used for PKINIT client authentication",
-            ),
-            78: (
-                "KDC_ERR_DIGEST_IN_CERT_NOT_ACCEPTED",
-                "Digest algorithm for the public key in the certificate is not acceptable by the KDC",
-            ),
-            79: (
-                "KDC_ERR_PA_CHECKSUM_MUST_BE_INCLUDED",
-                "The paChecksum filed in the request is not present",
-            ),
-            80: (
-                "KDC_ERR_DIGEST_IN_SIGNED_DATA_NOT_ACCEPTED",
-                "The digest algorithm used by the id-pkinit-authData is not acceptable by the KDC",
-            ),
-            81: (
-                "KDC_ERR_PUBLIC_KEY_ENCRYPTION_NOT_SUPPORTED",
-                "The KDC does not support the public key encryption key delivery method",
-            ),
-            90: (
-                "KDC_ERR_PREAUTH_EXPIRED",
-                "The conversation is too old and needs to restart",
-            ),
-            91: (
-                "KDC_ERR_MORE_PREAUTH_DATA_REQUIRED",
-                "Additional pre-authentication required",
-            ),
-            92: (
-                "KDC_ERR_PREAUTH_BAD_AUTHENTICATION_SET",
-                "KDC cannot accommodate requested padata element",
-            ),
-            93: ("KDC_ERR_UNKNOWN_CRITICAL_FAST_OPTIONS", "Unknown critical option"),
-        }
-    )
+# Import Kerberos error message dictionary for easier access
+KRB5_ERROR_MESSAGES: Dict[int, Tuple[str, str]] = krb5_constants.ERROR_MESSAGES
 
 
 def translate_error_code(error_code: int) -> str:
-    error_code &= 0xFFFFFFFF
-    if error_code in hresult_errors.ERROR_MESSAGES:
-        error_msg_short = hresult_errors.ERROR_MESSAGES[error_code][0]
-        error_msg_verbose = hresult_errors.ERROR_MESSAGES[error_code][1]
-        return "code: 0x%x - %s - %s" % (
-            error_code,
-            error_msg_short,
-            error_msg_verbose,
-        )
+    """
+    Translate a Windows API error code to a human-readable string.
+
+    Args:
+        error_code: Windows API error code (HRESULT)
+
+    Returns:
+        Formatted error message with code, short description, and detailed explanation
+
+    Example:
+        >>> translate_error_code(0x80090311)
+        'code: 0x80090311 - SEC_E_LOGON_DENIED - The token supplied to the function is invalid'
+    """
+    # Mask to 32 bits to handle sign extension issues
+    masked_code = error_code & 0xFFFFFFFF
+
+    # Look up in the impacket error dictionary
+    if masked_code in hresult_errors.ERROR_MESSAGES:
+        error_tuple: Tuple[str, str] = hresult_errors.ERROR_MESSAGES[masked_code]
+        error_short, error_detail = error_tuple
+
+        # Format the message with all information
+        return f"code: 0x{masked_code:x} - {error_short} - {error_detail}"
     else:
-        return "unknown error code: 0x%x" % error_code
+        # Handle unknown error codes
+        return f"unknown error code: 0x{masked_code:x}"
+
+
+def handle_error(is_warning: bool = False) -> None:
+    """
+    Handle errors by printing the error message and exiting the program.
+
+    This function is a placeholder for error handling logic. It can be extended
+    to include logging, user notifications, or other actions as needed.
+    """
+    if is_verbose():
+        # Print the full traceback for debugging
+        traceback.print_exc()
+    else:
+        msg = "Use -debug to print a stacktrace"
+        if is_warning:
+            logging.warning(msg)
+        else:
+            logging.error(msg)

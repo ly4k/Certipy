@@ -1,0 +1,80 @@
+name: 🙋 General Help / Usage Question
+description: Ask for help with Certipy usage, understanding output, setup issues, or general AD CS abuse questions.
+title: "[Help] Describe your question or topic"
+labels: ["help wanted"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reaching out! This template is for **general usage questions**, troubleshooting help, and clarification requests.
+
+        > Please redact any sensitive information like domain names, IPs, usernames, or passwords.
+
+  - type: input
+    id: certipy_version
+    attributes:
+      label: 🔢 Certipy Version
+      description: What version of Certipy are you using? (Output of `certipy -v`)
+      placeholder: e.g., 5.0.0
+
+  - type: input
+    id: platform
+    attributes:
+      label: 🖥️ Operating System
+      description: What platform or environment are you using Certipy on?
+      placeholder: e.g., Kali Linux, Windows 11, Ubuntu 22.04
+
+  - type: textarea
+    id: question_summary
+    attributes:
+      label: ❓ Question / Problem Summary
+      description: What are you trying to understand, figure out, or solve?
+      placeholder: |
+        Example:
+        I'm confused about how SANs affect authentication in AD CS.
+        When would you use `-upn` vs. `-dns` in a request?
+
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 🧠 Background / What You've Tried
+      description: Share any relevant context, what you've already attempted, and where you're stuck.
+      placeholder: |
+        - I've read the wiki and ESC1 makes sense, but I'm unclear on how ESC9 interacts with SID extensions.
+        - I'm using the default AD CS config in a test lab with a single CA.
+
+  - type: textarea
+    id: find_output
+    attributes:
+      label: 🔍 Relevant `certipy find` Output (abbreviated and redacted)
+      description: If this bug is related to vulnerability detection or escalation, please include redacted highlights from `certipy find`.
+      render: text
+      placeholder: |
+        Certificate Authorities
+          0
+            CA Name                             : CORP-CA
+            DNS Name                            : CA.CORP.LOCAL
+            Certificate Subject                 : CN=CORP-CA, DC=CORP, DC=LOCAL
+            Request Disposition                 : Issue
+        ...
+        Certificate Templates
+          0
+            Template Name                       : ESC1
+            Display Name                        : ESC1
+            Certificate Authorities             : CORP-CA
+            Enabled                             : True
+            Client Authentication               : True
+        ...
+
+  - type: textarea
+    id: other_notes
+    attributes:
+      label: 📎 Other Notes or Related Tools
+      description: Anything else that might help us understand your environment or question better?
+      placeholder: |
+        - Using Kerberos-only auth in the lab.
+        - CA is patched as of March 2025.

@@ -1,0 +1,89 @@
+name: 🐞 Bug Report
+description: Report an error, crash, or unexpected behavior in Certipy.
+title: "[Bug] Brief summary of the issue"
+labels: ["bug"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug! Please provide **as much information as possible** so we can reproduce and fix the issue quickly. Redact any sensitive data such as passwords, domains, or IPs.
+
+  - type: input
+    id: certipy_version
+    attributes:
+      label: 🔢 Certipy Version
+      description: What version of Certipy are you using? (Output of `certipy -v`)
+      placeholder: e.g., 5.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: 🖥️ Operating System
+      description: OS and environment you're using
+      placeholder: e.g., Kali Linux 2024.1, Windows 11, Ubuntu 22.04
+    validations:
+      required: true
+
+  - type: textarea
+    id: command_used
+    attributes:
+      label: 📥 Command Used
+      description: Include the full (but redacted) command that triggered the issue
+      render: shell
+      placeholder: |
+        Example:
+        certipy req -u user@redacted.local -p 'REDACTED' -ca CORP-CA -template ESC1 -upn admin@redacted.local
+    validations:
+      required: true
+
+  - type: textarea
+    id: error_output
+    attributes:
+      label: 🧯 Error Message / Unexpected Output
+      description: Paste any output, error messages, or tracebacks (redacted if needed)
+      render: text
+      placeholder: |
+        Example:
+        Traceback (most recent call last):
+          File "...", line ...
+          Exception: Unable to authenticate...
+    validations:
+      required: true
+
+  - type: textarea
+    id: find_output
+    attributes:
+      label: 🔍 Relevant `certipy find` Output (abbreviated and redacted)
+      description: If this bug is related to vulnerability detection or escalation, please include redacted highlights from `certipy find`.
+      render: text
+      placeholder: |
+        Certificate Authorities
+          0
+            CA Name                             : CORP-CA
+            DNS Name                            : CA.CORP.LOCAL
+            Certificate Subject                 : CN=CORP-CA, DC=CORP, DC=LOCAL
+            Request Disposition                 : Issue
+        ...
+        Certificate Templates
+          0
+            Template Name                       : ESC1
+            Display Name                        : ESC1
+            Certificate Authorities             : CORP-CA
+            Enabled                             : True
+            Client Authentication               : True
+        ...
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: ✅ Expected Behavior
+      description: What did you expect to happen instead?
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: 📎 Additional Context
+      description: Environment notes, recent updates, workarounds attempted, etc.

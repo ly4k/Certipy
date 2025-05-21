@@ -1,0 +1,20 @@
+name: Update Sponsors
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *" # runs daily at midnight UTC
+
+permissions:
+  contents: write
+
+jobs:
+  update-sponsors:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: JamesIves/github-sponsors-readme-action@v1
+        with:
+          token: ${{ secrets.PAT }}
+      - uses: stefanzweifel/git-auto-commit-action@v5

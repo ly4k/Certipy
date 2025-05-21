@@ -1,11 +1,14 @@
+# PYTHON_ARGCOMPLETE_OK
 import argparse
 import logging
 import sys
-import traceback
+
+import argcomplete
 
 from certipy import version
 from certipy.commands.parsers import ENTRY_PARSERS
 from certipy.lib import logger
+from certipy.lib.errors import handle_error
 
 
 def main() -> None:
@@ -22,19 +25,26 @@ def main() -> None:
         description="Active Directory Certificate Services enumeration and abuse",
     )
 
-    parser.add_argument(
+    _ = parser.add_argument(
         "-v",
         "--version",
         action="store_true",
         help="Show Certipy's version number and exit",
         default=argparse.SUPPRESS,
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "-h",
         "--help",
         action="help",
         default=argparse.SUPPRESS,
         help="Show this help message and exit",
+    )
+    _ = parser.add_argument(
+        "-debug",
+        "--debug",
+        action="store_true",
+        help="Enable debug output",
+        default=False,
     )
 
     subparsers = parser.add_subparsers(help="Action", dest="action", required=True)
@@ -45,25 +55,25 @@ def main() -> None:
         action, entry = entry_parser.add_subparser(subparsers)
         actions[action] = entry
 
+    argcomplete.autocomplete(parser, always_complete_options=False)
+
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
 
     options = parser.parse_args()
 
-    if options.debug is True:
+    if options.debug:
         logger.logging.setLevel(logging.DEBUG)
+        logger.set_verbose(True)
     else:
         logger.logging.setLevel(logging.INFO)
 
     try:
         actions[options.action](options)
     except Exception as e:
-        logger.logging.error("Got error: %s" % e)
-        if options.debug:
-            traceback.print_exc()
-        else:
-            logger.logging.error("Use -debug to print a stacktrace")
+        logger.logging.error(f"Got error: {e}")
+        handle_error()
 
 
 if __name__ == "__main__":
