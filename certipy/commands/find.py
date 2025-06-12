@@ -440,29 +440,37 @@ class Find:
             cas: List of certificate authorities
         """
         for ca in cas:
-            if self.dc_only:
-                # In DC-only mode, we don't connect to CAs directly
-                ca_properties = {
-                    "user_specified_san": "Unknown",
-                    "request_disposition": "Unknown",
-                    "enforce_encrypt_icertrequest": "Unknown",
-                    "security": None,
-                    "web_enrollment": {
-                        "http": {"enabled": "Unknown"},
-                        "https": {"enabled": "Unknown", "channel_binding": None},
-                    },
-                }
+            try:
+                if self.dc_only:
+                    # In DC-only mode, we don't connect to CAs directly
+                    ca_properties = {
+                        "user_specified_san": "Unknown",
+                        "request_disposition": "Unknown",
+                        "enforce_encrypt_icertrequest": "Unknown",
+                        "security": None,
+                        "web_enrollment": {
+                            "http": {"enabled": "Unknown"},
+                            "https": {"enabled": "Unknown", "channel_binding": None},
+                        },
+                    }
 
-            else:
-                # Connect to CA and get configuration
-                ca_properties = self._get_ca_config_and_web_enrollment(ca)
+                else:
+                    # Connect to CA and get configuration
+                    ca_properties = self._get_ca_config_and_web_enrollment(ca)
 
-            # Apply all properties to the CA object
-            for key, value in ca_properties.items():
-                ca.set(key, value)
+                # Apply all properties to the CA object
+                for key, value in ca_properties.items():
+                    ca.set(key, value)
 
-            # Process CA certificate if available
-            self._process_ca_certificate(ca)
+                # Process CA certificate if available
+                self._process_ca_certificate(ca)
+
+            except Exception as e:
+                ca_name = ca.get("name", "Unknown")
+                logging.warning(f"Failed to process CA properties for {ca_name!r}: {e}")
+                handle_error(True)
+                # Continue processing other CAs
+                continue
 
     def _get_ca_config_and_web_enrollment(self, ca: LDAPEntry) -> Dict[str, Any]:
         """
@@ -595,13 +603,13 @@ class Find:
         ca.set("subject_name", subject_name)
 
         try:
-            if not ca.get("cACertificate"):
+            ca_certificate = ca.get("cACertificate")
+            if not ca_certificate or len(ca_certificate) == 0:
+                logging.debug(f"No CA certificate available for {ca.get('name')!r}")
                 return
 
             # Parse the CA certificate
-            ca_cert = x509.Certificate.load(ca.get("cACertificate")[0])[
-                "tbs_certificate"
-            ]
+            ca_cert = x509.Certificate.load(ca_certificate[0])["tbs_certificate"]
 
             # Get certificate serial number
             serial_number = hex(int(ca_cert["serial_number"]))[2:].upper()
