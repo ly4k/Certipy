@@ -464,7 +464,7 @@ class Find:
 
                 # Process CA certificate if available
                 self._process_ca_certificate(ca)
-                
+
             except Exception as e:
                 ca_name = ca.get("name", "Unknown")
                 logging.warning(f"Failed to process CA properties for {ca_name!r}: {e}")
@@ -609,9 +609,7 @@ class Find:
                 return
 
             # Parse the CA certificate
-            ca_cert = x509.Certificate.load(ca_certificate[0])[
-                "tbs_certificate"
-            ]
+            ca_cert = x509.Certificate.load(ca_certificate[0])["tbs_certificate"]
 
             # Get certificate serial number
             serial_number = hex(int(ca_cert["serial_number"]))[2:].upper()
