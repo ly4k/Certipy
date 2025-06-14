@@ -24,7 +24,6 @@ dependencies = [
     "ldap3~=2.9.1",
     "pyasn1~=0.6.1",
     "dnspython~=2.7.0",
-    "dsinternals~=1.2.4",
     "pyopenssl~=24.0.0",
     "requests~=2.32.3",
     "pycryptodome~=3.22.0",

