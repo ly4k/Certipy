@@ -826,6 +826,9 @@ def get_tgs(
                         logging.debug(f"Using cached TGT for {username!r}@{domain!r}")
                         kdc_rep, cipher, session_key = TGT_CACHE[cache_key]
                     else:
+                        if not password and not lmhash and not nthash and not aes_key:
+                            raise ValueError("No credentials provided for TGT request")
+
                         # Request new TGT
                         kdc_rep, cipher, _, session_key = getKerberosTGT(
                             user_principal, password, domain, lmhash, nthash, aes_key, kdc_host  # type: ignore
@@ -841,6 +844,14 @@ def get_tgs(
                     logging.debug(f"Got TGT for {username!r}@{domain!r}")
                 else:
                     # If we already have a TGS, no need for TGT
+                    kdc_rep = tgs["KDC_REP"]
+                    cipher = tgs["cipher"]
+                    session_key = tgs["sessionKey"]
+
+                    logging.debug(
+                        f"Using existing TGS for {username!r}@{domain!r} for {service!r} service"
+                    )
+
                     break
             else:
                 # Use existing TGT
