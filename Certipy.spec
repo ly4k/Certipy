@@ -1,15 +1,42 @@
 # -*- mode: python ; coding: utf-8 -*-
-
+from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
 
+# --- List all dependencies from pyproject.toml ---
+packages_to_collect = [
+    'certipy',
+    'asn1crypto',
+    'cryptography',
+    'impacket',
+    'ldap3',
+    'pyasn1',
+    'dnspython',
+    'pyopenssl',
+    'requests',
+    'pycryptodome',
+    'beautifulsoup4',
+    'httpx',
+    'argcomplete',
+]
+
+# --- Use collect_all to find all necessary files and imports for each package ---
+datas, binaries, hiddenimports = [], [], []
+for package in packages_to_collect:
+    try:
+        pkg_datas, pkg_binaries, pkg_hiddenimports = collect_all(package)
+        datas.extend(pkg_datas)
+        binaries.extend(pkg_binaries)
+        hiddenimports.extend(pkg_hiddenimports)
+    except Exception as e:
+        print(f"Could not collect all from {package}: {e}")
 
 a = Analysis(
     ['certipy\\entry.py'],
     pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=[],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
