@@ -27,7 +27,7 @@ dependencies = [
     "pyopenssl~=24.0.0",
     "requests~=2.32.3",
     "pycryptodome~=3.22.0",
-    "bs4~=0.0.2",
+    "beautifulsoup4~=4.13.4",
     "httpx~=0.28.1",
     "argcomplete~=3.6.2",
 ]
