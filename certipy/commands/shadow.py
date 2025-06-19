@@ -493,7 +493,7 @@ class Shadow:
             )
 
             logging.info(
-                f"DeviceID: {key_credential_device_id or "Unknown"} | "
+                f"DeviceID: {key_credential_device_id or 'Unknown'} | "
                 f"Creation Time (UTC): {creation_time_str}"
             )
 
