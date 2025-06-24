@@ -27,6 +27,7 @@ class ParserType(Enum):
 
     BOF = "bof"  # Beacon Object File output
     REG = "reg"  # Windows Registry export file
+    OC2_BOF = "oc2_bof"  # Outflank C2 reg query output
 
 
 class Parse(find.Find):
@@ -281,6 +282,119 @@ class ParseBof(Parse):
         return templates
 
 
+class ParseOC2Bof(Parse):
+    """
+    Parser for certificate templates from OutflankC2's `reg query` output.
+
+    Obtain the output with `reg query -r "HKEY_USERS\\.DEFAULT\\Software\\Microsoft\\Cryptography\\CertificateTemplateCache`
+    """
+
+    def get_certificate_templates(self) -> List[RegEntry]:  # type: ignore
+        """
+        Parse certificate templates from BOF output.
+
+        Returns:
+            List of RegEntry objects representing certificate templates
+        """
+        templates = []
+
+        if self.file is None:
+            raise ValueError("File not set for parsing")
+
+        try:
+            with open(self.file, "r", encoding="utf-8") as f:
+                lines = iter(f.readlines())
+
+                template = None
+                pending_line = None
+                name = None
+                datatype = None
+                registry_key_prefix = "HKEY_USERS\\.DEFAULT\\Software\\Microsoft\\Cryptography\\CertificateTemplateCache\\"
+                offset = 11
+
+                # Process each line
+                while True:
+                    try:
+                        line = pending_line if pending_line is not None else next(lines)
+                        pending_line = None
+
+                        # Start of a new template
+                        if registry_key_prefix in line:
+                            if template is not None:
+                                templates.append(template)
+
+                            # Initialize new template with name from registry key
+                            template = RegEntry()
+                            name = None
+                            datatype = None
+                            parts = line.split("\\")
+                            template_name = parts[-1]
+                            template.set("cn", template_name)
+                            template.set("name", template_name)
+                            template.set(
+                                "enabled", True
+                            )  # Enabled by default since this info is not available
+                            template.set(
+                                "cas", ["UNKNOWN"]
+                            )  # Unknown certificate authority (if any)
+                            template.set("objectGUID", template_name)
+                            continue
+
+                        # Process registry values
+                        if line.startswith("Reg Value"):
+                            name = line[offset:-1]
+                        elif line.startswith("Reg Type"):
+                            datatype = line[offset:-1]
+                        elif line.startswith("Reg Data"):
+                            data = line[offset:-1].strip()
+
+                            assert name is not None
+                            assert datatype is not None
+                            # Process different registry value types
+                            if datatype == "REG_DWORD":
+                                data = int(data, 16)
+                            elif datatype == "REG_SZ":
+                                # Nothing to do here, since data is already a string
+                                pass
+                            elif datatype == "REG_MULTI_SZ":
+                                # The reg query bof does not correctly encode REG_MULTI_SZ, since \0 is replaced by spaces.
+                                # We need to guess based on the key how we should split.
+                                # But for most keys, splitting by ' ' is fine.
+                                # An exception is SupportedCSPs, but this key is not interpreted by regcertipy
+                                data = [] if data == "" else data.split(" ")
+                            elif datatype == "REG_BINARY":
+                                data = bytes.fromhex(data)
+                            else:
+                                logging.debug(f"Unknown value type: {datatype}")
+                                continue
+
+                            # Map registry names to LDAP attributes if applicable
+                            if name in self.mappings:
+                                name = self.mappings[name]
+
+                            # Set the attribute in the template
+                            if template is not None:
+                                template.set(name, data)
+
+                    except StopIteration:
+                        break
+                    except Exception as e:
+                        logging.debug(f"Error parsing line: {e}")
+                        continue
+
+                # Add the last template
+                if template is not None:
+                    templates.append(template)
+
+        except Exception as e:
+            logging.error(f"Error parsing OC2 BOF file: {e}")
+            handle_error()
+            return []
+
+        logging.info(f"Parsed {len(templates)} templates from BOF output")
+        return templates
+
+
 class ParseReg(Parse):
     """
     Parser for certificate templates from Windows Registry export files.
@@ -441,6 +555,8 @@ def get_parser(
     """
     if parser_type == ParserType.BOF:
         return ParseBof(domain, ca, sids, published, **kwargs)
+    elif parser_type == ParserType.OC2_BOF:
+        return ParseOC2Bof(domain, ca, sids, published, **kwargs)
     elif parser_type == ParserType.REG:
         return ParseReg(domain, ca, sids, published, **kwargs)
     else:
