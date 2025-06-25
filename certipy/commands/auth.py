@@ -183,8 +183,6 @@ class Authenticate:
         self,
         target: Target,
         pfx: Optional[str] = None,
-        username: Optional[str] = None,
-        domain: Optional[str] = None,
         password: Optional[str] = None,
         cert: Optional[x509.Certificate] = None,
         key: Optional[PrivateKeyTypes] = None,
@@ -201,8 +199,6 @@ class Authenticate:
         Args:
             target: Target information (domain, DC IP, etc.)
             pfx: Path to PFX/P12 certificate file
-            username: Username to authenticate as
-            domain: Domain to authenticate to
             password: Password for PFX file
             cert: Pre-loaded certificate object
             key: Pre-loaded private key object
@@ -218,8 +214,6 @@ class Authenticate:
             **kwargs: Additional parameters
         """
         self.target = target
-        self.username = username
-        self.domain = domain
         self.pfx = pfx
         self.password = password
         self.cert = cert
@@ -278,10 +272,10 @@ class Authenticate:
 
         # Resolve username and domain from target if not provided
         if not username:
-            username = self.username or self.target.username
+            username = self.target.username
 
         if not domain:
-            domain = self.domain or self.target.domain
+            domain = self.target.domain
 
         # Use LDAP authentication if requested
         if self.ldap_shell:

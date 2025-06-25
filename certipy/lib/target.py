@@ -138,6 +138,7 @@ class Target:
 
         # Authentication options
         principal = options.username if hasattr(options, "username") else None
+        domain = options.domain if hasattr(options, "domain") else ""
         password = options.password if hasattr(options, "password") else None
         hashes = options.hashes if hasattr(options, "hashes") else None
 
@@ -164,7 +165,6 @@ class Target:
         )
 
         # Parse username and domain from principal format (user@DOMAIN)
-        domain = ""
         username = ""
 
         if principal is not None:
@@ -173,8 +173,13 @@ class Target:
                 username = parts[0]
             else:
                 username = "@".join(parts[:-1])
-                domain = parts[-1]
-
+                if not domain:
+                    domain = parts[-1]
+                else:
+                    logging.warning(
+                        f"Domain specified in both principal and options: {domain!r} and {parts[-1]!r}. Using {domain!r}"
+                    )
+        
         # Handle Kerberos authentication
         if do_kerberos:
             principal = get_kerberos_principal()
