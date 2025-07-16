@@ -96,6 +96,11 @@ class ActiveDirectorySecurity(SecurityDescriptorParser):
             if ace["AceType"] == ldaptypes.ACCESS_ALLOWED_ACE.ACE_TYPE:
                 self.aces[sid]["rights"] |= self.RIGHTS_TYPE(ace["Ace"]["Mask"]["Mask"])
 
+                if ace["Ace"]["Mask"].hasPriv(
+                    ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ADS_RIGHT_DS_CONTROL_ACCESS
+                ):
+                    self.aces[sid]["extended_rights"].append(EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"])
+
             # Process object-specific ACE (for extended rights)
             elif ace["AceType"] == ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ACE_TYPE and ace[
                 "Ace"
