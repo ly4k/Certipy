@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "certipy-ad"
-version = "5.0.2"
+version = "5.0.3"
 description = "Active Directory Certificate Services enumeration and abuse"
 readme = "README.md"
 authors = [
@@ -24,10 +24,10 @@ dependencies = [
     "ldap3~=2.9.1",
     "pyasn1~=0.6.1",
     "dnspython~=2.7.0",
-    "dsinternals~=1.2.4",
     "pyopenssl~=24.0.0",
     "requests~=2.32.3",
     "pycryptodome~=3.22.0",
+    "dsinternals~=1.2.4",
     "unicrypto",
     "bs4~=0.0.2",
     "httpx~=0.28.1",
