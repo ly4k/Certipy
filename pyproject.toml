@@ -30,6 +30,7 @@ dependencies = [
     "beautifulsoup4~=4.13.4",
     "httpx~=0.28.1",
     "argcomplete~=3.6.2",
+    "neo4j~=5.28.1",
 ]
 
 [project.urls]

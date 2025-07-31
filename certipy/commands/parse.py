@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Iterator, List, Optional
 
 from certipy.commands import find
+from certipy.lib.bloodhound import BloodHound
 from certipy.lib.errors import handle_error
 from certipy.lib.logger import logging
 from certipy.lib.registry import RegConnection, RegEntry
@@ -43,6 +44,7 @@ class Parse(find.Find):
         ca: str = "UNKNOWN",
         sids: List[str] = [],
         published: List[str] = [],
+        bloodhound: Optional[BloodHound] = None,
         **kwargs,  # type: ignore
     ):
         """
@@ -71,6 +73,7 @@ class Parse(find.Find):
         self.sids = sids
         self.published = published
         self.file = None
+        self.bloodhound = bloodhound
 
         # Mappings between registry keys and LDAP attribute names
         self.mappings = {
@@ -94,7 +97,7 @@ class Parse(find.Find):
             return self._connection
 
         self._connection: Optional[RegConnection] = RegConnection(
-            self.domain, self.sids
+            self.domain, self.sids, bloodhound=self.bloodhound
         )
         return self._connection
 
@@ -462,6 +465,18 @@ def entry(options: argparse.Namespace) -> None:
     file_path = options.file
     parser_format = options.format.lower()
 
+    if options.neo4j_user and options.neo4j_pass:
+        bloodhound = BloodHound(
+            options.neo4j_user,
+            options.neo4j_pass,
+            options.neo4j_host,
+            options.neo4j_port,
+        )
+        if options.use_owned_sids:
+            sids = list(bloodhound.get_owned_sids())
+    else:
+        bloodhound = None
+
     # Remove processed options
     for opt in ["domain", "ca", "sids", "published", "file", "format"]:
         options.__delattr__(opt)
@@ -480,6 +495,7 @@ def entry(options: argparse.Namespace) -> None:
             ca=ca,
             sids=sids,
             published=published,
+            bloodhound=bloodhound,
             **vars(options),
         )
         parser.parse(file_path)
