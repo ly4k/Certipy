@@ -65,7 +65,7 @@ Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
 
 Thanks to these generous sponsors for supporting the development of this project. Your contributions help sustain ongoing work and improvements.
 
-<!-- sponsors --><a href="https://github.com/fgeek"><img src="https:&#x2F;&#x2F;github.com&#x2F;fgeek.png" width="60px" alt="User avatar: Henri Salo" /></a><a href="https://github.com/mxrch"><img src="https:&#x2F;&#x2F;github.com&#x2F;mxrch.png" width="60px" alt="User avatar: mxrch" /></a><a href="https://github.com/Clipsec"><img src="https:&#x2F;&#x2F;github.com&#x2F;Clipsec.png" width="60px" alt="User avatar: Clips" /></a><a href="https://github.com/jhnhnck"><img src="https:&#x2F;&#x2F;github.com&#x2F;jhnhnck.png" width="60px" alt="User avatar: John Hancock" /></a><a href="https://github.com/chin-tech"><img src="https:&#x2F;&#x2F;github.com&#x2F;chin-tech.png" width="60px" alt="User avatar: " /></a><!-- sponsors -->
+<!-- sponsors --><a href="https://github.com/fgeek"><img src="https:&#x2F;&#x2F;github.com&#x2F;fgeek.png" width="60px" alt="User avatar: Henri Salo" /></a><a href="https://github.com/mxrch"><img src="https:&#x2F;&#x2F;github.com&#x2F;mxrch.png" width="60px" alt="User avatar: mxrch" /></a><a href="https://github.com/Clipsec"><img src="https:&#x2F;&#x2F;github.com&#x2F;Clipsec.png" width="60px" alt="User avatar: Clips" /></a><a href="https://github.com/jhnhnck"><img src="https:&#x2F;&#x2F;github.com&#x2F;jhnhnck.png" width="60px" alt="User avatar: John Hancock" /></a><!-- sponsors -->
 
 ---
 
