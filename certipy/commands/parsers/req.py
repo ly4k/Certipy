@@ -208,7 +208,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     )
     http_group.add_argument(
         "-no-channel-binding",
-        action="store_true",
+        action="store_false",
         help="Disable channel binding for HTTP connections",
     )
 
