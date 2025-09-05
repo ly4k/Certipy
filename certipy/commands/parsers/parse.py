@@ -92,7 +92,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         "-format",
         metavar="format",
         help="Input format: BOF output or Windows .reg file (default: bof)",
-        choices=["bof", "reg"],
+        choices=["bof", "reg", "oc2_bof"],
         default="bof",
     )
     parse_group.add_argument(
