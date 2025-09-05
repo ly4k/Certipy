@@ -143,4 +143,17 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Don't show administrator permissions for -text, -stdout, -json, and -csv output",
     )
 
+    bloodhound_group = subparser.add_argument_group("BloodHound")
+    bloodhound_group.add_argument("-neo4j-user", help="Username for neo4j")
+    bloodhound_group.add_argument("-neo4j-pass", help="Password for neo4j")
+    bloodhound_group.add_argument(
+        "-neo4j-host", help="Host for neo4j", default="localhost"
+    )
+    bloodhound_group.add_argument("-neo4j-port", help="Port for neo4j", default=7687)
+    bloodhound_group.add_argument(
+        "-use-owned-sids",
+        help="Use the SIDs of all owned principals as the user SIDs",
+        action="store_true",
+    )
+
     return NAME, entry
