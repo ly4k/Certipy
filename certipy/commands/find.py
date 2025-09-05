@@ -2110,23 +2110,35 @@ class Find:
         enrollable_sids = []
         user_can_enroll = False
 
-        # Check ACEs for enrollment rights
+        # Check ACEs for enrollment rights per MS-CRTD rules
         for sid, rights in security.aces.items():
             if sid not in user_sids:
                 continue
 
-            # Check for enrollment rights (All-Extended-Rights, Enroll, or Generic All)
+            # Rule 1: ACCESS_ALLOWED_OBJECT_ACE with control access and ObjectType == Enroll GUID
+            has_object_enroll = (
+                EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"]
+                and rights["rights"] & ActiveDirectoryRights.EXTENDED_RIGHT
+            )
+
+            # Preserve behavior: All-Extended-Rights also implies enrollment
+            has_all_extended = (
+                EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"]
+                in rights["extended_rights"]
+                and rights["rights"] & ActiveDirectoryRights.EXTENDED_RIGHT
+            )
+
+            # Rule 2: ACCESS_ALLOWED_ACE with control access bit set (0x00000100)
+            # Captured by security parser as 'has_standard_control_access'
+            has_standard_control_access = rights.get(
+                "has_standard_control_access", False
+            )
+
             if (
-                (
-                    EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"]
-                    in rights["extended_rights"]
-                    and rights["rights"] & ActiveDirectoryRights.EXTENDED_RIGHT
-                )
-                or (
-                    EXTENDED_RIGHTS_NAME_MAP["Enroll"] in rights["extended_rights"]
-                    and rights["rights"] & ActiveDirectoryRights.EXTENDED_RIGHT
-                )
-                or CertificateRights.GENERIC_ALL in rights["rights"]
+                has_object_enroll
+                or has_all_extended
+                or has_standard_control_access
+                or (CertificateRights.GENERIC_ALL in rights["rights"])
             ):
                 enrollable_sids.append(sid)
                 user_can_enroll = True
