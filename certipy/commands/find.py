@@ -2123,16 +2123,22 @@ class Find:
 
             # Preserve behavior: All-Extended-Rights also implies enrollment
             has_all_extended = (
-                EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"] in rights["extended_rights"]
+                EXTENDED_RIGHTS_NAME_MAP["All-Extended-Rights"]
+                in rights["extended_rights"]
                 and rights["rights"] & ActiveDirectoryRights.EXTENDED_RIGHT
             )
 
             # Rule 2: ACCESS_ALLOWED_ACE with control access bit set (0x00000100)
             # Captured by security parser as 'has_standard_control_access'
-            has_standard_control_access = rights.get("has_standard_control_access", False)
+            has_standard_control_access = rights.get(
+                "has_standard_control_access", False
+            )
 
-            if has_object_enroll or has_all_extended or has_standard_control_access or (
-                CertificateRights.GENERIC_ALL in rights["rights"]
+            if (
+                has_object_enroll
+                or has_all_extended
+                or has_standard_control_access
+                or (CertificateRights.GENERIC_ALL in rights["rights"])
             ):
                 enrollable_sids.append(sid)
                 user_can_enroll = True
