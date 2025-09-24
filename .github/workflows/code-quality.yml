@@ -29,7 +29,7 @@ jobs:
 
       - name: Install Certipy
         run: |
-          pip install -e .
+          pip install -e .[bloodhound]
 
       - name: Lint with flake8 (style and naming)
         run: |
