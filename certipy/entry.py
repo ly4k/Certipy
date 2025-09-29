@@ -16,6 +16,13 @@ def main() -> None:
 
     print(version.BANNER, file=sys.stderr)
 
+    debug_enabled = False
+    if "-debug" in sys.argv or "--debug" in sys.argv:
+        debug_enabled = True
+        sys.argv = [arg for arg in sys.argv if arg not in ["-debug", "--debug"]]
+        logger.logging.setLevel(logging.DEBUG)
+        logger.set_verbose(True)
+
     for arg in sys.argv:
         if arg.lower() in ["--version", "-v", "-version"]:
             return
@@ -39,13 +46,6 @@ def main() -> None:
         default=argparse.SUPPRESS,
         help="Show this help message and exit",
     )
-    _ = parser.add_argument(
-        "-debug",
-        "--debug",
-        action="store_true",
-        help="Enable debug output",
-        default=False,
-    )
 
     subparsers = parser.add_subparsers(help="Action", dest="action", required=True)
 
@@ -63,7 +63,7 @@ def main() -> None:
 
     options = parser.parse_args()
 
-    if options.debug:
+    if debug_enabled:
         logger.logging.setLevel(logging.DEBUG)
         logger.set_verbose(True)
     else:
