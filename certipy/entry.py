@@ -16,12 +16,12 @@ def main() -> None:
 
     print(version.BANNER, file=sys.stderr)
 
-    debug_enabled = False
     if "-debug" in sys.argv or "--debug" in sys.argv:
-        debug_enabled = True
         sys.argv = [arg for arg in sys.argv if arg not in ["-debug", "--debug"]]
         logger.logging.setLevel(logging.DEBUG)
         logger.set_verbose(True)
+    else:
+        logger.logging.setLevel(logging.INFO)
 
     for arg in sys.argv:
         if arg.lower() in ["--version", "-v", "-version"]:
@@ -62,12 +62,6 @@ def main() -> None:
         sys.exit(1)
 
     options = parser.parse_args()
-
-    if debug_enabled:
-        logger.logging.setLevel(logging.DEBUG)
-        logger.set_verbose(True)
-    else:
-        logger.logging.setLevel(logging.INFO)
 
     try:
         actions[options.action](options)
