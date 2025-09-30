@@ -190,7 +190,7 @@ class Shadow:
         key, cert = shadow_credentials.createSelfSignedX509Certificate(
             subject=subject,
             nBefore=(-40 * 365),  # Not before: 40 years ago
-            nAfter=(40 * 365),  # Not after: 40 years in the future
+            nAfter=(40 * 365 * 3600 * 24),  # Not after: 40 years in the future
             kSize=2048,  # Key size
         )
         logging.info("Certificate generated")
