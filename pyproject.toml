@@ -32,6 +32,11 @@ dependencies = [
     "argcomplete~=3.6.2",
 ]
 
+[project.optional-dependencies]
+bloodhound = [
+    "neo4j~=5.28.1",
+]
+
 [project.urls]
 Homepage = "https://github.com/ly4k/Certipy"
 "Bug Tracker" = "https://github.com/ly4k/Certipy/issues"
