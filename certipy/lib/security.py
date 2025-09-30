@@ -90,11 +90,17 @@ class ActiveDirectorySecurity(SecurityDescriptorParser):
                     "rights": self.RIGHTS_TYPE(0),
                     "extended_rights": [],
                     "inherited": bool(ace["AceFlags"] & INHERITED_ACE),
+                    # Tracks if a standard ACCESS_ALLOWED_ACE grants control access (0x00000100)
+                    "has_standard_control_access": False,
                 }
 
             # Process standard access allowed ACE
             if ace["AceType"] == ldaptypes.ACCESS_ALLOWED_ACE.ACE_TYPE:
-                self.aces[sid]["rights"] |= self.RIGHTS_TYPE(ace["Ace"]["Mask"]["Mask"])
+                mask = self.RIGHTS_TYPE(ace["Ace"]["Mask"]["Mask"])
+                self.aces[sid]["rights"] |= mask
+                # Rule 2 (MS-CRTD): ACCESS_ALLOWED_ACE with control access bit set
+                if mask & ActiveDirectoryRights.EXTENDED_RIGHT:
+                    self.aces[sid]["has_standard_control_access"] = True
 
             # Process object-specific ACE (for extended rights)
             elif ace["AceType"] == ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ACE_TYPE and ace[
@@ -103,7 +109,8 @@ class ActiveDirectorySecurity(SecurityDescriptorParser):
                 ldaptypes.ACCESS_ALLOWED_OBJECT_ACE.ADS_RIGHT_DS_CONTROL_ACCESS
             ):
 
-                self.aces[sid]["rights"] |= self.RIGHTS_TYPE(ace["Ace"]["Mask"]["Mask"])
+                mask = self.RIGHTS_TYPE(ace["Ace"]["Mask"]["Mask"])
+                self.aces[sid]["rights"] |= mask
 
                 # Extract the specific extended right (identified by UUID)
                 if ace["Ace"].hasFlag(
