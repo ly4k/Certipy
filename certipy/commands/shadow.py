@@ -21,11 +21,10 @@ import struct
 from typing import List, Optional, Tuple, Union
 
 import ldap3
-import OpenSSL
 from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from impacket.examples.ntlmrelayx.utils import shadow_credentials
 
-from certipy.lib.certificate import create_pfx, der_to_cert, der_to_key, x509
+from certipy.lib.certificate import create_pfx, x509
 from certipy.lib.errors import handle_error
 from certipy.lib.files import try_to_save_file
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
@@ -168,7 +167,7 @@ class Shadow:
     def generate_key_credential(
         self, subject: str
     ) -> Tuple[
-        OpenSSL.crypto.PKey, OpenSSL.crypto.X509, shadow_credentials.KeyCredential, str
+        PrivateKeyTypes, x509.Certificate, shadow_credentials.KeyCredential, str
     ]:
         """
         Generate a new certificate and Key Credential object.
@@ -189,8 +188,6 @@ class Shadow:
         # Generate a certificate valid for a long time (-40 to +40 years)
         key, cert = shadow_credentials.createSelfSignedX509Certificate(
             subject=subject,
-            nBefore=(-40 * 365),  # Not before: 40 years ago
-            nAfter=(40 * 365 * 3600 * 24),  # Not after: 40 years in the future
             kSize=2048,  # Key size
         )
         logging.info("Certificate generated")
@@ -199,7 +196,6 @@ class Shadow:
         logging.info("Generating Key Credential")
         device_id = shadow_credentials.getDeviceId()  # Generate a random device ID
         key_credential = shadow_credentials.KeyCredential(
-            certificate=cert,
             key=key,
             deviceId=device_id,
             currentTime=now_ticks(),
@@ -212,8 +208,8 @@ class Shadow:
 
     def add_new_key_credential(self, target_dn: str, user: LDAPEntry) -> Optional[
         Tuple[
-            OpenSSL.crypto.PKey,
-            OpenSSL.crypto.X509,
+            PrivateKeyTypes,
+            x509.Certificate,
             List[Union[bytes, str]],
             List[bytes],
             str,
@@ -265,31 +261,6 @@ class Shadow:
         )
 
         return (key, cert, new_key_credential, saved_key_credential, device_id)
-
-    def get_key_and_certificate(
-        self, key: OpenSSL.crypto.PKey, cert: OpenSSL.crypto.X509
-    ) -> Tuple[PrivateKeyTypes, x509.Certificate]:
-        """
-        Extract the private key and certificate from an X509Certificate2 object.
-
-        Args:
-            key: OpenSSL crypto PKey object (private key)
-            cert: OpenSSL crypto X509 object (certificate)
-
-        Returns:
-            Tuple containing (private_key, certificate)
-        """
-        # Extract and convert the private key
-        _key = der_to_key(
-            OpenSSL.crypto.dump_privatekey(OpenSSL.crypto.FILETYPE_ASN1, key)
-        )
-
-        # Extract and convert the certificate
-        _cert = der_to_cert(
-            OpenSSL.crypto.dump_certificate(OpenSSL.crypto.FILETYPE_ASN1, cert)
-        )
-
-        return (_key, _cert)
 
     def _get_target_dn(self, user: LDAPEntry) -> Optional[str]:
         """
@@ -364,9 +335,6 @@ class Shadow:
         # Unpack the result
         key, cert, _, saved_key_credential, _ = result
 
-        # Extract the key and certificate for authentication
-        key, cert = self.get_key_and_certificate(key, cert)
-
         # Authenticate with the new Key Credential
         sam_account_name = self._get_sam_account_name(user)
 
@@ -419,9 +387,6 @@ class Shadow:
 
         # Unpack the result
         key, cert, _, _, _ = result
-
-        # Extract the key and certificate
-        key, cert = self.get_key_and_certificate(key, cert)
 
         # Determine output filename
         out = self.out
