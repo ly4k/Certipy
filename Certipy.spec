@@ -12,7 +12,6 @@ packages_to_collect = [
     'ldap3',
     'pyasn1',
     'dnspython',
-    'pyopenssl',
     'requests',
     'pycryptodome',
     'beautifulsoup4',
