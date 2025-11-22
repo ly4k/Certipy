@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "certipy-ad"
-version = "5.0.3"
+version = "5.0.4"
 description = "Active Directory Certificate Services enumeration and abuse"
 readme = "README.md"
 authors = [
