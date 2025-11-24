@@ -63,6 +63,13 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Name of the Certificate Authority to manage",
     )
 
+    subparser.add_argument(
+    "-ace-type",
+    choices=["allow", "deny"],
+    default="allow",
+    help="Which ACE type to apply the change to (applies to officers and managers)"
+    )
+
     # Certificate template management options
     template_group = subparser.add_argument_group("certificate template options")
     template_group.add_argument(
@@ -111,13 +118,6 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         action="store",
         metavar="officer",
         help="Remove an existing officer (Certificate Manager) from the CA",
-    )
-
-    officer_group.add_argument(
-    "-ace-type",
-    choices=["allow", "deny"],
-    default="allow",
-    help="Which ACE type to apply the change to"
     )
 
     # CA manager role management
