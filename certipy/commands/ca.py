@@ -335,6 +335,7 @@ class CA:
         dynamic: bool = False,
         config: Optional[str] = None,
         timeout: int = 5,
+        ace_type: str = "allow",
         **kwargs,  # type: ignore
     ):
         """
@@ -364,6 +365,7 @@ class CA:
         self.config = config
         self.timeout = timeout
         self.kwargs = kwargs
+        self.ace_type = ace_type
 
         # Initialize connection objects
         self._connection: Optional[LDAPConnection] = connection
@@ -936,8 +938,8 @@ class CA:
     # =========================================================================
 
     def _modify_ca_security(
-        self, user: str, right: int, right_type: str, remove: bool = False
-    ) -> Union[bool, None]:
+        self, user: str, right: int, right_type: str, remove: bool = False, ace_type: str = "allow"
+) -> Union[bool, None]:
         """
         Add or remove rights for a user on the CA.
 
@@ -946,11 +948,24 @@ class CA:
             right: Right to add/remove (from CERTIFICATION_AUTHORITY_RIGHTS)
             right_type: Description of the right (for logging)
             remove: If True, remove the right; otherwise add it
+            ace_type: 'allow' or 'deny'
 
         Returns:
             True if successful, False if failed, None if user not found
         """
+
         connection = self.connection
+
+        # Map ace_type to LDAP ACE_TYPE
+
+        if ace_type.lower() == "allow":
+            target_ace_type = ldaptypes.ACCESS_ALLOWED_ACE.ACE_TYPE
+        elif ace_type.lower() == "deny":
+            target_ace_type = ldaptypes.ACCESS_DENIED_ACE.ACE_TYPE
+        else:
+            logging.error(f"Invalid ace_type {ace_type!r}, must be 'allow' or 'deny'")
+            return False
+
 
         # Get user object
         user_obj = connection.get_user(user)
@@ -980,66 +995,54 @@ class CA:
         sd = ldaptypes.SR_SECURITY_DESCRIPTOR()
         sd.fromString(b"".join(resp["pctbSD"]["pb"]))
 
+        ace_found = False
+
         # Find ACE for the user or create a new one
-        for i in range(len(sd["Dacl"]["Data"])):
-            ace = sd["Dacl"]["Data"][i]
-            if ace["AceType"] != ldaptypes.ACCESS_ALLOWED_ACE.ACE_TYPE:
+        for i, ace in enumerate(sd["Dacl"]["Data"]):
+            if ace["AceType"] != target_ace_type:
                 continue
 
             if ace["Ace"]["Sid"].getData() != sid.getData():
                 continue
 
-            # Found existing ACE for this user
-            action = "remove" if remove else "add"
+            ace_found = True
 
             if remove:
-                # Check if user has the right
                 if ace["Ace"]["Mask"]["Mask"] & right == 0:
                     logging.info(
                         f"User {user_obj.get('sAMAccountName')!r} does not have {right_type} "
-                        f"rights on {self.ca!r}"
+                        f"{ace_type} rights on {self.ca!r}"
                     )
                     return True
-
-                # Remove the right
                 ace["Ace"]["Mask"]["Mask"] ^= right
-
-                # Remove the ACE if no rights remaining
                 if ace["Ace"]["Mask"]["Mask"] == 0:
                     sd["Dacl"]["Data"].pop(i)
             else:
-                # Check if user already has the right
                 if ace["Ace"]["Mask"]["Mask"] & right != 0:
                     logging.info(
                         f"User {user_obj.get('sAMAccountName')!r} already has {right_type} "
-                        f"rights on {self.ca!r}"
+                        f"{ace_type} rights on {self.ca!r}"
                     )
                     return True
-
-                # Add the right
                 ace["Ace"]["Mask"]["Mask"] |= right
 
             break
-        else:
-            # No existing ACE found
-            if remove:
-                # Nothing to remove
-                logging.info(
-                    f"User {user_obj.get('sAMAccountName')!r} does not have {right_type} "
-                    f"rights on {self.ca!r}"
-                )
-                return True
 
-            # Create new ACE
+        # Create new ACE if none found and we're adding rights
+        if not ace_found and not remove:
             ace = ldaptypes.ACE()
-            ace["AceType"] = ldaptypes.ACCESS_ALLOWED_ACE.ACE_TYPE
+            ace["AceType"] = target_ace_type
             ace["AceFlags"] = 0
-            ace["Ace"] = ldaptypes.ACCESS_ALLOWED_ACE()
+            ace["Ace"] = ldaptypes.ACCESS_ALLOWED_ACE() if target_ace_type == ldaptypes.ACCESS_ALLOWED_ACE.ACE_TYPE else ldaptypes.ACCESS_DENIED_ACE()
             ace["Ace"]["Mask"] = ldaptypes.ACCESS_MASK()
             ace["Ace"]["Mask"]["Mask"] = right
             ace["Ace"]["Sid"] = sid
 
-            sd["Dacl"]["Data"].append(ace)
+            # Insert deny ACEs at the top, allow ACEs at the bottom
+            if target_ace_type == ldaptypes.ACCESS_DENIED_ACE.ACE_TYPE:
+                sd["Dacl"]["Data"].insert(0, ace)
+            else:
+                sd["Dacl"]["Data"].append(ace)
 
         # Convert SD back to bytes
         sd_bytes = [bytes([c]) for c in sd.getData()]
@@ -1089,7 +1092,7 @@ class CA:
         Returns:
             True if successful, False if failed, None if user not found
         """
-        return self._modify_ca_security(user, right, right_type, remove=False)
+        return self._modify_ca_security(user, right, right_type, ace_type=self.ace_type, remove=False)
 
     def remove(self, user: str, right: int, right_type: str) -> Union[bool, None]:
         """
@@ -1103,7 +1106,7 @@ class CA:
         Returns:
             True if successful, False if failed, None if user not found
         """
-        return self._modify_ca_security(user, right, right_type, remove=True)
+        return self._modify_ca_security(user, right, right_type, ace_type=self.ace_type, remove=True)
 
     def add_officer(self, officer: str) -> Union[bool, None]:
         """

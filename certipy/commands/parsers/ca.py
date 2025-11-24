@@ -113,6 +113,13 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Remove an existing officer (Certificate Manager) from the CA",
     )
 
+    officer_group.add_argument(
+    "-ace-type",
+    choices=["allow", "deny"],
+    default="allow",
+    help="Which ACE type to apply the change to"
+    )
+
     # CA manager role management
     manager_group = subparser.add_argument_group("manager options")
     manager_group.add_argument(
