@@ -1027,6 +1027,15 @@ class CA:
                 ace["Ace"]["Mask"]["Mask"] |= right
 
             break
+        else:
+            # No existing ACE found
+            if remove:
+                # Nothing to remove
+                logging.info(
+                    f"User {user_obj.get('sAMAccountName')!r} does not have {right_type} "
+                    f"{ace_type} rights on {self.ca!r}"
+                )
+                return True
 
         # Create new ACE if none found and we're adding rights
         if not ace_found and not remove:
