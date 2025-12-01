@@ -249,7 +249,7 @@ class Target:
                 logging.debug(
                     "DC host (-dc-host) not specified. Using domain as DC host"
                 )
-                dc_host = domain
+                dc_host = None
 
         if not remote_name:
             if target_ip:
