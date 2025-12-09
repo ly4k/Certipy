@@ -76,10 +76,16 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     )
     config_group.add_argument(
         "-write-default-configuration",
-        action="store_true",
+        nargs="?",
+        const="S-1-5-11",
+        default=None,
+        metavar="target sid",
         help=(
             "Apply the default Certipy ESC1 configuration to the certificate template. "
-            "This configures the template to be vulnerable to ESC1 attack."
+            "This configures the template to be vulnerable to ESC1 attack. "
+            "It accepts an optional argument for the target sid that should get ESC1 permissions "
+            "(default S-1-5-11 for authenticated users). "
+            "CAREFUL: If you specify a SID of an account not under your control, you lose the ability to restore!"
         ),
     )
 

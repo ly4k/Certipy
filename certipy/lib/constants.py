@@ -388,6 +388,7 @@ class CertificateRights(IntFlag):
     WRITE_DACL = 262144
     WRITE_OWNER = 524288
     GENERIC_WRITE = 131112
+    GENERIC_READ = 131220
     GENERIC_ALL = 983551
 
 

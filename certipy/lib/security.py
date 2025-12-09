@@ -204,48 +204,25 @@ def is_admin_sid(sid: str) -> bool:
     return re.match(admin_rid_pattern, sid) is not None or sid in builtin_admin_sids
 
 
-"""
-
-def create_ace(sid, mask):
-    nace = ACE()
-    nace['AceType'] = ACCESS_ALLOWED_ACE.ACE_TYPE
-    nace['AceFlags'] = 0x00
-    acedata = ACCESS_ALLOWED_ACE()
-    acedata['Mask'] = ACCESS_MASK()
-    acedata['Mask']['Mask'] = mask
-    acedata['Sid'] = LDAP_SID()
-    acedata['Sid'].fromCanonical(sid)
-    nace['Ace'] = acedata
-    return nace
-
-def create_sd(sid):
-    sd = SR_SECURITY_DESCRIPTOR()
-    sd['Revision'] = b'\x01'
-    sd['Sbz1'] = b'\x00'
-    sd['Control'] = 32772
-    sd['OwnerSid'] = LDAP_SID()
-    sd['OwnerSid'].fromCanonical('S-1-5-18')
-    sd['GroupSid'] = LDAP_SID()
-    sd['GroupSid'].fromCanonical('S-1-5-18')
-    sd['Sacl'] = b''
-
-    acl = ACL()
-    acl['AclRevision'] = 2
-    acl['Sbz1'] = 0
-    acl['Sbz2'] = 0
-    acl.aces = []
-    acl.aces.append(create_ace(sid, 3))
-    acl.aces.append(create_ace('S-1-1-0',2))
-    sd['Dacl'] = acl
-    return sd
-"""
+def create_ace(sid: str, mask: CertificateRights) -> ldaptypes.ACE:
+    ace = ldaptypes.ACE()
+    ace["AceType"] = ldaptypes.ACCESS_ALLOWED_ACE.ACE_TYPE
+    ace["AceFlags"] = 0x00
+    ace_data = ldaptypes.ACCESS_ALLOWED_ACE()
+    ace_data["Mask"] = ldaptypes.ACCESS_MASK()
+    ace_data["Mask"]["Mask"] = mask
+    ace_data["Sid"] = ldaptypes.LDAP_SID()
+    ace_data["Sid"].fromCanonical(sid)
+    ace["Ace"] = ace_data
+    return ace
 
 
-def create_authenticated_users_sd() -> ldaptypes.SR_SECURITY_DESCRIPTOR:
+def create_sd(sid: str) -> ldaptypes.SR_SECURITY_DESCRIPTOR:
     """
-    Create a security descriptor for the "Authenticated Users" group.
-    This security descriptor grants the "Authenticated Users" group
-    the right to read the object and its properties.
+    Create a security descriptor setting `sid` as owner,
+    and also add an ACE of GenericAll for `sid`,
+    and also add an ACE of GenericRead for authenticated users
+    (otherwise subsequent `certipy req` fails).
     """
     sd = ldaptypes.SR_SECURITY_DESCRIPTOR()
     sd["Revision"] = b"\x01"
@@ -258,31 +235,18 @@ def create_authenticated_users_sd() -> ldaptypes.SR_SECURITY_DESCRIPTOR:
         | SE_SELF_RELATIVE
     )
     sd["OwnerSid"] = ldaptypes.LDAP_SID()
-    sd["OwnerSid"].fromCanonical("S-1-5-11")
+    sd["OwnerSid"].fromCanonical(sid)
+    sd["GroupSid"] = ldaptypes.LDAP_SID()
     sd["GroupSid"] = b""
     sd["Sacl"] = b""
-
-    ace = ldaptypes.ACE()
-    ace["AceType"] = ldaptypes.ACCESS_ALLOWED_ACE.ACE_TYPE
-    ace["AceFlags"] = 0
-    ace_data = ldaptypes.ACCESS_ALLOWED_ACE()
-    ace_data["Mask"] = ldaptypes.ACCESS_MASK()
-    ace_data["Mask"]["Mask"] = CertificateRights.GENERIC_ALL
-    ace_data["Sid"] = ldaptypes.LDAP_SID()
-    ace_data["Sid"].fromCanonical("S-1-5-11")
-    ace["Ace"] = ace_data
 
     acl = ldaptypes.ACL()
     acl["AclRevision"] = 2
     acl["Sbz1"] = 0
     acl["Sbz2"] = 0
     acl.aces = []
-    acl.aces.append(ace)
+    acl.aces.append(create_ace(sid, CertificateRights.GENERIC_ALL))
+    acl.aces.append(create_ace("S-1-5-11", CertificateRights.GENERIC_READ))
     sd["Dacl"] = acl
-
-    # Convert aces to data
-    sd_data = sd.getData()
-    sd = ldaptypes.SR_SECURITY_DESCRIPTOR()
-    sd.fromString(sd_data)
 
     return sd
