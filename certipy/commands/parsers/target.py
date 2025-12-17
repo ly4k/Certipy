@@ -145,7 +145,7 @@ def add_argument_group(
         "-ldap-scheme",
         action="store",
         metavar="ldap scheme",
-        choices=["ldap", "ldaps"],
+        choices=["ldap", "ldaps", "ldap+starttls"],
         default="ldaps",
         help="LDAP connection scheme to use (default: ldaps)",
     )
