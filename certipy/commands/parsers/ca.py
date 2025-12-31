@@ -97,6 +97,12 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         metavar="request ID",
         help="Deny a pending certificate request",
     )
+    request_group.add_argument(
+        "-revoke-certificate",
+        action="store",
+        metavar="serial number",
+        help="Revoke an issued certificate",
+    )
 
     # Certificate officer management
     officer_group = subparser.add_argument_group("officer options")

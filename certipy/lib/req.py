@@ -54,6 +54,7 @@ from certipy.lib.certificate import (
     load_pfx,
     pem_to_cert,
     pem_to_key,
+    print_certificate_serial_number,
     print_certificate_identities,
     rsa,
     x509,
@@ -386,6 +387,7 @@ def handle_request_response(
     # Extract and display certificate information
     identities = get_identities_from_certificate(cert)
     print_certificate_identities(identities)
+    print_certificate_serial_number(cert)
 
     # Check and log object SID information
     object_sid = get_object_sid_from_certificate(cert)
@@ -435,6 +437,7 @@ def handle_retrieve(
     # Extract and display certificate information
     identities = get_identities_from_certificate(cert)
     print_certificate_identities(identities)
+    print_certificate_serial_number(cert)
 
     # Check and log object SID information
     object_sid = get_object_sid_from_certificate(cert)
