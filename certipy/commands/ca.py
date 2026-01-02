@@ -19,7 +19,7 @@ from typing import Any, List, Optional, Union
 from impacket.dcerpc.v5 import rpcrt, rrp, scmr
 from impacket.dcerpc.v5.dcom.oaut import VARIANT
 from impacket.dcerpc.v5.dcomrt import DCOMANSWER, DCOMCALL, IRemUnknown, IRemUnknown2
-from impacket.dcerpc.v5.dtypes import DWORD, LONG, LPWSTR, PBYTE, ULONG, WSTR, FILETIME
+from impacket.dcerpc.v5.dtypes import DWORD, FILETIME, LONG, LPWSTR, PBYTE, ULONG, WSTR
 from impacket.dcerpc.v5.ndr import NDRSTRUCT
 from impacket.dcerpc.v5.nrpc import checkNullString
 from impacket.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException
@@ -808,8 +808,8 @@ class CA:
         request["Reason"] = int(0)
 
         ft = FILETIME()
-        ft['dwLowDateTime'] = 0
-        ft['dwHighDateTime'] = 0
+        ft["dwLowDateTime"] = 0
+        ft["dwHighDateTime"] = 0
         request["FileTime"] = ft
 
         try:
