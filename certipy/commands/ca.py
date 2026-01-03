@@ -807,7 +807,7 @@ class CA:
 
         request = ICertAdminDRevokeCertificate()
         request["pwszAuthority"] = checkNullString(self.ca)
-        request["pwszSerialNumber"] = checkNullString(self.serial_number) + "\x00"
+        request["pwszSerialNumber"] = checkNullString(self.serial_number)
         request["Reason"] = int(0)
 
         ft = FILETIME()
