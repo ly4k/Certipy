@@ -348,6 +348,7 @@ class CA:
         template: Optional[str] = None,
         officer: Optional[str] = None,
         request_id: Optional[int] = None,
+        serial_number: Optional[str] = None,
         connection: Optional[LDAPConnection] = None,
         scheme: str = "ldaps",
         dynamic: bool = False,
@@ -364,6 +365,7 @@ class CA:
             template: Certificate template name
             officer: Officer username
             request_id: Certificate request ID
+            serial_number: Issued certificate serial number
             connection: Existing LDAP connection to reuse
             scheme: LDAP scheme (ldap or ldaps)
             dc_host: Domain controller hostname
@@ -374,6 +376,7 @@ class CA:
         """
         self.target = target
         self.request_id = request_id
+        self.serial_number = serial_number
         self.ca = ca
         self.officer = officer
         self.template = template
