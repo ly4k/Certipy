@@ -939,7 +939,9 @@ class Find:
         template.set("client_authentication", client_authentication)
 
         # Check for server authentication capability
-        server_authentication = "Server Authentication" in extended_key_usage or any_purpose
+        server_authentication = (
+            "Server Authentication" in extended_key_usage or any_purpose
+        )
         template.set("server_authentication", server_authentication)
 
         # Check for enrollment agent capability
@@ -1982,8 +1984,11 @@ class Find:
                 # ESC17: Server authentication with enrollee-supplied subject
                 if template.get("enrollee_supplies_subject"):
                     from pprint import pprint
+
                     pprint(template["attributes"])
-                if template.get("enrollee_supplies_subject") and template.get("server_authentication"):
+                if template.get("enrollee_supplies_subject") and template.get(
+                    "server_authentication"
+                ):
                     vulnerabilities["ESC17"] = (
                         f"Enrollee supplies subject "
                         "and template allows server authentication."
