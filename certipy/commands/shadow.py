@@ -24,7 +24,7 @@ import ldap3
 from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from impacket.examples.ntlmrelayx.utils import shadow_credentials
 
-from certipy.lib.certificate import create_pfx, x509
+from certipy.lib.certificate import create_pfx, load_pfx, x509
 from certipy.lib.errors import handle_error
 from certipy.lib.files import try_to_save_file
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
@@ -74,6 +74,22 @@ class Shadow:
         self.out = out
         self.kwargs = kwargs
 
+        self.pfx = self.kwargs["pfx"]
+        self.key, self.cert = None, None
+
+        if self.pfx is not None:
+            pfx_password = None
+            if self.kwargs["pfxpassword"]:
+                pfx_password = self.kwargs["pfxpassword"].encode()
+
+            try:
+                with open(self.pfx, "rb") as f:
+                    pfx_data = f.read()
+                self.key, self.cert = load_pfx(pfx_data, pfx_password)
+            except Exception as e:
+                logging.error(f"Failed to load PFX file: {e}")
+                raise
+
         self._connection = connection
 
     @property
@@ -90,8 +106,20 @@ class Shadow:
         if self._connection is not None:
             return self._connection
 
-        self._connection = LDAPConnection(self.target)
-        self._connection.connect()
+        if self.cert and self.key:
+            self._connection = LDAPConnection(self.target, (self.cert, self.key))
+
+            try:
+                self._connection.schannel_connect()
+            except Exception as e:
+                logging.error(f"Failed to connect to LDAP server: {e}")
+                handle_error()
+
+            if self._connection.default_path is None:
+                logging.error("Failed to retrieve default naming context")
+        else:
+            self._connection = LDAPConnection(self.target)
+            self._connection.connect()
 
         return self._connection
 
