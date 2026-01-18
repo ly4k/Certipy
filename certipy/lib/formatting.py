@@ -98,9 +98,11 @@ def pretty_print(
             else:
                 if len(value) > 0:
                     # Format list with line breaks if needed
-                    formatted_list = ("\n" + " " * padding + "  ").join(
-                        str(x) for x in value
-                    ).splitlines()
+                    formatted_list = (
+                        ("\n" + " " * padding + "  ")
+                        .join(str(x) for x in value)
+                        .splitlines()
+                    )
                     first_item = formatted_list.pop(0)
                     print_func(f"{padded_key}: {first_item}")
                     for item in formatted_list:
