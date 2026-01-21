@@ -1082,7 +1082,7 @@ class Find:
                 continue
 
             # Get template vulnerabilities
-            (vulnerabilities, remarks, enrollable_principals, acl_principals) = (
+            vulnerabilities, remarks, enrollable_principals, acl_principals = (
                 self.get_template_vulnerabilities(template)
             )
 
@@ -1101,11 +1101,11 @@ class Find:
 
             # Add enrollable principals
             if enrollable_principals:
-                entry["[+] User Enrollable Principals"] = enrollable_principals
+                entry["[+] Enrollable Principals"] = enrollable_principals
 
             # Add ACL principals
             if acl_principals:
-                entry["[+] User ACL Principals"] = acl_principals
+                entry["[+] ACL Principals"] = acl_principals
 
             # Add vulnerabilities
             if vulnerabilities:
@@ -1129,7 +1129,7 @@ class Find:
                 entry["Permissions"] = permissions
 
             # Add vulnerabilities
-            (vulnerabilities, remarks, enrollable_principals, acl_principals) = (
+            vulnerabilities, remarks, enrollable_principals, acl_principals = (
                 self.get_ca_vulnerabilities(ca)
             )
 
@@ -1156,7 +1156,7 @@ class Find:
         if self.oids:
             for oid in oids:
                 # Get OID vulnerabilities
-                (vulnerabilities, acl_principals) = self.get_oid_vulnerabilities(oid)
+                vulnerabilities, acl_principals = self.get_oid_vulnerabilities(oid)
 
                 # Skip if only showing vulnerable OIDs and this one isn't
                 if self.vuln and not vulnerabilities:
@@ -1357,7 +1357,22 @@ class Find:
 
             # Handle vulnerabilities specially
             elif "[!] Vulnerabilities" in key and isinstance(value, dict):
-                vuln_list = [f"{k}: {v}" for k, v in value.items()]
+                vuln_list = []
+                for vuln_name, vuln_data in value.items():
+                    if isinstance(vuln_data, dict):
+                        # New format: {description: str, principals: List[str]}
+                        desc = vuln_data.get("description", "")
+                        principals = vuln_data.get("principals", [])
+                        if isinstance(principals, list):
+                            principals_str = ", ".join(principals)
+                        else:
+                            principals_str = str(principals)
+                        vuln_list.append(
+                            f"{vuln_name}: {desc} (Principals: {principals_str})"
+                        )
+                    else:
+                        # Legacy format: just a string
+                        vuln_list.append(f"{vuln_name}: {vuln_data}")
                 items.append((key, "\n".join(vuln_list)))
 
             # Handle dictionaries (convert to "key: value" format)
@@ -1493,6 +1508,25 @@ class Find:
                                 items.append((perm_name, "\n".join(principals)))
                             else:
                                 items.append((perm_name, str(principals)))
+            # Handle vulnerabilities specially (now they have description + principals)
+            elif "[!] Vulnerabilities" in key and isinstance(value, dict):
+                vuln_list = []
+                for vuln_name, vuln_data in value.items():
+                    if isinstance(vuln_data, dict):
+                        # New format: {description: str, principals: List[str]}
+                        desc = vuln_data.get("description", "")
+                        principals = vuln_data.get("principals", [])
+                        if isinstance(principals, list):
+                            principals_str = ", ".join(principals)
+                        else:
+                            principals_str = str(principals)
+                        vuln_list.append(
+                            f"{vuln_name}: {desc} (Principals: {principals_str})"
+                        )
+                    else:
+                        # Legacy format: just a string
+                        vuln_list.append(f"{vuln_name}: {vuln_data}")
+                items.append((key, "\n".join(vuln_list)))
             # Handle dictionaries (convert to "key: value" format)
             elif isinstance(value, dict):
                 formatted_value = ", ".join([f"{k}: {v}" for k, v in value.items()])
@@ -1870,7 +1904,7 @@ class Find:
 
     def get_template_vulnerabilities(
         self, template: LDAPEntry
-    ) -> Tuple[Dict[str, str], Dict[str, str], List[str], List[str]]:
+    ) -> Tuple[Dict[str, Any], Dict[str, str], List[str], List[str]]:
         """
         Detect vulnerabilities in certificate templates.
 
@@ -1897,44 +1931,57 @@ class Find:
         remarks = {}
         enrollable_principals = []
         acl_principals = []
-        user_can_enroll, enrollable_sids = self.can_user_enroll_in_template(template)
+        _, enrollable_sids = self.can_user_enroll_in_template(template)
         is_enabled = template.get("enabled", False)
 
-        # Skip enrollment-based vulnerability checks if user can't enroll or
-        # if template requires approval or signatures
+        # Check enrollment-based vulnerabilities if template is enabled and has enrollable principals
         requires_approval = (
             template.get("requires_manager_approval")
             or template.get("authorized_signatures_required", 0) > 0
         )
 
-        if is_enabled and user_can_enroll:
+        if is_enabled and enrollable_sids:
             enrollable_principals = self.format_principals(enrollable_sids)
 
-            if not requires_approval:
+            # Principals who can exploit vulnerabilities (no approval required)
+            exploit_sids = enrollable_sids if not requires_approval else []
+            exploit_principals = self.format_principals(exploit_sids)
+
+            if exploit_sids:
                 # ESC1: Client authentication with enrollee-supplied subject
                 if template.get("enrollee_supplies_subject") and template.get(
                     "client_authentication"
                 ):
-                    vulnerabilities["ESC1"] = (
-                        f"Enrollee supplies subject "
-                        "and template allows client authentication."
-                    )
+                    vulnerabilities["ESC1"] = {
+                        "description": (
+                            "Enrollee supplies subject "
+                            "and template allows client authentication."
+                        ),
+                        "principals": exploit_principals,
+                    }
 
                 # ESC2: Any purpose template
                 if template.get("any_purpose"):
-                    vulnerabilities["ESC2"] = f"Template can be used for any purpose."
+                    vulnerabilities["ESC2"] = {
+                        "description": "Template can be used for any purpose.",
+                        "principals": exploit_principals,
+                    }
 
                 # ESC3: Certificate Request Agent
                 if template.get("enrollment_agent"):
-                    vulnerabilities["ESC3"] = (
-                        f"Template has Certificate Request Agent EKU set."
-                    )
+                    vulnerabilities["ESC3"] = {
+                        "description": "Template has Certificate Request Agent EKU set.",
+                        "principals": exploit_principals,
+                    }
 
                 # ESC9: No security extension
                 if template.get("no_security_extension") and template.get(
                     "client_authentication"
                 ):
-                    vulnerabilities["ESC9"] = f"Template has no security extension."
+                    vulnerabilities["ESC9"] = {
+                        "description": "Template has no security extension.",
+                        "principals": exploit_principals,
+                    }
                     remarks["ESC9"] = (
                         "Other prerequisites may be required for this to be exploitable. See "
                         "the wiki for more details."
@@ -1951,26 +1998,32 @@ class Find:
                         groups = [groups]
 
                     if len(groups) == 1:
-                        vulnerabilities["ESC13"] = (
+                        description = (
                             f"Template allows client authentication "
                             f"and issuance policy is linked to group {groups[0]!r}."
                         )
                     else:
-                        vulnerabilities["ESC13"] = (
+                        description = (
                             f"Template allows client authentication "
                             f"and issuance policy is linked to groups {groups!r}."
                         )
+
+                    vulnerabilities["ESC13"] = {
+                        "description": description,
+                        "principals": exploit_principals,
+                    }
 
                 # ESC15: Schema v1 template with enrollee-supplied subject (CVE-2024-49019)
                 if (
                     template.get("enrollee_supplies_subject")
                     and template.get("schema_version") == 1
                 ):
-                    vulnerabilities["ESC15"] = (
-                        f"Enrollee supplies subject and " "schema version is 1."
-                    )
+                    vulnerabilities["ESC15"] = {
+                        "description": "Enrollee supplies subject and schema version is 1.",
+                        "principals": exploit_principals,
+                    }
                     remarks["ESC15"] = (
-                        f"Only applicable if the environment has not been patched. "
+                        "Only applicable if the environment has not been patched. "
                         "See CVE-2024-49019 or the wiki for more details."
                     )
 
@@ -2016,24 +2069,18 @@ class Find:
                 )
 
         # ESC4: Template ownership or vulnerable ACL
-        security = CertificateSecurity(template.get("nTSecurityDescriptor"))
-        user_sids = self.connection.get_user_sids(
-            self.target.username, self.sid, self.dn
+        # Get all principals with dangerous permissions
+        has_vulnerable_acl, vulnerable_acl_sids = self.template_has_vulnerable_acl(
+            template
         )
+        acl_principals = self.format_principals(vulnerable_acl_sids)
 
-        # Check if user owns the template
-        if security.owner in user_sids:
-            owner_name = self.connection.lookup_sid(security.owner).get("name")
-            acl_principals = [owner_name]
-            vulnerabilities["ESC4"] = f"Template is owned by user."
-        else:
-            # Check for vulnerable permissions if not already owner
-            has_vulnerable_acl, vulnerable_acl_sids = self.template_has_vulnerable_acl(
-                template
-            )
-            acl_principals = self.format_principals(vulnerable_acl_sids)
-            if has_vulnerable_acl:
-                vulnerabilities["ESC4"] = "User has dangerous permissions."
+        # Check if any principal has dangerous permissions
+        if has_vulnerable_acl:
+            vulnerabilities["ESC4"] = {
+                "description": "Principals have dangerous permissions.",
+                "principals": acl_principals,
+            }
 
         return (vulnerabilities, remarks, enrollable_principals, acl_principals)
 
@@ -2041,7 +2088,7 @@ class Find:
         self, template: LDAPEntry
     ) -> Tuple[bool, List[str]]:
         """
-        Check if the template has vulnerable permissions for the current user.
+        Check if any principals have vulnerable permissions on the template.
 
         Args:
             template: Certificate template to analyze
@@ -2050,17 +2097,19 @@ class Find:
             Tuple of (has_vulnerable_acl, list_of_vulnerable_sids)
         """
         security = CertificateSecurity(template.get("nTSecurityDescriptor"))
-        user_sids = self.connection.get_user_sids(
-            self.target.username, self.sid, self.dn
-        )
 
         vulnerable_acl_sids = []
         has_vulnerable_acl = False
 
+        # Add owner as having dangerous permissions (skip if admin)
+        if security.owner and not is_admin_sid(security.owner):
+            vulnerable_acl_sids.append(security.owner)
+            has_vulnerable_acl = True
+
         # Check ACEs for vulnerable permissions
         for sid, rights in security.aces.items():
-            # Skip if not related to current user
-            if sid not in user_sids:
+            # Skip default powerful groups
+            if is_admin_sid(sid):
                 continue
 
             ad_rights = rights["rights"]
@@ -2094,7 +2143,7 @@ class Find:
         self, template: LDAPEntry
     ) -> Tuple[bool, List[str]]:
         """
-        Check if the current user can enroll in the template.
+        Check if the current user can enroll in the template and find all enrollable principals.
 
         Args:
             template: Certificate template to analyze
@@ -2112,7 +2161,8 @@ class Find:
 
         # Check ACEs for enrollment rights per MS-CRTD rules
         for sid, rights in security.aces.items():
-            if sid not in user_sids:
+            # Skip default powerful groups
+            if is_admin_sid(sid):
                 continue
 
             # Rule 1: ACCESS_ALLOWED_OBJECT_ACE with control access and ObjectType == Enroll GUID
@@ -2141,13 +2191,14 @@ class Find:
                 or (CertificateRights.GENERIC_ALL in rights["rights"])
             ):
                 enrollable_sids.append(sid)
-                user_can_enroll = True
+                if sid in user_sids:
+                    user_can_enroll = True
 
         return user_can_enroll, list(set(enrollable_sids))  # Deduplicate SIDs
 
     def get_ca_vulnerabilities(
         self, ca: LDAPEntry
-    ) -> Tuple[Dict[str, str], Dict[str, str], List[str], List[str]]:
+    ) -> Tuple[Dict[str, Any], Dict[str, str], List[str], List[str]]:
         """
         Detect vulnerabilities in certificate authorities.
 
@@ -2172,13 +2223,16 @@ class Find:
         acl_principals = []
         request_disposition = ca.get("request_disposition")
         will_issue = request_disposition in ["Issue", "Unknown"]
-        user_can_enroll, enrollable_sids = self.can_user_enroll_in_ca(ca)
+        _, enrollable_sids = self.can_user_enroll_in_ca(ca)
 
         enrollable_principals = self.format_principals(enrollable_sids)
 
         # ESC6: User-specified SAN with auto-issuance
-        if ca.get("user_specified_san") == "Enabled" and will_issue and user_can_enroll:
-            vulnerabilities["ESC6"] = "Enrollee can specify SAN."
+        if ca.get("user_specified_san") == "Enabled" and will_issue and enrollable_sids:
+            vulnerabilities["ESC6"] = {
+                "description": "Enrollee can specify SAN.",
+                "principals": enrollable_principals,
+            }
             remarks["ESC6"] = (
                 "Other prerequisites may be required for this to be exploitable. See "
                 "the wiki for more details."
@@ -2196,7 +2250,10 @@ class Find:
         has_vulnerable_acl, vulnerable_acl_sids = self.ca_has_vulnerable_acl(ca)
         if has_vulnerable_acl:
             acl_principals = self.format_principals(vulnerable_acl_sids)
-            vulnerabilities["ESC7"] = f"User has dangerous permissions."
+            vulnerabilities["ESC7"] = {
+                "description": "Principals have dangerous permissions.",
+                "principals": acl_principals,
+            }
 
         # ESC8: Insecure web enrollment
         web_enrollment = ca.get("web_enrollment")
@@ -2217,16 +2274,22 @@ class Find:
             )
 
             # Determine vulnerability based on protocol and channel binding
+            # ESC8 is about network relay - anyone can exploit it
             if http_enabled and https_enabled and not channel_binding_enforced:
-                vulnerabilities["ESC8"] = (
-                    f"Web Enrollment is enabled over HTTP and HTTPS, and Channel Binding is disabled."
-                )
+                vulnerabilities["ESC8"] = {
+                    "description": "Web Enrollment is enabled over HTTP and HTTPS, and Channel Binding is disabled.",
+                    "principals": ["Anyone (network relay)"],
+                }
             elif http_enabled:
-                vulnerabilities["ESC8"] = f"Web Enrollment is enabled over HTTP."
+                vulnerabilities["ESC8"] = {
+                    "description": "Web Enrollment is enabled over HTTP.",
+                    "principals": ["Anyone (network relay)"],
+                }
             elif https_enabled and not channel_binding_enforced:
-                vulnerabilities["ESC8"] = (
-                    f"Web Enrollment is enabled over HTTPS and Channel Binding is disabled."
-                )
+                vulnerabilities["ESC8"] = {
+                    "description": "Web Enrollment is enabled over HTTPS and Channel Binding is disabled.",
+                    "principals": ["Anyone (network relay)"],
+                }
             elif https_enabled and channel_binding_enforced == "Unknown":
                 remarks["ESC8"] = (
                     "Channel Binding couldn't be verified for HTTPS Web Enrollment. "
@@ -2236,15 +2299,20 @@ class Find:
 
         # ESC11: Unencrypted certificate requests
         if ca.get("enforce_encrypt_icertrequest") == "Disabled" and will_issue:
-            vulnerabilities["ESC11"] = (
-                "Encryption is not enforced for ICPR (RPC) requests."
-            )
+            # ESC11 is about network sniffing - anyone can exploit it
+            vulnerabilities["ESC11"] = {
+                "description": "Encryption is not enforced for ICPR (RPC) requests.",
+                "principals": ["Anyone (network sniffing)"],
+            }
 
         # ESC16: Security extension disabled (similar to ESC9)
         disabled_extensions = ca.get("disabled_extensions")
-        if disabled_extensions and will_issue and user_can_enroll:
+        if disabled_extensions and will_issue and enrollable_sids:
             if "1.3.6.1.4.1.311.25.2" in disabled_extensions:
-                vulnerabilities["ESC16"] = "Security Extension is disabled."
+                vulnerabilities["ESC16"] = {
+                    "description": "Security Extension is disabled.",
+                    "principals": enrollable_principals,
+                }
                 remarks["ESC16"] = (
                     "Other prerequisites may be required for this to be exploitable. See "
                     "the wiki for more details."
@@ -2254,7 +2322,7 @@ class Find:
 
     def ca_has_vulnerable_acl(self, ca: LDAPEntry) -> Tuple[bool, List[str]]:
         """
-        Check if the CA has vulnerable permissions for the current user.
+        Check if any principals have vulnerable permissions on the CA.
 
         Args:
             ca: Certificate authority to analyze
@@ -2269,14 +2337,15 @@ class Find:
         if security is None:
             return has_vulnerable_acl, vulnerable_acl_sids
 
-        user_sids = self.connection.get_user_sids(
-            self.target.username, self.sid, self.dn
-        )
+        # Add owner as having dangerous permissions (skip if admin)
+        if security.owner and not is_admin_sid(security.owner):
+            vulnerable_acl_sids.append(security.owner)
+            has_vulnerable_acl = True
 
         # Check ACEs for vulnerable permissions
         for sid, rights in security.aces.items():
-            # Skip if not related to current user
-            if sid not in user_sids:
+            # Skip default powerful groups
+            if is_admin_sid(sid):
                 continue
 
             ad_rights = rights["rights"]
@@ -2295,7 +2364,7 @@ class Find:
 
     def can_user_enroll_in_ca(self, ca: LDAPEntry) -> Tuple[Optional[bool], List[str]]:
         """
-        Check if the current user can enroll in the CA.
+        Check if the current user can enroll in the CA and find all enrollable principals.
 
         Args:
             ca: CA to analyze
@@ -2316,23 +2385,25 @@ class Find:
 
         # Process ACEs
         for sid, rights in security.aces.items():
-            if sid not in user_sids:
+            # Skip default powerful groups
+            if is_admin_sid(sid):
                 continue
 
             if CertificateAuthorityRights.ENROLL in rights["rights"]:
                 enrollable_sids.append(sid)
-                user_can_enroll = True
+                if sid in user_sids:
+                    user_can_enroll = True
 
         return user_can_enroll, list(set(enrollable_sids))  # Deduplicate SIDs
 
     def get_oid_vulnerabilities(
         self, oid: LDAPEntry
-    ) -> Tuple[Dict[str, str], List[str]]:
+    ) -> Tuple[Dict[str, Any], List[str]]:
         """
         Detect vulnerabilities in issuance policy OIDs.
 
         This method checks for Enterprise Security Configuration (ESC) vulnerabilities:
-        - ESC13: OID with dangerous permissions or owned by current user
+        - ESC13: OID with dangerous permissions
 
         Args:
             oid: Issuance policy OID to analyze
@@ -2348,28 +2419,19 @@ class Find:
         acl_principals = []
 
         # ESC13: OID ownership or vulnerable ACL
-        security = IssuancePolicySecurity(oid.get("nTSecurityDescriptor"))
-        user_sids = self.connection.get_user_sids(
-            self.target.username, self.sid, self.dn
-        )
-
-        # Check if user owns the OID
-        if security.owner in user_sids:
-            owner_name = self.connection.lookup_sid(security.owner).get("name")
-            acl_principals = [owner_name]
-            vulnerabilities["ESC13"] = f"Issuance Policy OID is owned by user."
-        else:
-            # Check for vulnerable permissions if not already owner
-            has_vulnerable_acl, vulnerable_acl_sids = self.oid_has_vulnerable_acl(oid)
-            if has_vulnerable_acl:
-                acl_principals = self.format_principals(vulnerable_acl_sids)
-                vulnerabilities["ESC13"] = f"User has dangerous permissions."
+        has_vulnerable_acl, vulnerable_acl_sids = self.oid_has_vulnerable_acl(oid)
+        if has_vulnerable_acl:
+            acl_principals = self.format_principals(vulnerable_acl_sids)
+            vulnerabilities["ESC13"] = {
+                "description": "Principals have dangerous permissions.",
+                "principals": acl_principals,
+            }
 
         return (vulnerabilities, acl_principals)
 
     def oid_has_vulnerable_acl(self, oid: LDAPEntry) -> Tuple[bool, List[str]]:
         """
-        Check if the OID has vulnerable permissions for the current user.
+        Check if any principals have vulnerable permissions on the OID.
 
         Args:
             oid: Issuance policy OID to analyze
@@ -2378,17 +2440,19 @@ class Find:
             Tuple of (has_vulnerable_acl, list_of_vulnerable_sids)
         """
         security = IssuancePolicySecurity(oid.get("nTSecurityDescriptor"))
-        user_sids = self.connection.get_user_sids(
-            self.target.username, self.sid, self.dn
-        )
 
         vulnerable_acl_sids = []
         has_vulnerable_acl = False
 
+        # Add owner as having dangerous permissions (skip if admin)
+        if security.owner and not is_admin_sid(security.owner):
+            vulnerable_acl_sids.append(security.owner)
+            has_vulnerable_acl = True
+
         # Check ACEs for vulnerable permissions
         for sid, rights in security.aces.items():
-            # Skip if not related to current user
-            if sid not in user_sids:
+            # Skip default powerful groups
+            if is_admin_sid(sid):
                 continue
 
             ad_rights = rights["rights"]
