@@ -72,6 +72,7 @@ class Find:
         enabled: bool = False,
         oids: bool = False,
         vulnerable: bool = False,
+        user: bool = False,
         hide_admins: bool = False,
         sid: Optional[str] = None,
         dn: Optional[str] = None,
@@ -89,6 +90,7 @@ class Find:
         self.enabled = enabled
         self.oids = oids
         self.vuln = vulnerable
+        self.user = user
         self.hide_admins = hide_admins
         self.sid = sid
         self.dn = dn
@@ -1945,6 +1947,9 @@ class Find:
 
             # Principals who can exploit vulnerabilities (no approval required)
             exploit_sids = enrollable_sids if not requires_approval else []
+            
+            # Filter by current user if -user flag is set
+            exploit_sids = self.filter_sids_for_user(exploit_sids)
             exploit_principals = self.format_principals(exploit_sids)
 
             if exploit_sids:
@@ -2070,13 +2075,14 @@ class Find:
 
         # ESC4: Template ownership or vulnerable ACL
         # Get all principals with dangerous permissions
-        has_vulnerable_acl, vulnerable_acl_sids = self.template_has_vulnerable_acl(
-            template
-        )
+        _, vulnerable_acl_sids = self.template_has_vulnerable_acl(template)
+        
+        # Filter by current user if -user flag is set
+        vulnerable_acl_sids = self.filter_sids_for_user(vulnerable_acl_sids)
         acl_principals = self.format_principals(vulnerable_acl_sids)
 
         # Check if any principal has dangerous permissions
-        if has_vulnerable_acl:
+        if vulnerable_acl_sids:
             vulnerabilities["ESC4"] = {
                 "description": "Principals have dangerous permissions.",
                 "principals": acl_principals,
@@ -2225,6 +2231,8 @@ class Find:
         will_issue = request_disposition in ["Issue", "Unknown"]
         _, enrollable_sids = self.can_user_enroll_in_ca(ca)
 
+        # Filter by current user if -user flag is set
+        enrollable_sids = self.filter_sids_for_user(enrollable_sids)
         enrollable_principals = self.format_principals(enrollable_sids)
 
         # ESC6: User-specified SAN with auto-issuance
@@ -2247,8 +2255,12 @@ class Find:
             remarks["Policy"] = "Not using the built-in Microsoft default policy."
 
         # ESC7: CA with dangerous permissions
-        has_vulnerable_acl, vulnerable_acl_sids = self.ca_has_vulnerable_acl(ca)
-        if has_vulnerable_acl:
+        _, vulnerable_acl_sids = self.ca_has_vulnerable_acl(ca)
+        
+        # Filter by current user if -user flag is set
+        vulnerable_acl_sids = self.filter_sids_for_user(vulnerable_acl_sids)
+        
+        if vulnerable_acl_sids:
             acl_principals = self.format_principals(vulnerable_acl_sids)
             vulnerabilities["ESC7"] = {
                 "description": "Principals have dangerous permissions.",
@@ -2419,8 +2431,12 @@ class Find:
         acl_principals = []
 
         # ESC13: OID ownership or vulnerable ACL
-        has_vulnerable_acl, vulnerable_acl_sids = self.oid_has_vulnerable_acl(oid)
-        if has_vulnerable_acl:
+        _, vulnerable_acl_sids = self.oid_has_vulnerable_acl(oid)
+        
+        # Filter by current user if -user flag is set
+        vulnerable_acl_sids = self.filter_sids_for_user(vulnerable_acl_sids)
+        
+        if vulnerable_acl_sids:
             acl_principals = self.format_principals(vulnerable_acl_sids)
             vulnerabilities["ESC13"] = {
                 "description": "Principals have dangerous permissions.",
@@ -2482,6 +2498,24 @@ class Find:
             List of principal names
         """
         return [self.connection.lookup_sid(sid).get("name") for sid in sids]
+
+    def filter_sids_for_user(self, sids: List[str]) -> List[str]:
+        """
+        Filter SIDs to only include current user if -user flag is set.
+
+        Args:
+            sids: List of SIDs to filter
+
+        Returns:
+            Filtered list of SIDs (current user only if -user flag is set, otherwise all)
+        """
+        if not self.user:
+            return sids
+
+        user_sids = self.connection.get_user_sids(
+            self.target.username, self.sid, self.dn
+        )
+        return [sid for sid in sids if sid in user_sids]
 
 
 def entry(options: argparse.Namespace) -> None:
