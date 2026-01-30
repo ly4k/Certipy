@@ -232,10 +232,14 @@ class ADWSConnection:
         for attr in item:
             attr_name = attr.tag.split("}")[-1] if "}" in attr.tag else attr.tag
 
-            # Skip synthetic attributes (those without LdapSyntax)
+            # Get LdapSyntax attribute if present
             ldap_syntax = attr.get("LdapSyntax", attr.attrib.get(
                 "{http://schemas.microsoft.com/2008/1/ActiveDirectory}LdapSyntax"
             ))
+
+            # Skip synthetic attributes (those without LdapSyntax) - but log for debugging
+            if ldap_syntax is None and attr_name == "nTSecurityDescriptor":
+                logging.debug(f"nTSecurityDescriptor found but no LdapSyntax - may be synthetic")
 
             # Get all values for this attribute
             values = []
@@ -244,13 +248,17 @@ class ADWSConnection:
             # Try ad:value namespace first
             value_elems = attr.findall(".//ad:value", namespaces=NAMESPACES)
 
-            # If no values found, try without namespace (some responses may vary)
+            # If no values found, try explicit namespace URI
             if not value_elems:
                 value_elems = attr.findall(".//{http://schemas.microsoft.com/2008/1/ActiveDirectory}value")
 
             # Also try addata namespace as fallback
             if not value_elems:
                 value_elems = attr.findall(".//addata:value", namespaces=NAMESPACES)
+
+            # Final fallback: find any element ending with "value" (any namespace)
+            if not value_elems:
+                value_elems = [elem for elem in attr.iter() if elem.tag.endswith("}value") or elem.tag == "value"]
 
             for value_elem in value_elems:
                 # Get text content - use itertext() to handle nested elements
@@ -259,12 +267,17 @@ class ADWSConnection:
                     # Try getting all text content from descendants
                     text = "".join(value_elem.itertext())
 
-                # Strip whitespace and check if there's actual content
-                if text and text.strip():
-                    values.append(text.strip())
-                    raw_values.append(text.strip())
+                # Accept any non-None text (don't strip for binary data which may have padding)
+                if text is not None and len(text) > 0:
+                    values.append(text)
+                    raw_values.append(text)
 
             if not values:
+                # Debug logging for missing critical attributes
+                if attr_name == "nTSecurityDescriptor":
+                    logging.debug(f"nTSecurityDescriptor: no values found. value_elems count: {len(value_elems)}")
+                    # Log the raw XML for debugging
+                    logging.debug(f"nTSecurityDescriptor raw XML: {ElementTree.tostring(attr, encoding='unicode')[:500]}")
                 continue
 
             # Handle special attribute types
