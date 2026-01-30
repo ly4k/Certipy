@@ -47,6 +47,9 @@ packages = [
     "certipy.commands",
     "certipy.commands.parsers",
     "certipy.lib",
+    "certipy.lib.soapy",
+    "certipy.lib.soapy.encoder",
+    "certipy.lib.soapy.encoder.records",
 ]
 
 [tool.isort]
