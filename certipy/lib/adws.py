@@ -197,6 +197,20 @@ class ADWSConnection:
         "attributeSecurityGUID",
     }
 
+    # Attributes that should always be stored as lists, even with single values
+    # This matches how LDAP returns these and how the code expects them
+    ARRAY_ATTRIBUTES = {
+        "member",
+        "msDS-AllowedToDelegateTo",
+        "pKIExtendedKeyUsage",
+        "servicePrincipalName",
+        "certificateTemplates",
+        "cACertificate",
+        "sIDHistory",
+        "msPKI-RA-Application-Policies",
+        "msPKI-Certificate-Policy",
+    }
+
     def _parse_xml_item(self, item: ElementTree.Element) -> Optional[LDAPEntry]:
         """
         Parse a single ADWS XML item into an LDAPEntry.
@@ -275,12 +289,17 @@ class ADWSConnection:
                 raw_values = [v.encode("utf-8") if isinstance(v, str) else v for v in values]
 
             # Store single value or list based on count
-            if len(values) == 1:
+            # Always keep ARRAY_ATTRIBUTES as lists even with single values
+            if len(values) == 1 and attr_name not in self.ARRAY_ATTRIBUTES:
                 attributes[attr_name] = values[0]
             else:
                 attributes[attr_name] = values
 
-            raw_attributes[attr_name] = raw_values
+            # Same logic for raw_attributes
+            if len(raw_values) == 1 and attr_name not in self.ARRAY_ATTRIBUTES:
+                raw_attributes[attr_name] = raw_values[0]
+            else:
+                raw_attributes[attr_name] = raw_values
 
         if not attributes:
             return None
