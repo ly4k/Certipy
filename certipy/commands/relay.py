@@ -249,7 +249,8 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
             response = None, STATUS_ACCESS_DENIED
         finally:
             self.adcs_relay.attack_lock.release()
-            return response
+
+        return response
 
     def _send_auth(self, authenticate_blob: bytes) -> Tuple[Optional[bytes], int]:
         """
