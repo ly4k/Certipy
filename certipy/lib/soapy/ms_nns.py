@@ -276,21 +276,27 @@ class NNS:
         return clearText
 
     def sendall(self, data: bytes):
-        """send to server in NTLM sealed NNS data packet via tcp socket.
+        """send to server in sealed NNS data packet via tcp socket.
+
+        Supports both NTLM and Kerberos encryption based on authentication method.
 
         Args:
             data (bytes): utf-16le encoded payload data
         """
-
-        cipherText, sig = impacket.ntlm.SEAL(
-            self._flags,
-            self._client_signing_key,
-            self._client_sealing_key,
-            data,
-            data,
-            self._sequence,
-            self._client_sealing_handle,
-        )
+        # Use Kerberos encryption if available
+        if self._use_kerberos and self._kerberos_cipher is not None:
+            cipherText, sig = self._kerberos_cipher.encrypt(data, self._sequence)
+        else:
+            # Fall back to NTLM encryption
+            cipherText, sig = impacket.ntlm.SEAL(
+                self._flags,
+                self._client_signing_key,
+                self._client_sealing_key,
+                data,
+                data,
+                self._sequence,
+                self._client_sealing_handle,
+            )
 
         # build the NNS data packet to use
         pkt = NNS_data()
