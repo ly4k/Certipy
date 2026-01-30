@@ -67,6 +67,11 @@ LDAP_PULL_FSTRING: str = """<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-
         <wsen:Pull>
             <wsen:EnumerationContext>{enum_ctx}</wsen:EnumerationContext>
             <wsen:MaxElements>256</wsen:MaxElements>
+            <ad:controls>
+                <ad:control type="1.2.840.113556.1.4.801">
+                    <ad:controlValue>MIQAAAADAgEH</ad:controlValue>
+                </ad:control>
+            </ad:controls>
         </wsen:Pull>
     </s:Body>
 </s:Envelope>"""
