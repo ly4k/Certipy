@@ -240,10 +240,29 @@ class ADWSConnection:
             # Get all values for this attribute
             values = []
             raw_values = []
-            for value_elem in attr.findall(".//ad:value", namespaces=NAMESPACES):
-                if value_elem.text:
-                    values.append(value_elem.text)
-                    raw_values.append(value_elem.text)
+
+            # Try ad:value namespace first
+            value_elems = attr.findall(".//ad:value", namespaces=NAMESPACES)
+
+            # If no values found, try without namespace (some responses may vary)
+            if not value_elems:
+                value_elems = attr.findall(".//{http://schemas.microsoft.com/2008/1/ActiveDirectory}value")
+
+            # Also try addata namespace as fallback
+            if not value_elems:
+                value_elems = attr.findall(".//addata:value", namespaces=NAMESPACES)
+
+            for value_elem in value_elems:
+                # Get text content - use itertext() to handle nested elements
+                text = value_elem.text
+                if text is None:
+                    # Try getting all text content from descendants
+                    text = "".join(value_elem.itertext())
+
+                # Strip whitespace and check if there's actual content
+                if text and text.strip():
+                    values.append(text.strip())
+                    raw_values.append(text.strip())
 
             if not values:
                 continue
