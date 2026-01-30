@@ -182,6 +182,21 @@ class ADWSConnection:
 
         return entries
 
+    # Binary attributes that are base64-encoded in ADWS and need to be decoded to bytes
+    # These contain actual binary data (certificates, security descriptors, etc.)
+    BINARY_ATTRIBUTES = {
+        "cACertificate",
+        "userCertificate",
+        "nTSecurityDescriptor",
+        "msDS-AllowedToActOnBehalfOfOtherIdentity",
+        "dnsRecord",
+        "pKIExpirationPeriod",
+        "pKIOverlapPeriod",
+        "logonHours",
+        "schemaIDGUID",
+        "attributeSecurityGUID",
+    }
+
     def _parse_xml_item(self, item: ElementTree.Element) -> Optional[LDAPEntry]:
         """
         Parse a single ADWS XML item into an LDAPEntry.
@@ -223,8 +238,8 @@ class ADWSConnection:
             if attr_name == "distinguishedName":
                 dn = values[0]
 
-            # Convert certain attributes from base64
-            if ldap_syntax == "SidString" or attr_name in ["objectSid", "securityIdentifier"]:
+            # Convert SID attributes from base64 to canonical string format
+            if attr_name in ["objectSid", "securityIdentifier", "sIDHistory"]:
                 try:
                     from impacket.ldap.ldaptypes import LDAP_SID
                     decoded_values = []
@@ -246,22 +261,18 @@ class ADWSConnection:
                 except Exception:
                     pass
 
-            elif attr_name == "nTSecurityDescriptor":
-                # Keep as raw bytes for security descriptor parsing
+            elif attr_name in self.BINARY_ATTRIBUTES:
+                # Binary attributes: decode from base64 to raw bytes
                 try:
                     raw_values = [b64decode(v) for v in values]
                     values = raw_values
                 except Exception:
                     pass
 
-            elif ldap_syntax == "2.5.5.10":
-                # OctetString - binary data (certificates, EKU OIDs, etc.)
-                # Decode from base64 to raw bytes
-                try:
-                    raw_values = [b64decode(v) for v in values]
-                    values = raw_values
-                except Exception:
-                    pass
+            else:
+                # For all other attributes, raw_attributes should contain bytes
+                # to match LDAP behavior (where .decode() is used to convert to strings)
+                raw_values = [v.encode("utf-8") if isinstance(v, str) else v for v in values]
 
             # Store single value or list based on count
             if len(values) == 1:
