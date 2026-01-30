@@ -44,6 +44,7 @@ from certipy.lib.errors import handle_error
 from certipy.lib.files import try_to_save_file
 from certipy.lib.formatting import pretty_print
 from certipy.lib.kerberos import HttpxKerberosAuth
+from certipy.lib.adws import ADWSConnection
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import is_verbose, logging
 from certipy.lib.ntlm import HttpxNtlmAuth, NtlmNotSupportedError
@@ -103,17 +104,22 @@ class Find:
     # =========================================================================
 
     @property
-    def connection(self) -> LDAPConnection:
+    def connection(self) -> LDAPConnection | ADWSConnection:
         """
-        Get or create an LDAP connection.
+        Get or create an LDAP or ADWS connection.
 
         Returns:
-            Active LDAP connection to the target
+            Active connection to the target (LDAP or ADWS based on target.use_adws)
         """
         if self._connection is not None:
             return self._connection
 
-        self._connection = LDAPConnection(self.target)
+        if self.target.use_adws:
+            logging.info("Using ADWS (port 9389) instead of LDAP")
+            self._connection = ADWSConnection(self.target)
+        else:
+            self._connection = LDAPConnection(self.target)
+
         self._connection.connect()
 
         return self._connection

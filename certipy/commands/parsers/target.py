@@ -88,6 +88,15 @@ def add_argument_group(
         default=10,
         type=int,
     )
+    _ = conn_group.add_argument(
+        "-use-adws",
+        action="store_true",
+        dest="use_adws",
+        help=(
+            "Use Active Directory Web Services (ADWS) on port 9389 instead of LDAP. "
+            "ADWS traffic may evade detection as it is less commonly monitored"
+        ),
+    )
 
     # Authentication Options Group
     auth_group = parser.add_argument_group("authentication options")

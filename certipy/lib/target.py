@@ -54,6 +54,7 @@ class Target:
         ldap_channel_binding: bool = True,
         ldap_signing: bool = True,
         ldap_user_dn: Optional[str] = None,
+        use_adws: bool = False,
     ) -> None:
         """
         Initialize a Target with the specified connection parameters.
@@ -79,6 +80,7 @@ class Target:
             ldap_channel_binding: Use LDAP channel binding
             ldap_signing: Use LDAP signing
             ldap_user_dn: LDAP user distinguished name
+            use_adws: Use ADWS (port 9389) instead of LDAP
         """
         self.resolver = resolver
 
@@ -101,6 +103,7 @@ class Target:
         self.ldap_channel_binding: bool = ldap_channel_binding
         self.ldap_signing: bool = ldap_signing
         self.ldap_user_dn: Optional[str] = ldap_user_dn
+        self.use_adws: bool = use_adws
 
     @staticmethod
     def from_options(
@@ -162,6 +165,9 @@ class Target:
         ldap_user_dn = (
             options.ldap_user_dn if hasattr(options, "ldap_user_dn") else None
         )
+
+        # ADWS options
+        use_adws = options.use_adws if hasattr(options, "use_adws") else False
 
         # Parse username and domain from principal format (user@DOMAIN)
         domain = ""
@@ -319,6 +325,7 @@ class Target:
             ldap_signing=not no_ldap_signing,
             ldap_port=ldap_port,
             ldap_user_dn=ldap_user_dn,
+            use_adws=use_adws,
         )
 
         return target
