@@ -254,6 +254,15 @@ class ADWSConnection:
                 except Exception:
                     pass
 
+            elif ldap_syntax == "2.5.5.10":
+                # OctetString - binary data (certificates, EKU OIDs, etc.)
+                # Decode from base64 to raw bytes
+                try:
+                    raw_values = [b64decode(v) for v in values]
+                    values = raw_values
+                except Exception:
+                    pass
+
             # Store single value or list based on count
             if len(values) == 1:
                 attributes[attr_name] = values[0]
@@ -295,6 +304,19 @@ class ADWSConnection:
             # Return cached result if available
             if sanitized_username in self._users:
                 return self._users[sanitized_username]
+
+            # Specify required attributes to avoid ADWS size limit issues
+            # when querying with "*" (all attributes)
+            if "attributes" not in kwargs:
+                kwargs["attributes"] = [
+                    "distinguishedName",
+                    "objectSid",
+                    "primaryGroupID",
+                    "sAMAccountName",
+                    "sAMAccountType",
+                    "name",
+                    "objectClass",
+                ]
 
             # Search for the user
             results = self.search(f"(sAMAccountName={username})", *args, **kwargs)
