@@ -471,8 +471,9 @@ class NNS:
         # Get Kerberos AP_REQ blob using Certipy's existing function
         # Use ldap SPN for ADWS service - must use hostname, not IP for Kerberos
         # Pass service="ldap" separately since get_kerberos_type1 constructs SPN as {service}/{target_name}
+        # Note: get_kerberos_type1 returns a complete SPNEGO NegTokenInit token, not raw AP_REQ
         kerberos_hostname = self._kerberos_target.remote_name or self._kerberos_target.dc_host or self._fqdn
-        cipher, session_key, blob, username = get_kerberos_type1(
+        cipher, session_key, spnego_token, username = get_kerberos_type1(
             self._kerberos_target,
             target_name=kerberos_hostname,
             service="ldap",
@@ -480,19 +481,13 @@ class NNS:
             signing=True,
         )
 
-        # Create SPNEGO NegTokenInit with Kerberos token
-        NegTokenInit = impacket.spnego.SPNEGO_NegTokenInit()
-        NegTokenInit["MechTypes"] = [
-            impacket.spnego.TypesMech["MS KRB5 - Microsoft Kerberos 5"],
-        ]
-        NegTokenInit["MechToken"] = blob
-
-        # Send NNS handshake with Kerberos token
+        # Send NNS handshake with SPNEGO token
+        # The spnego_token from get_kerberos_type1 is already a complete SPNEGO NegTokenInit
         NNS_handshake(
             message_id=MessageID.IN_PROGRESS,
             major_version=1,
             minor_version=0,
-            payload=NegTokenInit.getData(),
+            payload=spnego_token,
         ).send(self._sock)
 
         # Receive response
@@ -505,7 +500,16 @@ class NNS:
 
         # Check for errors
         if NNS_msg_done["message_id"] == MessageID.ERROR:
-            raise SystemExit(f"[-] Kerberos Auth Failed")
+            # Try to extract error details from payload
+            try:
+                err_code = int.from_bytes(NNS_msg_done["payload"], "big")
+                if err_code in ERROR_MESSAGES:
+                    err_type, err_msg = ERROR_MESSAGES[err_code]
+                    raise SystemExit(f"[-] Kerberos Auth Failed with error {err_type}: {err_msg}")
+                else:
+                    raise SystemExit(f"[-] Kerberos Auth Failed with error code: 0x{err_code:08X}")
+            except (ValueError, KeyError):
+                raise SystemExit(f"[-] Kerberos Auth Failed")
 
         # Set up Kerberos cipher for encryption
         self._kerberos_cipher = KerberosCipher(cipher, session_key)
