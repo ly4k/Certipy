@@ -307,6 +307,23 @@ class ADWSConnection:
                 except Exception:
                     pass
 
+            elif attr_name in ["whenCreated", "whenChanged"]:
+                # Convert GeneralizedTime (20250521145655.0Z) to ISO 8601 (2025-05-21T14:56:55+00:00)
+                try:
+                    from datetime import datetime, timezone
+                    decoded_values = []
+                    for v in values:
+                        # Parse GeneralizedTime format: YYYYMMDDHHMMSS.0Z
+                        # Remove the .0Z suffix and parse
+                        time_str = v.replace(".0Z", "").replace("Z", "")
+                        dt = datetime.strptime(time_str, "%Y%m%d%H%M%S")
+                        # Set timezone to UTC and format as ISO 8601
+                        dt = dt.replace(tzinfo=timezone.utc)
+                        decoded_values.append(dt.isoformat())
+                    values = decoded_values
+                except Exception:
+                    pass
+
             elif attr_name in self.BINARY_ATTRIBUTES:
                 # Binary attributes: decode from base64 to raw bytes
                 try:
