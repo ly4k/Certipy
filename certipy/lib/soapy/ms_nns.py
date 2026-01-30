@@ -470,10 +470,12 @@ class NNS:
 
         # Get Kerberos AP_REQ blob using Certipy's existing function
         # Use ldap SPN for ADWS service - must use hostname, not IP for Kerberos
+        # Pass service="ldap" separately since get_kerberos_type1 constructs SPN as {service}/{target_name}
         kerberos_hostname = self._kerberos_target.remote_name or self._kerberos_target.dc_host or self._fqdn
         cipher, session_key, blob, username = get_kerberos_type1(
             self._kerberos_target,
-            target_name=f"ldap/{kerberos_hostname}",
+            target_name=kerberos_hostname,
+            service="ldap",
             channel_binding_data=None,
             signing=True,
         )
