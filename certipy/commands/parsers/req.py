@@ -61,6 +61,18 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Name of the Certificate Authority to request certificates from. Required for RPC and DCOM methods",
     )
 
+    # CA subpath (optional)
+    subparser.add_argument(
+        "-ca-subpath",
+        action="store",
+        metavar="path to ask certificate after /certsrv/",
+        required=False,
+        help=(
+            "Path to ask a certificate after /certsrv/"
+            "Example: /en-us/ (become http://ca.corp.local/certsrv/en-us/certfnsh.asp)"
+        ),
+    )
+
     # Certificate request parameters
     cert_group = subparser.add_argument_group("certificate request options")
     cert_group.add_argument(
