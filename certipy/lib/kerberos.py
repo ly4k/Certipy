@@ -938,6 +938,5 @@ def get_tgs(
 
     # Extract the username and domain from the client name
     username = "@".join(str(client_name).split("@")[:-1])
-    domain = client_name.realm or ""
 
     return kdc_rep, cast(type, cipher), cast(Key, session_key), username, domain
