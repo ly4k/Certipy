@@ -13,6 +13,7 @@ It serves as a comprehensive tool for CA administration and security assessment.
 
 import argparse
 import copy
+import struct
 import time
 from typing import Any, List, Optional, Union
 
@@ -304,6 +305,49 @@ class ICertRequestD2(ICertCustom):
     def __init__(self, interface: IRemUnknown2):
         super().__init__(interface)
         self._iid = IID_ICertRequestD2
+
+
+# =========================================================================
+# Enrollment Agent Rights Parsing
+# =========================================================================
+
+
+def _parse_enrollment_agent_rights(
+    ea_rights_bytes: bytes,
+) -> "List[EnrollmentAgentRestriction]":
+    """
+    Parse the binary EnrollmentAgentRights security descriptor from the CA registry.
+
+    The DACL contains ACCESS_ALLOWED_CALLBACK_ACE entries (type 0x09).
+    Each ACE's Sid field is the enrollment agent SID, and ApplicationData
+    encodes the target SIDs + template name (see EnrollmentAgentRestriction.from_ace_opaque).
+
+    Args:
+        ea_rights_bytes: Raw bytes of the EnrollmentAgentRights registry value
+
+    Returns:
+        List of EnrollmentAgentRestriction objects
+    """
+    from impacket.ldap import ldaptypes
+    from ldap3.protocol.formatters.formatters import format_sid
+
+    restrictions: List[EnrollmentAgentRestriction] = []
+
+    sd = ldaptypes.SR_SECURITY_DESCRIPTOR()
+    sd.fromString(ea_rights_bytes)
+
+    if sd["Dacl"] == b"":
+        return restrictions
+
+    for ace in sd["Dacl"]["Data"]:
+        if ace["AceType"] != ldaptypes.ACCESS_ALLOWED_CALLBACK_ACE.ACE_TYPE:
+            continue
+        agent_sid = format_sid(ace["Ace"]["Sid"].getData())
+        opaque: bytes = bytes(ace["Ace"]["ApplicationData"])
+        restriction = EnrollmentAgentRestriction.from_ace_opaque(agent_sid, opaque)
+        restrictions.append(restriction)
+
+    return restrictions
 
 
 # =========================================================================
@@ -646,6 +690,19 @@ class CA:
         # Parse the binary security descriptor
         security_descriptor = CASecurity(security_descriptor)
 
+        # Retrieve EnrollmentAgentRights (controls which agents can enroll on behalf of which targets)
+        enrollment_agent_restrictions: Optional[List[EnrollmentAgentRestriction]] = None
+        try:
+            _, ea_rights_bytes = rrp.hBaseRegQueryValue(
+                self.rrp_dce, configuration_key["phkResult"], "EnrollmentAgentRights"
+            )
+            if isinstance(ea_rights_bytes, bytes) and ea_rights_bytes:
+                enrollment_agent_restrictions = _parse_enrollment_agent_rights(
+                    ea_rights_bytes
+                )
+        except Exception:
+            pass
+
         # Return a complete configuration object
         return CAConfiguration(
             active_policy,
@@ -654,6 +711,7 @@ class CA:
             request_disposition,
             interface_flags,
             security_descriptor,
+            enrollment_agent_restrictions,
         )
 
     def get_config(self) -> Optional["CAConfiguration"]:
@@ -1441,6 +1499,83 @@ class CA:
         return True
 
 
+class EnrollmentAgentRestriction:
+    """
+    Represents a single Enrollment Agent restriction ACE from the CA's EnrollmentAgentRights.
+
+    Each ACE encodes:
+    - agent: SID of the enrollment agent (who holds the EA certificate)
+    - targets: list of SIDs that the agent is allowed to enroll on behalf of
+    - template: certificate template name the restriction applies to (or '<All>')
+    """
+
+    def __init__(self, agent_sid: str, targets: List[str], template: str):
+        self.agent = agent_sid
+        self.targets = targets
+        self.template = template
+
+    @classmethod
+    def from_ace_opaque(
+        cls, agent_sid: str, opaque: bytes
+    ) -> "EnrollmentAgentRestriction":
+        """
+        Parse the opaque blob embedded in an EnrollmentAgentRights ACE.
+
+        Binary layout (matches MS-WCCE / Certify's EnrollmentAgentRestriction.cs):
+          [4 bytes LE uint32] sid_count
+          [sid_count * variable] binary SIDs
+          [remaining bytes - 2] UTF-16LE template name (null-terminated, strip trailing NUL)
+        """
+        targets: List[str] = []
+        index = 0
+
+        if len(opaque) < 4:
+            return cls(agent_sid, targets, "<All>")
+
+        sid_count = struct.unpack_from("<I", opaque, index)[0]
+        index += 4
+
+        for _ in range(sid_count):
+            if index >= len(opaque):
+                break
+            sid_len = cls._sid_binary_length(opaque, index)
+            if sid_len <= 0 or index + sid_len > len(opaque):
+                break
+            sid_str = cls._parse_sid(opaque, index)
+            targets.append(sid_str)
+            index += sid_len
+
+        if index < len(opaque) - 2:
+            raw = opaque[index : len(opaque) - 2]
+            template = raw.decode("utf-16-le", errors="replace").rstrip("\x00")
+        else:
+            template = "<All>"
+
+        return cls(agent_sid, targets, template)
+
+    @staticmethod
+    def _sid_binary_length(data: bytes, offset: int) -> int:
+        """Return the byte length of a binary SID starting at offset."""
+        if offset + 2 > len(data):
+            return -1
+        sub_authority_count = data[offset + 1]
+        return 8 + 4 * sub_authority_count
+
+    @staticmethod
+    def _parse_sid(data: bytes, offset: int) -> str:
+        """Parse a binary SID from data at offset and return its string form."""
+        revision = data[offset]
+        sub_count = data[offset + 1]
+        authority = int.from_bytes(data[offset + 2 : offset + 8], "big")
+        subs = struct.unpack_from(f"<{sub_count}I", data, offset + 8)
+        sub_str = "-".join(str(s) for s in subs)
+        return (
+            f"S-{revision}-{authority}-{sub_str}"
+            if sub_str
+            else f"S-{revision}-{authority}"
+        )
+
+
 class CAConfiguration:
     """
     Class representing a Certificate Authority configuration.
@@ -1455,6 +1590,7 @@ class CAConfiguration:
         request_disposition: Default disposition for certificate requests
         interface_flags: Flags controlling CA interface behavior
         security: Security descriptor for the CA
+        enrollment_agent_restrictions: Parsed EnrollmentAgentRights restrictions (may be None)
     """
 
     def __init__(
@@ -1465,6 +1601,9 @@ class CAConfiguration:
         request_disposition: int,
         interface_flags: int,
         security: CASecurity,
+        enrollment_agent_restrictions: Optional[
+            List[EnrollmentAgentRestriction]
+        ] = None,
     ):
         """
         Initialize a CA configuration object.
@@ -1476,6 +1615,7 @@ class CAConfiguration:
             request_disposition: Default disposition for new certificate requests
             interface_flags: Interface control flags
             security: CASecurity object containing the CA's security descriptor
+            enrollment_agent_restrictions: Parsed list of EnrollmentAgentRestriction objects
         """
         self.active_policy = active_policy
         self.edit_flags = edit_flags
@@ -1483,6 +1623,7 @@ class CAConfiguration:
         self.request_disposition = request_disposition
         self.interface_flags = interface_flags
         self.security = security
+        self.enrollment_agent_restrictions = enrollment_agent_restrictions
 
 
 def entry(options: argparse.Namespace) -> None:
