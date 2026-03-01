@@ -6,7 +6,7 @@ This module allows enumerating Active Directory Certificate Services (AD CS) com
 - Certificate authorities
 - Certificate issuance policies
 - Security permissions and ACLs
-- Vulnerability detection for ESC1-15
+- Vulnerability detection for ESC1-16
 
 It provides detailed information about certificate templates, authorities, and security
 settings, helping identify misconfiguration and potential attack vectors.
@@ -319,6 +319,9 @@ class Find:
         # Step 5: Process CA certificates and properties
         self._process_ca_properties(cas)
 
+        # Step 5.5: Get DC registry configuration for ESC10 detection
+        self._get_dc_registry_config()
+
         # Step 6: Process template properties
         self._process_template_properties(templates)
 
@@ -629,6 +632,138 @@ class Find:
                 f"Could not parse CA certificate for {ca.get('name')!r}: {e}"
             )
             handle_error(True)
+
+    def _get_dc_registry_config(self) -> None:
+        """
+        Read DC registry configuration for ESC10 detection.
+
+        Reads two registry values from the Domain Controller:
+        - StrongCertificateBindingEnforcement (KDC service)
+        - CertificateMappingMethods (Schannel provider)
+
+        Results are stored in self.dc_config dict.
+        """
+        self.dc_config: Dict[str, Any] = {
+            "strong_cert_binding_enforcement": "Unknown",
+            "certificate_mapping_methods": "Unknown",
+        }
+
+        if self.dc_only:
+            logging.info(
+                "Skipping DC registry configuration (DC only mode)"
+            )
+            return
+
+        dc_remote_name = self.target.remote_name
+        dc_target_ip = self.target.target_ip
+
+        if dc_target_ip is None:
+            logging.warning(
+                "Could not determine DC IP. DC configuration will be reported as Unknown."
+            )
+            return
+
+        logging.info(
+            f"Reading DC registry configuration from {dc_remote_name!r}"
+        )
+
+        dce = None
+        try:
+            dce = self.open_remote_registry(dc_target_ip, dc_remote_name)
+            if dce is None:
+                logging.warning(
+                    "Could not connect to DC remote registry. "
+                    "DC configuration will be reported as Unknown."
+                )
+                return
+
+            hklm = rrp.hOpenLocalMachine(dce)
+            h_root_key = hklm["phKey"]
+
+            # Read StrongCertificateBindingEnforcement
+            try:
+                kdc_key = rrp.hBaseRegOpenKey(
+                    dce,
+                    h_root_key,
+                    "SYSTEM\\CurrentControlSet\\Services\\Kdc",
+                )
+                _, value = rrp.hBaseRegQueryValue(
+                    dce,
+                    kdc_key["phkResult"],
+                    "StrongCertificateBindingEnforcement",
+                )
+                if isinstance(value, int):
+                    self.dc_config["strong_cert_binding_enforcement"] = value
+                else:
+                    logging.warning(
+                        f"Expected int for StrongCertificateBindingEnforcement, "
+                        f"got {type(value)!r}. Using default value 1."
+                    )
+                    self.dc_config["strong_cert_binding_enforcement"] = 1
+            except Exception as e:
+                if "ERROR_FILE_NOT_FOUND" in str(e):
+                    logging.debug(
+                        "StrongCertificateBindingEnforcement not found in registry. "
+                        "Using default value 1."
+                    )
+                    self.dc_config["strong_cert_binding_enforcement"] = 1
+                else:
+                    logging.warning(
+                        f"Failed to read StrongCertificateBindingEnforcement: {e}"
+                    )
+                    handle_error(True)
+
+            # Read CertificateMappingMethods
+            try:
+                schannel_key = rrp.hBaseRegOpenKey(
+                    dce,
+                    h_root_key,
+                    "SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\Schannel",
+                )
+                _, value = rrp.hBaseRegQueryValue(
+                    dce,
+                    schannel_key["phkResult"],
+                    "CertificateMappingMethods",
+                )
+                if isinstance(value, int):
+                    self.dc_config["certificate_mapping_methods"] = value
+                else:
+                    logging.warning(
+                        f"Expected int for CertificateMappingMethods, "
+                        f"got {type(value)!r}. Using default value 0x18."
+                    )
+                    self.dc_config["certificate_mapping_methods"] = 0x18
+            except Exception as e:
+                if "ERROR_FILE_NOT_FOUND" in str(e):
+                    logging.debug(
+                        "CertificateMappingMethods not found in registry. "
+                        "Using default value 0x18."
+                    )
+                    self.dc_config["certificate_mapping_methods"] = 0x18
+                else:
+                    logging.warning(
+                        f"Failed to read CertificateMappingMethods: {e}"
+                    )
+                    handle_error(True)
+
+            logging.info(
+                f"DC registry: StrongCertificateBindingEnforcement = "
+                f"{self.dc_config['strong_cert_binding_enforcement']}, "
+                f"CertificateMappingMethods = "
+                f"{self.dc_config['certificate_mapping_methods']}"
+            )
+
+        except Exception as e:
+            logging.warning(
+                f"Failed to read DC registry configuration: {e}"
+            )
+            handle_error(True)
+        finally:
+            if dce is not None:
+                try:
+                    dce.disconnect()
+                except Exception:
+                    pass
 
     def check_web_enrollment(self, ca: LDAPEntry, channel: str) -> bool:
         """
@@ -1184,6 +1319,18 @@ class Find:
 
         # Build final output dictionary
         output = {}
+
+        # Add DC configuration (for ESC10)
+        if hasattr(self, "dc_config"):
+            dc_entry = OrderedDict()
+            dc_entry["DC Host"] = self.target.remote_name
+            dc_entry["StrongCertificateBindingEnforcement"] = self.dc_config[
+                "strong_cert_binding_enforcement"
+            ]
+            dc_entry["CertificateMappingMethods"] = self.dc_config[
+                "certificate_mapping_methods"
+            ]
+            output["Domain Controller Configuration"] = {0: dc_entry}
 
         # Add CAs
         if not ca_entries:
@@ -1880,6 +2027,8 @@ class Find:
         - ESC3: Template with Certificate Request Agent EKU or vulnerable configuration
         - ESC4: Template with dangerous permissions or owned by current user
         - ESC9: Template with no security extension
+        - ESC10a: Weak certificate binding enforcement on DC
+        - ESC10b: Weak certificate mapping methods (UPN mapping) on DC
         - ESC13: Template linked to a group through issuance policy
         - ESC15: Schema v1 template with enrollee-supplied subject (CVE-2024-49019)
 
@@ -1938,6 +2087,39 @@ class Find:
                     remarks["ESC9"] = (
                         "Other prerequisites may be required for this to be exploitable. See "
                         "the wiki for more details."
+                    )
+
+                # ESC10a: Weak certificate binding enforcement
+                if (
+                    hasattr(self, "dc_config")
+                    and self.dc_config["strong_cert_binding_enforcement"] == 0
+                    and template.get("client_authentication")
+                ):
+                    vulnerabilities["ESC10a"] = (
+                        "StrongCertificateBindingEnforcement is disabled on the DC "
+                        "and template allows client authentication."
+                    )
+                    remarks["ESC10a"] = (
+                        "GenericWrite over another account is a prerequisite. "
+                        "See the wiki for more details."
+                    )
+
+                # ESC10b: Weak certificate mapping methods (UPN mapping)
+                if (
+                    hasattr(self, "dc_config")
+                    and isinstance(
+                        self.dc_config["certificate_mapping_methods"], int
+                    )
+                    and self.dc_config["certificate_mapping_methods"] & 0x4
+                    and template.get("client_authentication")
+                ):
+                    vulnerabilities["ESC10b"] = (
+                        "CertificateMappingMethods contains UPN mapping flag (0x4) "
+                        "and template allows client authentication."
+                    )
+                    remarks["ESC10b"] = (
+                        "GenericWrite over another account is a prerequisite. "
+                        "See the wiki for more details."
                     )
 
                 # ESC13: Template with issuance policy linked to a group
