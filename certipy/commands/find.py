@@ -68,6 +68,7 @@ class Find:
         csv: bool = False,
         text: bool = False,
         stdout: bool = False,
+        bloodhound: bool = False,
         output: Optional[str] = None,
         trailing_output: str = "",
         enabled: bool = False,
@@ -85,6 +86,7 @@ class Find:
         self.csv = csv
         self.text = text or stdout
         self.stdout = stdout
+        self.bloodhound = bloodhound
         self.output = output
         self.trailing_output = trailing_output
         self.enabled = enabled
@@ -997,7 +999,7 @@ class Find:
             prefix: Output file prefix
         """
         # Determine if default output format should be used
-        not_specified = not any([self.json, self.text, self.csv])
+        not_specified = not any([self.json, self.text, self.csv, self.bloodhound])
 
         # Generate output for text/JSON formats
         output = self.get_output_for_text_and_json(templates, cas, oids)
@@ -1064,6 +1066,15 @@ class Find:
             logging.info(f"Saving CA CSV output to {ca_output_path!r}")
             ca_output_path = try_to_save_file(ca_output, ca_output_path)
             logging.info(f"Wrote CA CSV output to {ca_output_path!r}")
+
+        # Save BloodHound CE output
+        if self.bloodhound:
+            from certipy.lib.bloodhound_ce import generate_bloodhound_output
+
+            logging.info("Generating BloodHound CE v6 compatible output")
+            generate_bloodhound_output(
+                templates, cas, oids, self.connection, prefix
+            )
 
     def get_output_for_text_and_json(
         self, templates: List[LDAPEntry], cas: List[LDAPEntry], oids: List[LDAPEntry]

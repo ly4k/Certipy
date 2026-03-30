@@ -78,6 +78,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Output result as CSV",
     )
     output_group.add_argument(
+        "-bloodhound",
+        action="store_true",
+        help="Output result as BloodHound CE v6 compatible JSON (zip archive)",
+    )
+    output_group.add_argument(
         "-output",
         action="store",
         metavar="prefix",
