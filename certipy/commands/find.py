@@ -1982,10 +1982,6 @@ class Find:
                     )
 
                 # ESC17: Server authentication with enrollee-supplied subject
-                if template.get("enrollee_supplies_subject"):
-                    from pprint import pprint
-
-                    pprint(template["attributes"])
                 if template.get("enrollee_supplies_subject") and template.get(
                     "server_authentication"
                 ):
