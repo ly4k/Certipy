@@ -510,6 +510,7 @@ def web_request(
     csr: Union[str, bytes, x509.CertificateSigningRequest],
     attributes_list: List[str],
     template: str,
+    ca_subpath: str,
     key: PrivateKeyTypes,
     out: Optional[str] = None,
 ) -> Optional[x509.Certificate]:
@@ -555,7 +556,10 @@ def web_request(
 
     # Send certificate request
     try:
-        res = session.post("/certsrv/certfnsh.asp", data=params)
+        res = session.post(
+            f"/certsrv/{(ca_subpath + '/') if ca_subpath else ''}certfnsh.asp",
+            data=params,
+        )
         content = res.text
 
         # Handle HTTP errors
@@ -569,7 +573,7 @@ def web_request(
         if request_id_matches:
             request_id = int(request_id_matches[0])
             logging.info(f"Certificate issued with request ID {request_id}")
-            return web_retrieve(session, request_id)
+            return web_retrieve(session, request_id, ca_subpath or "")
 
         # Handle various error conditions
         if "template that is not supported" in content:
@@ -584,7 +588,7 @@ def web_request(
                 if "Certificate Pending" in content:
                     logging.warning("Certificate request is pending approval")
                 elif '"Denied by Policy Module"' in content:
-                    _handle_policy_denial(session, request_id)
+                    _handle_policy_denial(session, request_id, ca_subpath or "")
                 else:
                     _handle_other_errors(content)
             else:
@@ -607,6 +611,7 @@ def web_request(
 def web_retrieve(
     session: httpx.Client,
     request_id: int,
+    ca_subpath: str,
 ) -> Optional[x509.Certificate]:
     """
     Retrieve a certificate via the web enrollment interface.
@@ -622,8 +627,10 @@ def web_retrieve(
 
     try:
         # Request the certificate
-        res = session.get("/certsrv/certnew.cer", params={"ReqID": request_id})
-
+        res = session.get(
+            f"/certsrv/{(ca_subpath + '/') if ca_subpath else ''}certnew.cer",
+            params={"ReqID": request_id},
+        )
         if res.status_code != 200:
             logging.error(f"Error retrieving certificate (HTTP {res.status_code})")
             _log_response_if_verbose(res.text)
@@ -693,7 +700,9 @@ def _determine_output_filename(
     return username.rstrip("$").lower()
 
 
-def _handle_policy_denial(session: httpx.Client, request_id: int) -> None:
+def _handle_policy_denial(
+    session: httpx.Client, request_id: int, ca_subpath: str
+) -> None:
     """
     Handle certificate request denied by policy.
 
@@ -702,8 +711,10 @@ def _handle_policy_denial(session: httpx.Client, request_id: int) -> None:
         request_id: The certificate request ID
     """
     try:
-        res = session.get("/certsrv/certnew.cer", params={"ReqID": request_id})
-
+        res = session.get(
+            f"/certsrv/{(ca_subpath + '/') if ca_subpath else ''}certnew.cer",
+            params={"ReqID": request_id},
+        )
         error_codes = re.findall(
             r"(0x[a-zA-Z0-9]+) \([-]?[0-9]+ ", res.text, flags=re.MULTILINE
         )
@@ -1149,10 +1160,9 @@ class WebRequestInterface:
         host_value = self.target.remote_name or self.target.target_ip
         if host_value:
             headers["Host"] = host_value
-
         try:
             res = session.get(
-                "/certsrv/",
+                f"/certsrv/{(self.parent.ca_subpath + '/') if self.parent.ca_subpath else ''}",
                 headers=headers,
                 timeout=self.target.timeout,
                 follow_redirects=False,
@@ -1191,10 +1201,7 @@ class WebRequestInterface:
         if self.session is None:
             raise Exception("Failed to get HTTP session")
 
-        return web_retrieve(
-            self.session,
-            request_id,
-        )
+        return web_retrieve(self.session, request_id, self.parent.ca_subpath or "")
 
     def request(
         self, csr: bytes, attributes_list: List[str]
@@ -1222,6 +1229,7 @@ class WebRequestInterface:
             csr,
             attributes_list,
             self.parent.template,
+            self.parent.ca_subpath or "",
             self.parent.key,
             self.parent.out,
         )
@@ -1244,6 +1252,7 @@ class Request:
         self,
         target: Target,
         ca: Optional[str] = None,
+        ca_subpath: Optional[str] = "",
         template: str = "User",
         upn: Optional[str] = None,
         dns: Optional[str] = None,
@@ -1301,6 +1310,7 @@ class Request:
         # Core parameters
         self.target = target
         self.ca = ca
+        self.ca_subpath = ca_subpath
         self.template = template
         self.alt_upn = upn
         self.alt_dns = dns
@@ -1316,6 +1326,10 @@ class Request:
         self.renew = renew
         self.out = out
         self.key = key
+
+        # Parse the CA subpath
+        if self.ca_subpath is not None:
+            self.ca_subpath = self.ca_subpath.strip("/")
 
         # Convert application policy names to OIDs
         self.application_policies = [
