@@ -19,7 +19,7 @@ from typing import Any, List, Optional, Union
 from impacket.dcerpc.v5 import rpcrt, rrp, scmr
 from impacket.dcerpc.v5.dcom.oaut import VARIANT
 from impacket.dcerpc.v5.dcomrt import DCOMANSWER, DCOMCALL, IRemUnknown, IRemUnknown2
-from impacket.dcerpc.v5.dtypes import DWORD, LONG, LPWSTR, PBYTE, ULONG, WSTR
+from impacket.dcerpc.v5.dtypes import DWORD, FILETIME, LONG, LPWSTR, PBYTE, ULONG, WSTR
 from impacket.dcerpc.v5.ndr import NDRSTRUCT
 from impacket.dcerpc.v5.nrpc import checkNullString
 from impacket.dcerpc.v5.rpcrt import RPC_C_AUTHN_LEVEL_PKT_PRIVACY, DCERPCException
@@ -127,6 +127,24 @@ class ICertAdminDDenyRequest(DCOMCALL):
 
 
 class ICertAdminDDenyRequestResponse(DCOMANSWER):
+    structure = (("ErrorCode", ULONG),)
+
+
+class ICertAdminDRevokeCertificate(DCOMCALL):
+    """
+    RPC interface for revoking a certificate.
+    """
+
+    opnum = 10
+    structure = (
+        ("pwszAuthority", LPWSTR),
+        ("pwszSerialNumber", LPWSTR),
+        ("Reason", DWORD),
+        ("FileTime", FILETIME),
+    )
+
+
+class ICertAdminDRevokeCertificateResponse(DCOMANSWER):
     structure = (("ErrorCode", ULONG),)
 
 
@@ -330,6 +348,7 @@ class CA:
         template: Optional[str] = None,
         officer: Optional[str] = None,
         request_id: Optional[int] = None,
+        serial_number: Optional[str] = None,
         connection: Optional[LDAPConnection] = None,
         scheme: str = "ldaps",
         dynamic: bool = False,
@@ -346,6 +365,7 @@ class CA:
             template: Certificate template name
             officer: Officer username
             request_id: Certificate request ID
+            serial_number: Issued certificate serial number
             connection: Existing LDAP connection to reuse
             scheme: LDAP scheme (ldap or ldaps)
             dc_host: Domain controller hostname
@@ -356,6 +376,7 @@ class CA:
         """
         self.target = target
         self.request_id = request_id
+        self.serial_number = serial_number
         self.ca = ca
         self.officer = officer
         self.template = template
@@ -769,6 +790,55 @@ class CA:
         else:
             error_msg = translate_error_code(error_code)
             logging.error(f"Failed to deny certificate request: {error_msg}")
+            return False
+
+    def revoke(self) -> bool:
+        """
+        Revoke an issued certificate.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if self.serial_number is None:
+            logging.error(
+                "A serial number is required in order to revoke a certificate"
+            )
+            return False
+
+        request = ICertAdminDRevokeCertificate()
+        request["pwszAuthority"] = checkNullString(self.ca)
+        request["pwszSerialNumber"] = checkNullString(self.serial_number)
+        request["Reason"] = int(0)
+
+        ft = FILETIME()
+        ft["dwLowDateTime"] = 0
+        ft["dwHighDateTime"] = 0
+        request["FileTime"] = ft
+
+        try:
+            resp = self.cert_admin.request(request)
+        except DCERPCSessionError as e:
+            if "E_ACCESSDENIED" in str(e):
+                logging.error(
+                    "Access denied: Insufficient permissions to revoke certificate"
+                )
+                return False
+            logging.error(
+                f"Failed to revoke certificate serial number {self.serial_number}: {e}"
+            )
+            handle_error()
+            return False
+
+        error_code = resp["ErrorCode"]
+
+        if error_code == 0:  # Success
+            logging.info(
+                f"Successfully revoke certificate serial number {self.serial_number}"
+            )
+            return True
+        else:
+            error_msg = translate_error_code(error_code)
+            logging.error(f"Failed to revoke certificate: {error_msg}")
             return False
 
     # =========================================================================
@@ -1522,6 +1592,9 @@ def entry(options: argparse.Namespace) -> None:
     elif options.deny_request is not None:
         ca.request_id = int(options.deny_request)
         _ = ca.deny()
+    elif options.revoke_certificate is not None:
+        ca.serial_number = options.revoke_certificate
+        _ = ca.revoke()
     elif options.enable_template is not None:
         ca.template = options.enable_template
         _ = ca.enable()
