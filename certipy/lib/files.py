@@ -31,8 +31,12 @@ def try_to_save_file(
     """
     logging.debug(f"Attempting to write data to {output_path!r}")
 
-    # Clean up the output path
-    output_path = output_path.replace("\\", "_").replace("/", "_").replace(":", "_")
+    # Clean up only the filename part, not the directory path
+    directory = os.path.dirname(output_path)
+    filename = os.path.basename(output_path)
+    # Sanitize only the filename to remove invalid characters
+    filename = filename.replace(":", "_")
+    output_path = os.path.join(directory, filename) if directory else filename
 
     # Handle file existence check and overwrite confirmation
     output_path = _handle_file_exists(output_path)
