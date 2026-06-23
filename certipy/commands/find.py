@@ -938,6 +938,12 @@ class Find:
         )
         template.set("client_authentication", client_authentication)
 
+        # Check for server authentication capability
+        server_authentication = (
+            "Server Authentication" in extended_key_usage or any_purpose
+        )
+        template.set("server_authentication", server_authentication)
+
         # Check for enrollment agent capability
         enrollment_agent = (
             any_purpose or "Certificate Request Agent" in extended_key_usage
@@ -1082,7 +1088,7 @@ class Find:
                 continue
 
             # Get template vulnerabilities
-            (vulnerabilities, remarks, enrollable_principals, acl_principals) = (
+            vulnerabilities, remarks, enrollable_principals, acl_principals = (
                 self.get_template_vulnerabilities(template)
             )
 
@@ -1129,7 +1135,7 @@ class Find:
                 entry["Permissions"] = permissions
 
             # Add vulnerabilities
-            (vulnerabilities, remarks, enrollable_principals, acl_principals) = (
+            vulnerabilities, remarks, enrollable_principals, acl_principals = (
                 self.get_ca_vulnerabilities(ca)
             )
 
@@ -1156,7 +1162,7 @@ class Find:
         if self.oids:
             for oid in oids:
                 # Get OID vulnerabilities
-                (vulnerabilities, acl_principals) = self.get_oid_vulnerabilities(oid)
+                vulnerabilities, acl_principals = self.get_oid_vulnerabilities(oid)
 
                 # Skip if only showing vulnerable OIDs and this one isn't
                 if self.vuln and not vulnerabilities:
@@ -1882,6 +1888,7 @@ class Find:
         - ESC9: Template with no security extension
         - ESC13: Template linked to a group through issuance policy
         - ESC15: Schema v1 template with enrollee-supplied subject (CVE-2024-49019)
+        - ESC17: Server authentication template with enrollee-supplied subject
 
         Args:
             template: Certificate template to analyze
@@ -1972,6 +1979,19 @@ class Find:
                     remarks["ESC15"] = (
                         f"Only applicable if the environment has not been patched. "
                         "See CVE-2024-49019 or the wiki for more details."
+                    )
+
+                # ESC17: Server authentication with enrollee-supplied subject
+                if template.get("enrollee_supplies_subject") and template.get(
+                    "server_authentication"
+                ):
+                    vulnerabilities["ESC17"] = (
+                        f"Enrollee supplies subject "
+                        "and template allows server authentication."
+                    )
+                    remarks["ESC17"] = (
+                        "Other prerequisites may be required for this to be exploitable. See "
+                        "the wiki for more details."
                     )
 
             # ESC2 Target: Schema v1 or requires Any Purpose signature
