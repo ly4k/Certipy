@@ -1088,7 +1088,7 @@ class Find:
                 continue
 
             # Get template vulnerabilities
-            (vulnerabilities, remarks, enrollable_principals, acl_principals) = (
+            vulnerabilities, remarks, enrollable_principals, acl_principals = (
                 self.get_template_vulnerabilities(template)
             )
 
@@ -1135,7 +1135,7 @@ class Find:
                 entry["Permissions"] = permissions
 
             # Add vulnerabilities
-            (vulnerabilities, remarks, enrollable_principals, acl_principals) = (
+            vulnerabilities, remarks, enrollable_principals, acl_principals = (
                 self.get_ca_vulnerabilities(ca)
             )
 
@@ -1162,7 +1162,7 @@ class Find:
         if self.oids:
             for oid in oids:
                 # Get OID vulnerabilities
-                (vulnerabilities, acl_principals) = self.get_oid_vulnerabilities(oid)
+                vulnerabilities, acl_principals = self.get_oid_vulnerabilities(oid)
 
                 # Skip if only showing vulnerable OIDs and this one isn't
                 if self.vuln and not vulnerabilities:
