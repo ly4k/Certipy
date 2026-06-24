@@ -847,7 +847,7 @@ class Find:
             certificate_name_flag = CertificateNameFlag(int(certificate_name_flag))
         else:
             certificate_name_flag = CertificateNameFlag(0)
-        template.set("certificate_name_flag", certificate_name_flag.to_list())
+        template.set("certificate_name_flag", certificate_name_flag.to_str_list())
 
         # Process enrollment flags
         enrollment_flag = template.get("msPKI-Enrollment-Flag")
@@ -855,7 +855,7 @@ class Find:
             enrollment_flag = EnrollmentFlag(int(enrollment_flag))
         else:
             enrollment_flag = EnrollmentFlag(0)
-        template.set("enrollment_flag", enrollment_flag.to_list())
+        template.set("enrollment_flag", enrollment_flag.to_str_list())
 
         # Process private key flags
         private_key_flag = template.get("msPKI-Private-Key-Flag")
@@ -863,7 +863,7 @@ class Find:
             private_key_flag = PrivateKeyFlag(int(private_key_flag))
         else:
             private_key_flag = PrivateKeyFlag(0)
-        template.set("private_key_flag", private_key_flag.to_list())
+        template.set("private_key_flag", private_key_flag.to_str_list())
 
         # Process signature requirements
         authorized_signatures_required = template.get("msPKI-RA-Signature")
