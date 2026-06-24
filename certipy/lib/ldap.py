@@ -296,7 +296,7 @@ class ExtendedLdapConnection(ldap3.Connection):
     """
 
     def __init__(
-        self, target: Target, *args: Any, channel_binding: bool = True, **kwargs: Any
+        self, target: Target, *args: Any, channel_binding: bool = True, use_starttls: bool = False, **kwargs: Any
     ) -> None:
         """
         Initialize an extended LDAP connection with the specified target.
@@ -304,6 +304,7 @@ class ExtendedLdapConnection(ldap3.Connection):
         Args:
             target: Target object containing connection details
             channel_binding: Whether to use channel binding (default: True)
+            use_starttls: Whether using StartTLS (default: False)
             *args: Additional positional arguments for the parent class
             **kwargs: Additional keyword arguments for the parent class
         """
@@ -315,6 +316,7 @@ class ExtendedLdapConnection(ldap3.Connection):
         # Store target and connection properties
         self.target = target
         self.channel_binding = channel_binding
+        self.use_starttls = use_starttls
         self.negotiated_flags = 0
 
         # Encryption-related attributes
@@ -428,9 +430,9 @@ class ExtendedLdapConnection(ldap3.Connection):
                         raise Exception("NTLM not available on server")
 
                     # Step 2: Send NTLM negotiate message
-                    use_signing = self.target.ldap_signing and not self.server.ssl
+                    use_signing = self.target.ldap_signing and not self.server.ssl and not self.use_starttls
                     logging.debug(
-                        f"Using NTLM signing: {use_signing} (LDAP signing: {self.target.ldap_signing}, SSL: {self.server.ssl})"
+                        f"Using NTLM signing: {use_signing} (LDAP signing: {self.target.ldap_signing}, SSL: {self.server.ssl}, StartTLS: {self.use_starttls})"
                     )
                     negotiate = ntlm_negotiate(use_signing)
 
@@ -467,10 +469,10 @@ class ExtendedLdapConnection(ldap3.Connection):
 
                     channel_binding_data = None
                     use_channel_binding = (
-                        self.target.ldap_channel_binding and self.server.ssl
+                        self.target.ldap_channel_binding and (self.server.ssl or self.use_starttls)
                     )
                     logging.debug(
-                        f"Using channel binding signing: {use_channel_binding} (LDAP channel binding: {self.target.ldap_channel_binding}, SSL: {self.server.ssl})"
+                        f"Using channel binding signing: {use_channel_binding} (LDAP channel binding: {self.target.ldap_channel_binding}, SSL: {self.server.ssl}, StartTLS: {self.use_starttls})"
                     )
                     if use_channel_binding:
                         if not isinstance(self.socket, ssl.SSLSocket):
@@ -566,6 +568,7 @@ class LDAPConnection:
         self.target = target
         self.schannel_auth = schannel_auth
         self.use_ssl = target.ldap_scheme == "ldaps"
+        self.use_starttls = target.ldap_scheme == "ldap+starttls"
 
         # Determine port based on scheme and target configuration
         if self.use_ssl:
@@ -630,6 +633,22 @@ class LDAPConnection:
                 tls=tls,
                 connect_timeout=self.target.timeout,
             )
+        elif self.use_starttls:
+            # Configure TLS for StartTLS (upgrade after connection)
+            tls = ldap3.Tls(
+                validate=ssl.CERT_NONE,
+                version=ssl.PROTOCOL_TLS_CLIENT,
+                ciphers="ALL:@SECLEVEL=0",
+                ssl_options=[ssl.OP_ALL],
+            )
+            ldap_server = ldap3.Server(
+                self.target.target_ip,
+                use_ssl=False,
+                port=self.port,
+                get_info=ldap3.ALL,
+                tls=tls,
+                connect_timeout=self.target.timeout,
+            )
         else:
             ldap_server = ldap3.Server(
                 self.target.target_ip,
@@ -647,8 +666,16 @@ class LDAPConnection:
             ldap_conn = ExtendedLdapConnection(
                 self.target,
                 ldap_server,
+                use_starttls=self.use_starttls,
                 receive_timeout=self.target.timeout * 10,
             )
+
+            # Upgrade to TLS if using StartTLS
+            if self.use_starttls:
+                logging.debug("Upgrading LDAP connection to TLS using StartTLS")
+                ldap_conn.open()
+                ldap_conn.start_tls()
+
             self._kerberos_login(ldap_conn)
         else:
             auth_method = "SIMPLE" if self.target.do_simple else "NTLM"
@@ -670,8 +697,15 @@ class LDAPConnection:
                 password=ldap_pass,
                 authentication=ldap3.SIMPLE if self.target.do_simple else ldap3.NTLM,
                 auto_referrals=False,
+                use_starttls=self.use_starttls,
                 receive_timeout=self.target.timeout * 10,
             )
+
+            # Upgrade to TLS if using StartTLS
+            if self.use_starttls:
+                logging.debug("Upgrading LDAP connection to TLS using StartTLS")
+                ldap_conn.open()
+                ldap_conn.start_tls()
 
         # Perform bind operation if not already bound
         if not ldap_conn.bound:
@@ -731,7 +765,7 @@ class LDAPConnection:
         _ = cert_file.write(cert_to_pem(cert))
         cert_file.close()
 
-        # Configure TLS for LDAPS
+        # Configure TLS for LDAPS or StartTLS
         tls = ldap3.Tls(
             local_private_key_file=key_file.name,
             local_certificate_file=cert_file.name,
@@ -743,7 +777,7 @@ class LDAPConnection:
 
         ldap_server = ldap3.Server(
             self.target.target_ip,
-            use_ssl=self.use_ssl,
+            use_ssl=self.use_ssl and not self.use_starttls,
             port=self.port,
             get_info=ldap3.ALL,
             tls=tls,
@@ -774,7 +808,7 @@ class LDAPConnection:
             conn_kwargs = {
                 "authentication": ldap3.SASL,
                 "sasl_mechanism": ldap3.EXTERNAL,
-                "auto_bind": ldap3.AUTO_BIND_TLS_BEFORE_BIND,
+                "auto_bind": ldap3.AUTO_BIND_TLS_BEFORE_BIND if not self.use_starttls else False,
                 "sasl_credentials": sasl_credentials,
             }
 
@@ -791,9 +825,14 @@ class LDAPConnection:
             logging.error(f"Failed to connect to LDAP server: {e}")
             raise
 
-        # Open the connection if using SSL. Non-SSL connections are opened automatically.
-        if self.use_ssl:
+        # Open the connection if using SSL or StartTLS
+        if self.use_ssl or self.use_starttls:
             ldap_conn.open()
+
+        # Upgrade to TLS if using StartTLS
+        if self.use_starttls:
+            logging.debug("Upgrading LDAP connection to TLS using StartTLS")
+            ldap_conn.start_tls()
 
         # Get authenticated identity
         who_am_i = ldap_conn.extend.standard.who_am_i()
@@ -849,9 +888,9 @@ class LDAPConnection:
         if connection.closed:
             connection.open(read_server_info=True)
 
-        # Setup channel binding if enabled and using SSL
+        # Setup channel binding if enabled and using SSL or StartTLS
         channel_binding_data = None
-        if self.target.ldap_channel_binding and connection.server.ssl:
+        if self.target.ldap_channel_binding and (connection.server.ssl or connection.use_starttls):
             logging.debug("Using LDAP channel binding for Kerberos authentication")
 
             if not isinstance(connection.socket, ssl.SSLSocket):
@@ -869,7 +908,7 @@ class LDAPConnection:
             self.target,
             target_name=self.target.remote_name or "",
             channel_binding_data=channel_binding_data,
-            signing=self.target.ldap_signing and not connection.server.ssl,
+            signing=self.target.ldap_signing and not connection.server.ssl and not connection.use_starttls,
         )
 
         # Create SASL bind request
@@ -898,8 +937,8 @@ class LDAPConnection:
 
         self._check_ldap_result(result)
 
-        # Set up encryption if signing is requested
-        if self.target.ldap_signing and not connection.server.ssl:
+        # Set up encryption if signing is requested (not needed for TLS/StartTLS)
+        if self.target.ldap_signing and not connection.server.ssl and not connection.use_starttls:
             connection.kerberos_cipher = KerberosCipher(cipher, session_key)
             connection.should_encrypt = self.target.ldap_signing
 
