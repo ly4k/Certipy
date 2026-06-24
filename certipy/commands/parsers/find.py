@@ -105,6 +105,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Show only vulnerable certificate templates based on nested group memberships",
     )
     find_group.add_argument(
+        "-user",
+        action="store_true",
+        help="Show only vulnerabilities exploitable by the current authenticated user",
+    )
+    find_group.add_argument(
         "-oids",
         action="store_true",
         help="Show OIDs (Issuance Policies) and their properties",
