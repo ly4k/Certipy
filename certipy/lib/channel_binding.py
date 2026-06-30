@@ -1,7 +1,84 @@
 import hashlib
 import ssl
+import warnings
 
 import httpx
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+
+
+def _normalize_hash_name(hash_algorithm: hashes.HashAlgorithm) -> str:
+    return hash_algorithm.name.lower().replace("-", "")
+
+
+def _rfc5929_cert_hash(server_cert: bytes) -> bytes:
+    """
+    Compute the certificate hash according to RFC 5929 section 4.
+
+    RFC 5929 defines the hash algorithm for tls-server-end-point as follows:
+    1. If the certificate's signatureAlgorithm uses MD5 or SHA-1, use SHA-256.
+    2. If it uses another single hash function, use that hash function.
+    3. If it uses no hash function or multiple hash functions, the channel
+       binding is undefined. For compatibility, this implementation falls
+       back to SHA-256 and emits a warning.
+    """
+    cert = x509.load_der_x509_certificate(server_cert)
+    hash_algorithms = set()
+
+    sig_hash = cert.signature_hash_algorithm
+
+    if sig_hash is not None:
+        hash_algorithms.add(_normalize_hash_name(sig_hash))
+
+    sig_params = getattr(cert, "signature_algorithm_parameters", None)
+
+    # RSASSA-PSS can contain an additional MGF1 hash algorithm.
+    # If that hash differs from the main signature hash, this falls under
+    # RFC 5929's "multiple hash functions" undefined case.
+    if isinstance(sig_params, padding.PSS):
+        mgf = getattr(sig_params, "mgf", None)
+        mgf_hash = getattr(mgf, "_algorithm", None)
+
+        if mgf_hash is not None:
+            hash_algorithms.add(_normalize_hash_name(mgf_hash))
+
+    if len(hash_algorithms) == 0:
+        warnings.warn(
+            "The certificate's signatureAlgorithm uses no hash function. "
+            "RFC 5929 defines tls-server-end-point channel bindings as undefined "
+            "for this case. Falling back to SHA-256.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        alg = "sha256"
+
+    elif len(hash_algorithms) > 1:
+        warnings.warn(
+            "The certificate's signatureAlgorithm uses multiple hash functions. "
+            "RFC 5929 defines tls-server-end-point channel bindings as undefined "
+            "for this case. Falling back to SHA-256.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        alg = "sha256"
+
+    else:
+        alg = next(iter(hash_algorithms))
+
+        if alg in ("md5", "sha1"):
+            alg = "sha256"
+
+    try:
+        return hashlib.new(alg, server_cert).digest()
+    except ValueError:
+        warnings.warn(
+            f"The certificate's signature hash algorithm '{alg}' is not supported "
+            "by hashlib. Falling back to SHA-256.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return hashlib.sha256(server_cert).digest()
 
 
 def get_channel_binding_data(server_cert: bytes) -> bytes:
@@ -10,7 +87,10 @@ def get_channel_binding_data(server_cert: bytes) -> bytes:
 
     This implements the tls-server-end-point channel binding type as described
     in RFC 5929 section 4. The binding token is created by:
-    1. Hashing the server certificate with SHA-256
+    1. Multiple scenarios for hashing the server certificate:
+        1.1 If the certificate's signature algorithm is MD5 or SHA-1, hash the certificate with SHA-256
+        1.2 Otherwise, hash the certificate with the same algorithm as the certificate's signature
+        1.3 If the signatureAlgorithm uses no hash function or uses multiple hash functions, the behavior is implementation-defined. In this implementation, we will default to SHA-256 for any unsupported or unknown signature algorithms.
     2. Creating a channel binding structure with the hash
     3. Computing an MD5 hash of the structure
 
@@ -23,8 +103,7 @@ def get_channel_binding_data(server_cert: bytes) -> bytes:
     References:
         - RFC 5929: https://datatracker.ietf.org/doc/html/rfc5929#section-4
     """
-    # Hash the certificate with SHA-256 as required by the RFC
-    cert_hash = hashlib.sha256(server_cert).digest()
+    cert_hash = _rfc5929_cert_hash(server_cert)
 
     # Initialize the channel binding structure with empty addresses
     # These fields are defined in the RFC but not used for TLS bindings
