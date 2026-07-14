@@ -17,7 +17,7 @@ class BloodHound:
         self, user: str, password: str, host: str = "localhost", port: int = 7687
     ):
         try:
-            from neo4j import GraphDatabase
+            from neo4j import GraphDatabase  # type: ignore[import-not-found]
         except ImportError:
             raise BloodHoundError(
                 "Please install the 'bloodhound' extra to use this feature"
