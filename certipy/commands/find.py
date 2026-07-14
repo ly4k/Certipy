@@ -655,9 +655,7 @@ class Find:
         }
 
         if self.dc_only:
-            logging.info(
-                "Skipping DC registry configuration (DC only mode)"
-            )
+            logging.info("Skipping DC registry configuration (DC only mode)")
             return
 
         dc_remote_name = self.target.remote_name
@@ -669,9 +667,7 @@ class Find:
             )
             return
 
-        logging.info(
-            f"Reading DC registry configuration from {dc_remote_name!r}"
-        )
+        logging.info(f"Reading DC registry configuration from {dc_remote_name!r}")
 
         dce = None
         try:
@@ -747,9 +743,7 @@ class Find:
                     )
                     self.dc_config["certificate_mapping_methods"] = 0x18
                 else:
-                    logging.warning(
-                        f"Failed to read CertificateMappingMethods: {e}"
-                    )
+                    logging.warning(f"Failed to read CertificateMappingMethods: {e}")
                     handle_error(True)
 
             logging.info(
@@ -760,9 +754,7 @@ class Find:
             )
 
         except Exception as e:
-            logging.warning(
-                f"Failed to read DC registry configuration: {e}"
-            )
+            logging.warning(f"Failed to read DC registry configuration: {e}")
             handle_error(True)
         finally:
             if dce is not None:
@@ -2138,9 +2130,7 @@ class Find:
                 # ESC10b: Weak certificate mapping methods (UPN mapping)
                 if (
                     hasattr(self, "dc_config")
-                    and isinstance(
-                        self.dc_config["certificate_mapping_methods"], int
-                    )
+                    and isinstance(self.dc_config["certificate_mapping_methods"], int)
                     and self.dc_config["certificate_mapping_methods"] & 0x4
                     and template.get("client_authentication")
                 ):

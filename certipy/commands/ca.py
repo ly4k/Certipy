@@ -996,8 +996,13 @@ class CA:
     # =========================================================================
 
     def _modify_ca_security(
-        self, user: str, right: int, right_type: str, remove: bool = False, ace_type: str = "allow"
-) -> Union[bool, None]:
+        self,
+        user: str,
+        right: int,
+        right_type: str,
+        remove: bool = False,
+        ace_type: str = "allow",
+    ) -> Union[bool, None]:
         """
         Add or remove rights for a user on the CA.
 
@@ -1023,7 +1028,6 @@ class CA:
         else:
             logging.error(f"Invalid ace_type {ace_type!r}, must be 'allow' or 'deny'")
             return False
-
 
         # Get user object
         user_obj = connection.get_user(user)
@@ -1100,7 +1104,11 @@ class CA:
             ace = ldaptypes.ACE()
             ace["AceType"] = target_ace_type
             ace["AceFlags"] = 0
-            ace["Ace"] = ldaptypes.ACCESS_ALLOWED_ACE() if target_ace_type == ldaptypes.ACCESS_ALLOWED_ACE.ACE_TYPE else ldaptypes.ACCESS_DENIED_ACE()
+            ace["Ace"] = (
+                ldaptypes.ACCESS_ALLOWED_ACE()
+                if target_ace_type == ldaptypes.ACCESS_ALLOWED_ACE.ACE_TYPE
+                else ldaptypes.ACCESS_DENIED_ACE()
+            )
             ace["Ace"]["Mask"] = ldaptypes.ACCESS_MASK()
             ace["Ace"]["Mask"]["Mask"] = right
             ace["Ace"]["Sid"] = sid
@@ -1159,7 +1167,9 @@ class CA:
         Returns:
             True if successful, False if failed, None if user not found
         """
-        return self._modify_ca_security(user, right, right_type, ace_type=self.ace_type, remove=False)
+        return self._modify_ca_security(
+            user, right, right_type, ace_type=self.ace_type, remove=False
+        )
 
     def remove(self, user: str, right: int, right_type: str) -> Union[bool, None]:
         """
@@ -1173,7 +1183,9 @@ class CA:
         Returns:
             True if successful, False if failed, None if user not found
         """
-        return self._modify_ca_security(user, right, right_type, ace_type=self.ace_type, remove=True)
+        return self._modify_ca_security(
+            user, right, right_type, ace_type=self.ace_type, remove=True
+        )
 
     def add_officer(self, officer: str) -> Union[bool, None]:
         """
