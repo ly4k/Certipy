@@ -611,7 +611,13 @@ class ADCSRPCAttackClient(ProtocolAttack):
     """
 
     def __init__(
-        self, adcs_relay: "Relay", config: NTLMRelayxConfig, dce: Any, username: str
+        self,
+        adcs_relay: "Relay",
+        config: NTLMRelayxConfig,
+        dce: Any,
+        username: str,
+        target: Optional[Any] = None,
+        relay_client: Optional[Any] = None,
     ):
         """
         Initialize the RPC attack client.
@@ -621,8 +627,10 @@ class ADCSRPCAttackClient(ProtocolAttack):
             config: NTLMRelayxConfig object with relay settings
             dce: DCE/RPC connection
             username: Username of the relayed user
+            target: Relay target (passed by impacket >= 0.13)
+            relay_client: Originating relay client (passed by impacket >= 0.13)
         """
-        super().__init__(config, dce, username)
+        super().__init__(config, dce, username, target, relay_client)
 
         self.adcs_relay = adcs_relay
         self.dce = dce
