@@ -806,6 +806,17 @@ def create_csr(
     if subject:
         subject_name = get_subject_from_str(subject)
     else:
+        # Validate username before using it as CN — x509 NameAttribute
+        # requires a non-empty value (length >= 1 and <= 64).
+        # This can happen during relay attacks when the NTLM response
+        # contains an empty user_name field.
+        if not username or not username.strip():
+            raise ValueError(
+                "Cannot create CSR: username is empty. "
+                "The relayed NTLM authentication did not contain a valid username. "
+                "Use the '-subject' option to specify an explicit subject DN, "
+                "or ensure the relayed connection provides a valid username."
+            )
         subject_name = x509.Name(
             [
                 x509.NameAttribute(NameOID.COMMON_NAME, username.capitalize()),

@@ -554,8 +554,17 @@ def web_request(
     )
 
     # Send certificate request
+    # Certificate issuance can take significantly longer than the NTLM auth
+    # handshake, so we use an extended timeout for the POST request.
+    # Use at least 60 seconds, or the session's configured read timeout if larger.
+    session_read_timeout = getattr(session.timeout, "read", 10) or 10
+    cert_request_timeout = max(session_read_timeout, 60)
     try:
-        res = session.post("/certsrv/certfnsh.asp", data=params)
+        res = session.post(
+            "/certsrv/certfnsh.asp",
+            data=params,
+            timeout=cert_request_timeout,
+        )
         content = res.text
 
         # Handle HTTP errors
@@ -598,6 +607,13 @@ def web_request(
 
         return None
 
+    except httpx.ReadTimeout:
+        logging.error(
+            f"Certificate request timed out after {cert_request_timeout}s waiting for "
+            "AD CS to respond. The CA may be slow or under load. "
+            "Try increasing the timeout with '-timeout <seconds>' (e.g., -timeout 120)"
+        )
+        return None
     except Exception as e:
         logging.error(f"Error during web certificate request: {e}")
         handle_error()
