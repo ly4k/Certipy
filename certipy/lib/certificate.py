@@ -236,6 +236,18 @@ def print_certificate_authentication_information(
         logging.info(f"    Security Extension SID: {sid_extension_sid!r}")
 
 
+def print_certificate_serial_number(
+    certificate: x509.Certificate,
+) -> None:
+    """
+    Print certificate serial number with appropriate formatting.
+
+    Args:
+        certificate: X.509 certificate to analyze
+    """
+    logging.info(f"Certificate serial number is {hex(certificate.serial_number)[2:]}")
+
+
 def print_certificate_identities(
     identities: List[Tuple[str, str]],
 ) -> None:
