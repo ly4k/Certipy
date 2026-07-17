@@ -96,6 +96,21 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Output file for saving certificate or results",
     )
 
+    # Certificate options
+    cert_group = subparser.add_argument_group("certificate options")
+    cert_group.add_argument(
+        "-pfx",
+        action="store",
+        metavar="pfx/p12 file name",
+        help="Path to certificate and private key (PFX/P12 format)",
+    )
+    cert_group.add_argument(
+        "-pfxpassword",
+        action="store",
+        metavar="password",
+        help="Password for the PFX/P12 file",
+    )
+
     # Add standard target arguments from shared module
     target.add_argument_group(subparser)
 
