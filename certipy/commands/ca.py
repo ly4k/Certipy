@@ -592,6 +592,33 @@ class CA:
         hklm = rrp.hOpenLocalMachine(self.rrp_dce)
         h_root_key = hklm["phKey"]
 
+        windows_build = None
+        product_name = None
+        try:
+            current_version_key = rrp.hBaseRegOpenKey(
+                self.rrp_dce,
+                h_root_key,
+                "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+            )
+            _, current_build = rrp.hBaseRegQueryValue(
+                self.rrp_dce, current_version_key["phkResult"], "CurrentBuildNumber"
+            )
+            _, ubr = rrp.hBaseRegQueryValue(
+                self.rrp_dce, current_version_key["phkResult"], "UBR"
+            )
+            _, raw_product_name = rrp.hBaseRegQueryValue(
+                self.rrp_dce, current_version_key["phkResult"], "ProductName"
+            )
+            if isinstance(current_build, str) and isinstance(ubr, int):
+                windows_build = f"{current_build.strip(chr(0))}.{ubr}"
+            product_name = (
+                raw_product_name.strip("\x00")
+                if isinstance(raw_product_name, str)
+                else None
+            )
+        except Exception:
+            logging.debug("Could not retrieve the CA host Windows build")
+
         # First retrieve active policy module information
         policy_key_path = (
             f"SYSTEM\\CurrentControlSet\\Services\\CertSvc\\Configuration\\{self.ca}\\"
@@ -714,6 +741,8 @@ class CA:
             interface_flags,
             security_descriptor,
             enrollment_agent_restrictions,
+            windows_build,
+            product_name,
         )
 
     def get_config(self) -> Optional["CAConfiguration"]:
@@ -1628,6 +1657,8 @@ class CAConfiguration:
         enrollment_agent_restrictions: Optional[
             List[EnrollmentAgentRestriction]
         ] = None,
+        windows_build: Optional[str] = None,
+        product_name: Optional[str] = None,
     ):
         """
         Initialize a CA configuration object.
@@ -1648,6 +1679,8 @@ class CAConfiguration:
         self.interface_flags = interface_flags
         self.security = security
         self.enrollment_agent_restrictions = enrollment_agent_restrictions
+        self.windows_build = windows_build
+        self.product_name = product_name
 
 
 def entry(options: argparse.Namespace) -> None:

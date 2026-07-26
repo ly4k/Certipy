@@ -1283,6 +1283,7 @@ class Request:
         http_port: Optional[int] = None,
         no_channel_binding: bool = False,
         dynamic_endpoint: bool = False,
+        attribute: Optional[List[str]] = None,
         **kwargs,  # type: ignore
     ):
         """
@@ -1346,6 +1347,7 @@ class Request:
         self.http_port = http_port
         self.http_scheme = http_scheme
         self.no_channel_binding = no_channel_binding
+        self.additional_attributes = attribute or []
 
         # Handle default ports based on scheme
         if not self.http_port and self.http_scheme:
@@ -1526,6 +1528,7 @@ class Request:
             self.alt_sid,
             self.application_policies,
         )
+        attributes.extend(self.additional_attributes)
 
         # Submit the certificate request
         cert = self.interface.request(csr_der, attributes)
