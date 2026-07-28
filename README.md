@@ -57,6 +57,18 @@ The exploit listener requires local TCP ports 389 and 445. It obtains and saves
 the issued PFX but does not perform certificate authentication or
 post-exploitation automatically.
 
+Use the existing authentication command with the saved PFX to obtain a TGT and
+NT hash, or to open Certipy's LDAP shell:
+
+```bash
+certipy auth -pfx dc01.pfx -dc-ip 10.0.0.10
+certipy auth -pfx dc01.pfx -dc-ip 10.0.0.10 -ldap-shell
+```
+
+Temporary computer accounts are removed automatically on success, failure, and
+interruption. Use `-no-cleanup` only when retaining a Certighost-created account
+is intentional; an existing computer supplied with `-computer-name` is never removed.
+
 For detailed explanations and exploitation steps, refer to the [Certipy Wiki](https://github.com/ly4k/Certipy/wiki/06-%E2%80%90-Privilege-Escalation).
 
 ---

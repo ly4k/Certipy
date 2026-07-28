@@ -162,16 +162,6 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         metavar="encryption algorithm",
         help="Specify SMIME Extension that gets added to CSR (e.g., des, rc4, 3des, aes128, aes192, aes256)",
     )
-    cert_group.add_argument(
-        "-attribute",
-        action="append",
-        default=[],
-        metavar="name:value",
-        help=(
-            "Add a request attribute. May be specified multiple times "
-            "(for example, -attribute cdc:192.0.2.10)"
-        ),
-    )
 
     # Output options
     output_group = subparser.add_argument_group("output options")

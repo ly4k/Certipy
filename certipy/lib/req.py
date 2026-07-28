@@ -907,7 +907,8 @@ class DCOMRequestInterface:
             return result
 
         # Ask if the user wants to save the private key for pending requests
-        handle_pending_key_save(result, self.parent.key, self.parent.out)
+        if self.parent.prompt_for_pending_key:
+            handle_pending_key_save(result, self.parent.key, self.parent.out)
 
         return None
 
@@ -1063,7 +1064,8 @@ class RPCRequestInterface:
             return result
 
         # Ask if the user wants to save the private key for pending requests
-        handle_pending_key_save(result, self.parent.key, self.parent.out)
+        if self.parent.prompt_for_pending_key:
+            handle_pending_key_save(result, self.parent.key, self.parent.out)
 
         return None
 
@@ -1283,7 +1285,8 @@ class Request:
         http_port: Optional[int] = None,
         no_channel_binding: bool = False,
         dynamic_endpoint: bool = False,
-        attribute: Optional[List[str]] = None,
+        additional_attributes: Optional[List[str]] = None,
+        prompt_for_pending_key: bool = True,
         **kwargs,  # type: ignore
     ):
         """
@@ -1347,7 +1350,8 @@ class Request:
         self.http_port = http_port
         self.http_scheme = http_scheme
         self.no_channel_binding = no_channel_binding
-        self.additional_attributes = attribute or []
+        self.additional_attributes = additional_attributes or []
+        self.prompt_for_pending_key = prompt_for_pending_key
 
         # Handle default ports based on scheme
         if not self.http_port and self.http_scheme:
