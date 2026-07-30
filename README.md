@@ -43,7 +43,31 @@ See the [Quick Start Guide](https://github.com/ly4k/Certipy/wiki/05-%E2%80%90-Us
 
 ## 🎯 Supported AD CS Vulnerabilities
 
-Certipy supports detection and exploitation of AD CS vulnerabilities across the full range of ESC1-ESC17.
+Certipy supports detection and exploitation of AD CS vulnerabilities across the full range of ESC1-ESC17, as well as Certighost (CVE-2026-54121).
+
+Certighost exposure is reported by `certipy find` when the CA chase policy is
+enabled and the CA host is below Microsoft's July 2026 fixed build. In an
+authorized lab, the certificate-issuance path can be exercised with:
+
+```bash
+sudo certipy certighost -u user@corp.local -p password -dc-ip 10.0.0.10
+```
+
+The exploit listener requires local TCP ports 389 and 445. It obtains and saves
+the issued PFX but does not perform certificate authentication or
+post-exploitation automatically.
+
+Use the existing authentication command with the saved PFX to obtain a TGT and
+NT hash, or to open Certipy's LDAP shell:
+
+```bash
+certipy auth -pfx dc01.pfx -dc-ip 10.0.0.10
+certipy auth -pfx dc01.pfx -dc-ip 10.0.0.10 -ldap-shell
+```
+
+Temporary computer accounts are removed automatically on success, failure, and
+interruption. Use `-no-cleanup` only when retaining a Certighost-created account
+is intentional; an existing computer supplied with `-computer-name` is never removed.
 
 For detailed explanations and exploitation steps, refer to the [Certipy Wiki](https://github.com/ly4k/Certipy/wiki/06-%E2%80%90-Privilege-Escalation).
 
