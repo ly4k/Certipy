@@ -263,9 +263,11 @@ class Target:
             else:
                 raise Exception("Could not find a target in the specified options")
 
-        # Configure LDAP optinos
+        # Configure LDAP options
         if ldap_port is None:
             if ldap_scheme == "ldap":
+                ldap_port = 389
+            elif ldap_scheme == "ldap+starttls":
                 ldap_port = 389
             else:
                 ldap_port = 636
