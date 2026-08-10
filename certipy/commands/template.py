@@ -1,7 +1,7 @@
 """
 Certificate Template Management Module.
 
-This module implements the functionality to view and modify Active Directory
+This module implements the functionality to view, create, and modify Active Directory
 certificate templates, allowing security assessment and exploitation of
 misconfigured templates in AD CS environments.
 """
@@ -9,13 +9,25 @@ misconfigured templates in AD CS environments.
 import argparse
 import collections
 import json
+import re
+import secrets
+import sys
 from itertools import groupby
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import ldap3
-from ldap3.core.results import RESULT_INSUFFICIENT_ACCESS_RIGHTS
+from ldap3.core.results import (
+    RESULT_CONSTRAINT_VIOLATION,
+    RESULT_ENTRY_ALREADY_EXISTS,
+    RESULT_INSUFFICIENT_ACCESS_RIGHTS,
+    RESULT_INVALID_DN_SYNTAX,
+    RESULT_NO_SUCH_OBJECT,
+    RESULT_OBJECT_CLASS_VIOLATION,
+    RESULT_UNWILLING_TO_PERFORM,
+)
 from ldap3.protocol.microsoft import security_descriptor_control
 from ldap3.utils.conv import escape_filter_chars
+from ldap3.utils.dn import escape_rdn
 
 from certipy.lib.constants import (
     OID_TO_STR_NAME_MAP,
@@ -36,26 +48,75 @@ from certipy.lib.time import (
     span_to_filetime,
 )
 
-# Attributes that should not be modified to avoid breaking template functionality
-PROTECTED_ATTRIBUTES = [
-    "objectClass",
-    "cn",
-    "distinguishedName",
-    "whenCreated",
-    "whenChanged",
-    "name",
-    "objectGUID",
-    "objectCategory",
-    "dSCorePropagationData",
-    "msPKI-Cert-Template-OID",
-    "uSNCreated",
-    "uSNChanged",
-    "displayName",
-    "instanceType",
-    "revision",
-    "msPKI-Template-Schema-Version",
-    "msPKI-Template-Minor-Revision",
-]
+# Values populated by AD rather than copied into a new directory object.
+SERVER_GENERATED_ATTRIBUTES = frozenset(
+    {
+        "canonicalName",
+        "createTimeStamp",
+        "distinguishedName",
+        "dSCorePropagationData",
+        "instanceType",
+        "modifyTimeStamp",
+        "objectCategory",
+        "objectGUID",
+        "uSNCreated",
+        "uSNChanged",
+        "whenChanged",
+        "whenCreated",
+    }
+)
+
+# Template identity is replaced rather than inherited from the source template.
+IDENTITY_ATTRIBUTES = frozenset(
+    {
+        "cn",
+        "displayName",
+        "msPKI-Cert-Template-OID",
+        # name is a NO-USER-MODIFICATION attribute derived by AD from the RDN.
+        "name",
+    }
+)
+
+# Attributes protected by the existing configuration restore/MODIFY behavior.
+IMMUTABLE_ON_MODIFY_ATTRIBUTES = frozenset(
+    {
+        "objectClass",
+        "cn",
+        "distinguishedName",
+        "whenCreated",
+        "whenChanged",
+        "name",
+        "objectGUID",
+        "objectCategory",
+        "dSCorePropagationData",
+        "msPKI-Cert-Template-OID",
+        "uSNCreated",
+        "uSNChanged",
+        "displayName",
+        "instanceType",
+        "revision",
+        "msPKI-Template-Schema-Version",
+        "msPKI-Template-Minor-Revision",
+    }
+)
+
+# Backwards-compatible module name used by configuration serialization and restore.
+PROTECTED_ATTRIBUTES = IMMUTABLE_ON_MODIFY_ATTRIBUTES
+
+CREATION_EXCLUDED_ATTRIBUTES = (
+    SERVER_GENERATED_ATTRIBUTES | IDENTITY_ATTRIBUTES | {"objectClass"}
+)
+CREATION_VERSION_ATTRIBUTES = frozenset(
+    {
+        "revision",
+        "msPKI-Template-Schema-Version",
+        "msPKI-Template-Minor-Revision",
+    }
+)
+
+TEMPLATE_OID_ATTRIBUTE = "msPKI-Cert-Template-OID"
+TEMPLATE_OID_RETRIES = 10
+OID_PATTERN = re.compile(r"^(?:0|1|2)(?:\.(?:0|[1-9][0-9]*))+$")
 
 
 def create_esc1_template(sid: str) -> dict[str, Any]:
@@ -148,10 +209,10 @@ def default_from_transformer(value: Any) -> Any:
 
 class Template:
     """
-    Certificate Template management class for viewing and modifying AD CS templates.
+    Certificate Template management class for AD CS templates.
 
-    This class provides functionality to retrieve, save, and modify certificate
-    template configurations in Active Directory Certificate Services.
+    This class provides functionality to retrieve, save, create, and modify
+    certificate template configurations in Active Directory Certificate Services.
     """
 
     def __init__(
@@ -163,6 +224,9 @@ class Template:
         save_configuration: Optional[str] = None,
         no_save: bool = False,
         force: bool = False,
+        create: bool = False,
+        source_template: Optional[str] = None,
+        template_oid: Optional[str] = None,
         connection: Optional[LDAPConnection] = None,
         **kwargs,  # type: ignore
     ):
@@ -177,6 +241,9 @@ class Template:
             save_configuration: Path to save the current configuration
             no_save: Whether to skip saving the current configuration
             force: Do not prompt for confirmation before applying changes
+            create: Whether to create a new template
+            source_template: Existing template to clone during creation
+            template_oid: Optional explicit OID for the created template
             scheme: LDAP connection scheme (ldap or ldaps)
             connection: Optional existing LDAP connection to reuse
             **kwargs: Additional keyword arguments
@@ -188,6 +255,9 @@ class Template:
         self.save_configuration_file = save_configuration
         self.no_save = no_save
         self.force = force
+        self.create_requested = create
+        self.source_template_name = source_template
+        self.template_oid = template_oid
         self.kwargs = kwargs
 
         self._connection = connection
@@ -207,6 +277,431 @@ class Template:
         self._connection.connect()
 
         return self._connection
+
+    @property
+    def template_container_dn(self) -> str:
+        """Return the Certificate Templates container distinguished name."""
+        return (
+            "CN=Certificate Templates,CN=Public Key Services,CN=Services,"
+            f"{self.connection.configuration_path}"
+        )
+
+    @property
+    def oid_container_dn(self) -> str:
+        """Return the forest enterprise OID container distinguished name."""
+        return (
+            "CN=OID,CN=Public Key Services,CN=Services,"
+            f"{self.connection.configuration_path}"
+        )
+
+    @property
+    def public_key_services_dn(self) -> str:
+        """Return the Public Key Services container distinguished name."""
+        return (
+            "CN=Public Key Services,CN=Services,"
+            f"{self.connection.configuration_path}"
+        )
+
+    def _build_template_dn(self, template_name: str) -> str:
+        """Build a template DN using RDN-specific escaping."""
+        return f"CN={escape_rdn(template_name)},{self.template_container_dn}"
+
+    def _get_exact_template(
+        self, template_name: str, *, query_sd: bool = False
+    ) -> Optional[LDAPEntry]:
+        """Find a template by exact CN inside the template container."""
+        escaped_template = escape_filter_chars(template_name)
+        results = self.connection.search(
+            search_filter=(
+                f"(&(cn={escaped_template})" "(objectClass=pKICertificateTemplate))"
+            ),
+            search_base=self.template_container_dn,
+            search_scope=ldap3.LEVEL,
+            query_sd=query_sd,
+        )
+        if len(results) > 1:
+            logging.error(
+                f"Found multiple certificate templates with CN {template_name!r}"
+            )
+            return None
+        return results[0] if results else None
+
+    @staticmethod
+    def _validate_template_oid(template_oid: str) -> None:
+        """Validate dotted-decimal OID syntax accepted for certificate templates."""
+        if not OID_PATTERN.fullmatch(template_oid):
+            raise ValueError("Template OID must be a dotted-decimal object identifier")
+
+        arcs = [int(arc) for arc in template_oid.split(".")]
+        if arcs[0] < 2 and arcs[1] > 39:
+            raise ValueError(
+                "The second OID arc must be between 0 and 39 when the first arc "
+                "is 0 or 1"
+            )
+
+    def _oid_exists(self, template_oid: str) -> bool:
+        """Check templates and enterprise OID objects for an OID collision."""
+        escaped_oid = escape_filter_chars(template_oid)
+        results = self.connection.search(
+            search_filter=f"({TEMPLATE_OID_ATTRIBUTE}={escaped_oid})",
+            search_base=self.public_key_services_dn,
+            attributes=["distinguishedName"],
+        )
+        return bool(results)
+
+    def _get_forest_oid_prefix(self) -> str:
+        """Read the forest-specific template OID prefix from the OID container."""
+        results = self.connection.search(
+            search_filter="(objectClass=*)",
+            search_base=self.oid_container_dn,
+            search_scope=ldap3.BASE,
+            attributes=[TEMPLATE_OID_ATTRIBUTE],
+        )
+        if len(results) != 1:
+            raise ValueError(
+                "Could not read the forest template OID prefix from the OID "
+                "container; specify -template-oid explicitly"
+            )
+
+        forest_oid = results[0].get(TEMPLATE_OID_ATTRIBUTE)
+        if isinstance(forest_oid, list):
+            forest_oid = forest_oid[0] if forest_oid else None
+        if not isinstance(forest_oid, str):
+            raise ValueError(
+                "The forest OID container does not contain a template OID prefix; "
+                "specify -template-oid explicitly"
+            )
+
+        self._validate_template_oid(forest_oid)
+        return forest_oid
+
+    def _generate_template_oid(self, forest_oid_prefix: Optional[str] = None) -> str:
+        """Generate a unique template OID below the forest enterprise prefix."""
+        prefix = forest_oid_prefix or self._get_forest_oid_prefix()
+        self._validate_template_oid(prefix)
+
+        for _ in range(TEMPLATE_OID_RETRIES):
+            # Two independent eight-digit arcs match the shape generated by the
+            # Windows template tooling while providing roughly 53 bits of entropy.
+            first_arc = 10_000_000 + secrets.randbelow(90_000_000)
+            second_arc = 10_000_000 + secrets.randbelow(90_000_000)
+            template_oid = f"{prefix}.{first_arc}.{second_arc}"
+            self._validate_template_oid(template_oid)
+            if not self._oid_exists(template_oid):
+                return template_oid
+
+        raise ValueError(
+            f"Could not generate a unique template OID after "
+            f"{TEMPLATE_OID_RETRIES} attempts"
+        )
+
+    def _select_creation_oid(self) -> str:
+        """Validate an explicit OID or generate a collision-free OID."""
+        if self.template_oid is None:
+            return self._generate_template_oid()
+
+        self._validate_template_oid(self.template_oid)
+        if self._oid_exists(self.template_oid):
+            raise ValueError(f"Template OID {self.template_oid!r} is already in use")
+        return self.template_oid
+
+    def _get_creation_override(self) -> Optional[Dict[str, Any]]:
+        """Load the explicitly requested authoritative creation configuration."""
+        if self.write_configuration_file:
+            return self.load_configuration(self.write_configuration_file)
+        if self.write_default_configuration is not None:
+            return create_esc1_template(self.write_default_configuration)
+        return None
+
+    def _build_creation_attributes(
+        self,
+        source_template: LDAPEntry,
+        template_oid: str,
+        configuration_override: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[Dict[str, Any], Optional[bytes]]:
+        """Build LDAP ADD attributes and separate the requested security descriptor."""
+        source_attributes = source_template["attributes"]
+        missing_versions = [
+            key for key in CREATION_VERSION_ATTRIBUTES if key not in source_attributes
+        ]
+        if missing_versions:
+            raise ValueError(
+                "Source template is missing required version attributes: "
+                + ", ".join(sorted(missing_versions))
+            )
+
+        if configuration_override is None:
+            attributes = {
+                key: value
+                for key, value in source_attributes.items()
+                if key not in CREATION_EXCLUDED_ATTRIBUTES
+            }
+        else:
+            # Existing Certipy restore files are authoritative. Only version fields,
+            # which are intentionally absent from that format, survive from source.
+            attributes = {
+                key: source_attributes[key] for key in CREATION_VERSION_ATTRIBUTES
+            }
+            attributes.update(configuration_override)
+
+        attributes["cn"] = self.template_name
+        attributes["displayName"] = self.template_name
+        attributes[TEMPLATE_OID_ATTRIBUTE] = template_oid
+
+        security_descriptor = attributes.pop("nTSecurityDescriptor", None)
+        if security_descriptor is not None and not isinstance(
+            security_descriptor, bytes
+        ):
+            raise ValueError("nTSecurityDescriptor must be a binary value")
+
+        return attributes, security_descriptor
+
+    def _log_creation_plan(
+        self, template_dn: str, template_oid: str, configuration: str
+    ) -> None:
+        """Log the complete mutation plan before creating a template."""
+        logging.info("Certificate template creation plan:")
+        logging.info(f"    Template name: {self.template_name}")
+        logging.info(f"    Source template: {self.source_template_name}")
+        logging.info(f"    Template DN: {template_dn}")
+        logging.info(f"    Template OID: {template_oid}")
+        logging.info(f"    Configuration: {configuration}")
+        logging.info("    OID registration: disabled")
+        logging.info("    CA publication: disabled")
+
+    @staticmethod
+    def _ldap_error(result: Dict[str, Any]) -> str:
+        """Format a non-sensitive LDAP result for logging."""
+        description = result.get("description", "unknown LDAP error")
+        message = result.get("message", "")
+        return f"({description}) {message}".strip()
+
+    def _handle_create_error(self, result: Dict[str, Any], template_dn: str) -> bool:
+        """Log an actionable LDAP ADD failure."""
+        result_code = result.get("result")
+        if result_code == RESULT_INSUFFICIENT_ACCESS_RIGHTS:
+            logging.error(
+                f"User {self.target.username!r} does not have permission to create "
+                f"a pKICertificateTemplate under {self.template_container_dn!r}"
+            )
+        elif result_code == RESULT_ENTRY_ALREADY_EXISTS:
+            logging.error(
+                f"A certificate template with CN {self.template_name!r} already exists"
+            )
+        elif result_code == RESULT_NO_SUCH_OBJECT:
+            logging.error(
+                f"The Certificate Templates container for {template_dn!r} does not exist"
+            )
+        elif result_code == RESULT_CONSTRAINT_VIOLATION:
+            logging.error(
+                "Active Directory rejected a certificate template attribute because "
+                f"it violates a schema constraint: {self._ldap_error(result)}"
+            )
+        elif result_code == RESULT_OBJECT_CLASS_VIOLATION:
+            logging.error(
+                "Active Directory rejected the pKICertificateTemplate object class "
+                f"or its attributes: {self._ldap_error(result)}"
+            )
+        elif result_code == RESULT_INVALID_DN_SYNTAX:
+            logging.error(
+                f"Active Directory rejected template DN {template_dn!r}: "
+                f"{self._ldap_error(result)}"
+            )
+        elif result_code == RESULT_UNWILLING_TO_PERFORM:
+            logging.error(
+                "Active Directory was unwilling to create the certificate template: "
+                f"{self._ldap_error(result)}"
+            )
+        else:
+            logging.error(
+                "Failed to create the certificate template: "
+                f"{self._ldap_error(result)}"
+            )
+        return False
+
+    def _apply_creation_security_descriptor(
+        self, template_dn: str, security_descriptor: bytes
+    ) -> bool:
+        """Apply the requested DACL after LDAP ADD."""
+        result = self.connection.modify(
+            template_dn,
+            {"nTSecurityDescriptor": [(ldap3.MODIFY_REPLACE, [security_descriptor])]},
+            controls=security_descriptor_control(sdflags=0x4),
+        )
+        if result.get("result") == 0:
+            return True
+
+        logging.error(
+            "The template object was created, but Certipy could not apply the "
+            "requested security descriptor"
+        )
+        logging.error(f"Created object DN: {template_dn}")
+        logging.error(f"Security descriptor LDAP error: {self._ldap_error(result)}")
+        logging.error(
+            "The object still exists in Active Directory and may require manual "
+            "review or cleanup"
+        )
+        return False
+
+    @staticmethod
+    def _values_equal(expected: Any, actual: Any) -> bool:
+        """Compare LDAP values while ignoring multi-value ordering."""
+        if isinstance(expected, list) and isinstance(actual, list):
+            return collections.Counter(expected) == collections.Counter(actual)
+        return expected == actual
+
+    def _verify_created_template(
+        self,
+        template_dn: str,
+        expected_attributes: Dict[str, Any],
+        security_descriptor_requested: bool,
+        configuration_override: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Verify the created identity, revisions, and explicit configuration."""
+        results = self.connection.search(
+            search_filter="(objectClass=pKICertificateTemplate)",
+            search_base=template_dn,
+            search_scope=ldap3.BASE,
+            query_sd=security_descriptor_requested,
+        )
+        if len(results) != 1:
+            logging.error(
+                f"Template creation could not be verified at exact DN {template_dn!r}"
+            )
+            return False
+
+        created = results[0]
+        object_classes = created.get("objectClass", [])
+        if isinstance(object_classes, str):
+            object_classes = [object_classes]
+        if not any(
+            value.lower() == "pkicertificatetemplate" for value in object_classes
+        ):
+            logging.error(
+                f"Created object at {template_dn!r} is not a pKICertificateTemplate"
+            )
+            return False
+
+        expected_identity = {
+            "cn": self.template_name,
+            "name": self.template_name,
+            "displayName": self.template_name,
+            TEMPLATE_OID_ATTRIBUTE: expected_attributes[TEMPLATE_OID_ATTRIBUTE],
+        }
+        for key, expected_value in expected_identity.items():
+            if not self._values_equal(expected_value, created.get(key)):
+                logging.error(
+                    f"Template verification failed for {key}: expected "
+                    f"{expected_value!r}, got {created.get(key)!r}"
+                )
+                return False
+
+        verification_keys = set(CREATION_VERSION_ATTRIBUTES)
+        if configuration_override is not None:
+            verification_keys.update(configuration_override)
+        verification_keys.discard("nTSecurityDescriptor")
+
+        for key in sorted(verification_keys):
+            expected_value = expected_attributes.get(key)
+            if not self._values_equal(expected_value, created.get(key)):
+                logging.error(
+                    f"Template verification failed for {key}: expected "
+                    f"{expected_value!r}, got {created.get(key)!r}"
+                )
+                return False
+
+        if (
+            security_descriptor_requested
+            and created.get("nTSecurityDescriptor") is None
+        ):
+            logging.warning(
+                "The template was created and its DACL update succeeded, but the "
+                "security descriptor could not be read back with the current rights"
+            )
+
+        return True
+
+    def create(self) -> bool:
+        """Create a certificate template by cloning an existing template."""
+        if not self.template_name:
+            logging.error("A target template (-template) is required")
+            return False
+        if not self.source_template_name:
+            logging.error("-create requires -source-template")
+            return False
+
+        if self._get_exact_template(self.template_name) is not None:
+            logging.error(
+                f"A certificate template with CN {self.template_name!r} already exists"
+            )
+            return False
+
+        source_template = self.get_configuration(self.source_template_name)
+        if source_template is None:
+            return False
+
+        try:
+            configuration_override = self._get_creation_override()
+            template_oid = self._select_creation_oid()
+            attributes, security_descriptor = self._build_creation_attributes(
+                source_template, template_oid, configuration_override
+            )
+        except (FileNotFoundError, ValueError) as error:
+            logging.error(f"Cannot create certificate template: {error}")
+            return False
+
+        template_dn = self._build_template_dn(self.template_name)
+        if self.write_configuration_file:
+            configuration_description = (
+                f"custom file {self.write_configuration_file!r} (authoritative)"
+            )
+        elif self.write_default_configuration is not None:
+            configuration_description = "explicit default ESC1 configuration"
+        else:
+            configuration_description = "cloned source"
+        self._log_creation_plan(template_dn, template_oid, configuration_description)
+
+        if not self.force:
+            confirm = input("Create this certificate template? (y/N): ")
+            if confirm.strip().lower() != "y":
+                logging.info("Aborting template creation")
+                return False
+
+        result = self.connection.add(
+            template_dn,
+            ["top", "pKICertificateTemplate"],
+            attributes,
+        )
+        if result.get("result") != 0:
+            return self._handle_create_error(result, template_dn)
+
+        logging.info(f"Created certificate template object at {template_dn!r}")
+        if (
+            security_descriptor is not None
+            and not self._apply_creation_security_descriptor(
+                template_dn, security_descriptor
+            )
+        ):
+            return False
+
+        if not self._verify_created_template(
+            template_dn,
+            attributes,
+            security_descriptor_requested=security_descriptor is not None,
+            configuration_override=configuration_override,
+        ):
+            logging.error(
+                "The LDAP ADD completed, but Certipy could not fully verify the "
+                "created template"
+            )
+            logging.error(f"Created object DN: {template_dn}")
+            return False
+
+        logging.info(
+            f"Successfully created certificate template {self.template_name!r}"
+        )
+        logging.info("The template was not published to any certificate authority")
+        return True
 
     def configuration_to_json(self, configuration: Dict[str, Any]) -> str:
         """
@@ -234,7 +729,10 @@ class Template:
 
         return json.dumps(output, indent=2, ensure_ascii=False)
 
-    def get_configuration(self, template_name: str) -> Optional[LDAPEntry]:
+    def get_configuration(
+        self,
+        template_name: str,
+    ) -> Optional[LDAPEntry]:
         """
         Retrieve the configuration for a certificate template from AD.
 
@@ -242,7 +740,6 @@ class Template:
 
         Args:
             template_name: Name of the certificate template to find
-
         Returns:
             LDAPEntry containing the template configuration or None if not found
         """
@@ -263,11 +760,11 @@ class Template:
                 query_sd=True,
             )
 
-            if not results:
-                logging.error(
-                    f"Could not find any certificate template for {template_name!r}"
-                )
-                return None
+        if not results:
+            logging.error(
+                f"Could not find any certificate template for {template_name!r}"
+            )
+            return None
 
         if len(results) > 1:
             # This should never happen, but just in case
@@ -451,16 +948,7 @@ class Template:
             old_value = old_configuration.get(key)
             new_value = new_configuration[key]
 
-            if type(old_value) != type(new_value):
-                changes[key] = [(ldap3.MODIFY_REPLACE, new_value)]
-                continue
-            if isinstance(old_value, list):
-                # Check if the list values are different
-                if collections.Counter(old_value) != collections.Counter(new_value):
-                    changes[key] = [(ldap3.MODIFY_REPLACE, new_value)]
-                continue
-
-            if old_value != new_value:
+            if not self._values_equal(old_value, new_value):
                 changes[key] = [(ldap3.MODIFY_REPLACE, new_value)]
 
         # Add new attributes not in the old configuration
@@ -562,6 +1050,11 @@ def entry(options: argparse.Namespace) -> None:
     options.__delattr__("target")
 
     template = Template(target=target, **vars(options))
+
+    if template.create_requested:
+        if not template.create():
+            sys.exit(1)
+        return
 
     will_write = (
         template.write_default_configuration is not None
