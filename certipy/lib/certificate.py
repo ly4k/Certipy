@@ -542,6 +542,34 @@ def generate_rsa_key(key_size: int = 2048) -> rsa.RSAPrivateKey:
     return rsa.generate_private_key(public_exponent=0x10001, key_size=key_size)
 
 
+# Supported EC curves for certificate templates that require ECDSA/ECDH keys
+EC_CURVES = {
+    "P256": ec.SECP256R1(),
+    "P384": ec.SECP384R1(),
+    "P521": ec.SECP521R1(),
+}
+
+
+def generate_ec_key(curve_name: str = "P256") -> ec.EllipticCurvePrivateKey:
+    """
+    Generate a new EC private key on the requested NIST curve.
+
+    Args:
+        curve_name: Curve name, one of P256, P384, P521 (default: P256)
+
+    Returns:
+        EC private key object
+
+    Raises:
+        ValueError: If curve_name is not one of the supported curves
+    """
+    if curve_name not in EC_CURVES:
+        raise ValueError(
+            f"Unsupported curve {curve_name!r}. Supported: {list(EC_CURVES.keys())}"
+        )
+    return ec.generate_private_key(EC_CURVES[curve_name])
+
+
 def private_key_to_ms_blob(private_key: rsa.RSAPrivateKey) -> bytes:
     """
     Convert RSA private key to Microsoft BLOB format.
@@ -687,6 +715,32 @@ def rsa_pkcs1v15_sign(
     return key.sign(data, padding.PKCS1v15(), hash_algorithm())
 
 
+def sign_csr_data(
+    data: bytes,
+    key: PrivateKeyTypes,
+    hash_algorithm: type[hashes.HashAlgorithm] = hashes.SHA256,
+) -> bytes:
+    """
+    Sign CSR data using an algorithm appropriate for the given key type.
+
+    Args:
+        data: Data to sign
+        key: RSA or EC private key for signing
+        hash_algorithm: Hash algorithm to use
+
+    Returns:
+        Signature bytes
+
+    Raises:
+        TypeError: If key is not an RSA or EC private key
+    """
+    if isinstance(key, rsa.RSAPrivateKey):
+        return rsa_pkcs1v15_sign(data, key, hash_algorithm)
+    if isinstance(key, ec.EllipticCurvePrivateKey):
+        return key.sign(data, ec.ECDSA(hash_algorithm()))
+    raise TypeError(f"Unsupported key type for CSR signing: {type(key).__name__}")
+
+
 def hash_digest(data: bytes, hash_algorithm: type[hashes.HashAlgorithm]) -> bytes:
     """
     Compute hash digest of data.
@@ -772,9 +826,11 @@ def create_csr(
     key_size: int,
     application_policies: Optional[List[str]],
     smime: Optional[str],
-    key: Optional[rsa.RSAPrivateKey] = None,
+    key: Optional[PrivateKeyTypes] = None,
     renewal_cert: Optional[x509.Certificate] = None,
-) -> Tuple[x509.CertificateSigningRequest, rsa.RSAPrivateKey]:
+    key_type: str = "rsa",
+    curve: str = "P256",
+) -> Tuple[x509.CertificateSigningRequest, PrivateKeyTypes]:
     """
     Create a certificate signing request (CSR) with optional extensions.
 
@@ -783,20 +839,26 @@ def create_csr(
         alt_dns: Alternative DNS name
         alt_upn: Alternative UPN (User Principal Name)
         alt_sid: Alternative SID (Security Identifier)
-        key: RSA private key (generated if None)
-        key_size: Key size in bits (for key generation)
+        key: Existing private key, RSA or EC (generated if None)
+        key_size: RSA key size in bits (for key generation, ignored for EC)
         subject: Subject DN string
         renewal_cert: Certificate being renewed
         application_policies: List of application policy OIDs
         smime: SMIME capability identifier
+        key_type: "rsa" (default) or "ec"/"ecdsa"/"ecdh" for elliptic-curve keys
+        curve: EC curve name when key_type is EC-based (P256, P384, or P521)
 
     Returns:
         Tuple of (CSR, private_key)
     """
     # Generate key if not provided
     if key is None:
-        logging.debug("Generating RSA key")
-        key = generate_rsa_key(key_size)
+        if key_type.lower() in ("ec", "ecdsa", "ecdh"):
+            logging.debug(f"Generating EC key on curve {curve}")
+            key = generate_ec_key(curve)
+        else:
+            logging.debug("Generating RSA key")
+            key = generate_rsa_key(key_size)
 
     # Start building CSR
     certification_request_info = asn1csr.CertificationRequestInfo()
@@ -987,14 +1049,17 @@ def create_csr(
     certification_request_info["attributes"] = cri_attributes
 
     # Sign the CSR
-    signature = rsa_pkcs1v15_sign(certification_request_info.dump(), key)
+    signature = sign_csr_data(certification_request_info.dump(), key)
+    sig_alg = (
+        "sha256_ecdsa" if isinstance(key, ec.EllipticCurvePrivateKey) else "sha256_rsa"
+    )
 
     # Create the final CSR
     csr = asn1csr.CertificationRequest(
         {
             "certification_request_info": certification_request_info,
             "signature_algorithm": asn1csr.SignedDigestAlgorithm(
-                {"algorithm": "sha256_rsa"}
+                {"algorithm": sig_alg}
             ),
             "signature": signature,
         }
