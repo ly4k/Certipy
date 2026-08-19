@@ -1272,11 +1272,13 @@ class Request:
         pfx: Optional[str] = None,
         pfx_password: Optional[str] = None,
         key_size: int = 2048,
+        key_type: str = "rsa",
+        curve: str = "P256",
         archive_key: bool = False,
         cax_cert: bool = False,
         renew: bool = False,
         out: Optional[str] = None,
-        key: Optional[rsa.RSAPrivateKey] = None,
+        key: Optional[PrivateKeyTypes] = None,
         web: bool = False,
         dcom: bool = False,
         http_scheme: Optional[str] = None,
@@ -1303,6 +1305,8 @@ class Request:
             pfx: Path to PKCS#12/PFX file
             pfx_password: Password for PFX file
             key_size: RSA key size in bits
+            key_type: "rsa" (default) or "ec"/"ecdsa"/"ecdh" for elliptic-curve keys
+            curve: EC curve name when key_type is EC-based (P256, P384, or P521)
             archive_key: Whether to archive the private key
             cax_cert: Whether to retrieve the CAX certificate
             renew: Whether to renew an existing certificate
@@ -1327,6 +1331,8 @@ class Request:
         self.pfx = pfx
         self.pfx_password = pfx_password
         self.key_size = key_size
+        self.key_type = key_type
+        self.curve = curve
         self.archive_key = archive_key
         self.cax_cert = cax_cert
         self.renew = renew
@@ -1459,6 +1465,8 @@ class Request:
             alt_sid=self.alt_sid,
             subject=self.subject,
             key_size=self.key_size,
+            key_type=self.key_type,
+            curve=self.curve,
             application_policies=self.application_policies,
             smime=self.smime,
             key=self.key,
@@ -1471,6 +1479,13 @@ class Request:
 
         # Handle key archival
         if self.archive_key:
+            if not isinstance(self.key, rsa.RSAPrivateKey):
+                logging.error(
+                    "Key archival is only supported for RSA keys, not "
+                    f"{type(self.key).__name__}"
+                )
+                return False
+
             ca = CA(self.target, self.ca)
             logging.info("Trying to retrieve CAX certificate")
             cax_cert = ca.get_exchange_certificate()

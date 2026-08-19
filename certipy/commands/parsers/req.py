@@ -137,6 +137,20 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         type=int,
     )
     cert_group.add_argument(
+        "-key-type",
+        action="store",
+        default="rsa",
+        choices=["rsa", "ec", "ecdsa", "ecdh"],
+        help="Key algorithm: rsa (default) or ec/ecdsa/ecdh for elliptic-curve templates",
+    )
+    cert_group.add_argument(
+        "-curve",
+        action="store",
+        default="P256",
+        choices=["P256", "P384", "P521"],
+        help="EC curve when -key-type is ec/ecdsa/ecdh (default: P256)",
+    )
+    cert_group.add_argument(
         "-archive-key", action="store_true", help="Send private key for Key Archival"
     )
     cert_group.add_argument(
