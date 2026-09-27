@@ -678,6 +678,34 @@ class Find:
                 logging.debug(f"Web enrollment seems enabled over {channel}")
                 return True
 
+            # 403 indicates the service is running but access is forbidden,
+            # which is a strong signal that web enrollment is enabled.
+            if res.status_code == 403:
+                logging.debug(
+                    f"Web enrollment seems enabled over {channel} "
+                    f"(status code 403 Forbidden)"
+                )
+                return True
+
+            # Some AD CS configurations return 200 for /certsrv/ when
+            # anonymous browsing is permitted and authentication is only
+            # required for enrollment. Treat this as enabled when the body
+            # looks like the Certificate Services web interface, to avoid
+            # false positives from unrelated web applications (issue #367).
+            if res.status_code == 200:
+                body = res.text.lower()
+                if "certsrv" in body or "certificate services" in body:
+                    logging.debug(
+                        f"Web enrollment seems enabled over {channel} "
+                        f"(status code 200 with Certificate Services content)"
+                    )
+                    return True
+
+                logging.debug(
+                    f"Got status code 200 from {channel} but the body does "
+                    f"not look like the Certificate Services web interface"
+                )
+
         except requests.exceptions.Timeout:
             logging.debug(f"Web enrollment seems disabled over {channel}")
             return False
