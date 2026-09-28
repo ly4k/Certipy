@@ -1266,6 +1266,8 @@ class Request:
         sid: Optional[str] = None,
         subject: Optional[str] = None,
         application_policies: Optional[List[str]] = None,
+        certificate_policies: Optional[List[str]] = None,
+        no_security_ext: bool = False,
         smime: Optional[str] = None,
         retrieve: Optional[int] = None,
         on_behalf_of: Optional[str] = None,
@@ -1338,6 +1340,13 @@ class Request:
             OID_TO_STR_NAME_MAP.get(policy.lower(), policy)
             for policy in (application_policies or [])
         ]
+        # ESC1a: Certificate Policies (2.5.29.32) to inject via the CSR
+        self.certificate_policies = [
+            OID_TO_STR_NAME_MAP.get(policy.lower(), policy)
+            for policy in (certificate_policies or [])
+        ]
+        # ESC1c: omit the szOID_NTDS_CA_SECURITY_EXT from the CSR
+        self.no_security_ext = no_security_ext
         self.smime = smime
 
         # Connection parameters
@@ -1463,6 +1472,8 @@ class Request:
             smime=self.smime,
             key=self.key,
             renewal_cert=renewal_cert,
+            certificate_policies=self.certificate_policies,
+            no_security_ext=self.no_security_ext,
         )
         self.key = key
 

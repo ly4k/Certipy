@@ -157,6 +157,18 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Specify application policies for the certificate request using OIDs (e.g., '1.3.6.1.4.1.311.10.3.4' or 'Client Authentication')",
     )
     cert_group.add_argument(
+        "-certificate-policies",
+        action="store",
+        nargs="+",
+        metavar="Certificate Policy",
+        help="Inject Certificate Policies (OID 2.5.29.32) into the CSR, e.g. an AMA-linked issuance policy OID (ESC1a)",
+    )
+    cert_group.add_argument(
+        "-no-security-ext",
+        action="store_true",
+        help="Omit the szOID_NTDS_CA_SECURITY_EXT security extension from the CSR (ESC1c)",
+    )
+    cert_group.add_argument(
         "-smime",
         action="store",
         metavar="encryption algorithm",

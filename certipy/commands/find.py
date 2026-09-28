@@ -99,6 +99,11 @@ class Find:
         self._connection = connection
         self._user_sids = None
 
+        # Set during find(): whether any AMA-linked issuance policy exists in
+        # the forest (ESC1a) and the processed CA list (EAB2).
+        self.has_ama_oid_link = False
+        self.cas: List[LDAPEntry] = []
+
     # =========================================================================
     # Connection Handling
     # =========================================================================
@@ -310,6 +315,9 @@ class Find:
             f"Found {len(oids)} issuance polic{'ies' if len(oids) != 1 else 'y'}"
         )
 
+        # ESC1a: any AMA-linked issuance policy (msDS-OIDToGroupLink) in the forest
+        self.has_ama_oid_link = any(o.get("msDS-OIDToGroupLink") for o in oids)
+
         # Step 4: Link templates to issuance policies
         enabled_oids_count = self._link_templates_and_policies(templates, oids)
         logging.info(
@@ -319,6 +327,7 @@ class Find:
 
         # Step 5: Process CA certificates and properties
         self._process_ca_properties(cas)
+        self.cas = cas  # EAB2: enrollment-agent-restriction lookup per template
 
         # Step 6: Process template properties
         self._process_template_properties(templates)
@@ -1954,13 +1963,39 @@ class Find:
             enrollable_principals = self.format_principals(enrollable_sids)
 
             if not requires_approval:
-                # ESC1: Client authentication with enrollee-supplied subject
+                # ESC1: Client authentication with enrollee-supplied subject.
+                # ESC1a/ESC1b/ESC1c are folded in as exploitation techniques of
+                # ESC1 (they are strict subsets), listed in the remark per template.
                 if template.get("enrollee_supplies_subject") and template.get(
                     "client_authentication"
                 ):
                     vulnerabilities["ESC1"] = (
                         f"Enrollee supplies subject "
                         "and template allows client authentication."
+                    )
+
+                    techniques = [
+                        "classic: -upn <target> -sid <target-SID> "
+                        "(impersonate any principal)",
+                        "ESC1c: -no-security-ext -upn <target> -sid <target-SID> "
+                        "(omit Security Extension; KDC falls back to SAN URL SID; "
+                        "bypasses StrongCertificateBindingEnforcement)",
+                    ]
+                    if not template.get("extended_key_usage"):
+                        techniques.append(
+                            "ESC1b: -upn <target> -sid <target-SID> "
+                            "(NoEKU; CA passes the CSR Security Extension through; "
+                            "bypasses StrongCertificateBindingEnforcement)"
+                        )
+                        if self.has_ama_oid_link:
+                            techniques.append(
+                                "ESC1a: -certificate-policies <AMA-OID> -upn <self> "
+                                "-sid <self> (NoEKU + AMA-linked issuance policy in "
+                                "forest; KDC adds the linked group's SID to the PAC; "
+                                "self-escalation)"
+                            )
+                    remarks["ESC1"] = "Exploitation techniques: " + "; ".join(
+                        techniques
                     )
 
                 # ESC2: Any purpose template
@@ -2030,6 +2065,22 @@ class Find:
                         "the wiki for more details."
                     )
 
+                # EAB1: V1 EOBO bypass (missing RA-Signature enforcement)
+                if template.get("schema_version") == 1 and template.get(
+                    "client_authentication"
+                ):
+                    vulnerabilities["EAB1"] = (
+                        "Schema V1 client-authentication template. V1 templates "
+                        "lack msPKI-RA-Signature, so the CA performs no "
+                        "enrollment-agent co-signature validation: any CRA "
+                        "certificate holder can enroll on behalf of any "
+                        "principal, including a DC machine account (-> DCSync)."
+                    )
+                    remarks["EAB1"] = (
+                        "Exploit: certipy req -template <V1> -on-behalf-of "
+                        "'DOMAIN\\\\DC$' -pfx cra.pfx. Requires a CRA certificate."
+                    )
+
             # ESC2 Target: Schema v1 or requires Any Purpose signature
             if template.get("client_authentication") and (
                 template.get("schema_version") == 1
@@ -2071,6 +2122,33 @@ class Find:
                     f"by itself. See the wiki for more details. Template {reason}."
                 )
 
+            # EAB2: unrestricted EOBO due to missing CA enrollment agent restrictions
+            if (
+                template.get("client_authentication")
+                and not template.get("requires_manager_approval")
+                and (
+                    template.get("schema_version") == 1
+                    or (
+                        template.get("schema_version") == 2
+                        and template.get("authorized_signatures_required", 0) > 0
+                        and template.get("application_policies")
+                        and "Certificate Request Agent"
+                        in template.get("application_policies")
+                    )
+                )
+                and self._linked_ca_without_ea_restrictions(template)
+            ):
+                vulnerabilities["EAB2"] = (
+                    "EOBO-capable V1/V2 template and the issuing CA has no "
+                    "enrollment agent restrictions configured "
+                    "(EDITF_ENABLEAGENTRESTRICTION). Any CRA certificate holder "
+                    "can enroll on behalf of any principal via this template."
+                )
+                remarks["EAB2"] = (
+                    "Exploit: certipy req -template <tpl> -on-behalf-of "
+                    "'DOMAIN\\\\administrator' -pfx cra.pfx. Requires a CRA certificate."
+                )
+
         # ESC4: Template ownership or vulnerable ACL
         security = CertificateSecurity(template.get("nTSecurityDescriptor"))
         user_sids = self.connection.get_user_sids(
@@ -2092,6 +2170,23 @@ class Find:
                 vulnerabilities["ESC4"] = "User has dangerous permissions."
 
         return (vulnerabilities, remarks, enrollable_principals, acl_principals)
+
+    def _linked_ca_without_ea_restrictions(self, template: LDAPEntry) -> bool:
+        """
+        Return True if any CA that publishes this template has no enrollment
+        agent restrictions configured (EAB2 precondition).
+
+        Skipped in dc-only mode, where CA configuration is not retrieved.
+        """
+        if self.dc_only:
+            return False
+
+        ca_ids = template.get("cas_ids") or []
+        for ca in self.cas:
+            if ca.get("object_id") in ca_ids:
+                if not ca.get("enrollment_agent_restrictions"):
+                    return True
+        return False
 
     def template_has_vulnerable_acl(
         self, template: LDAPEntry

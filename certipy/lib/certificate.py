@@ -774,6 +774,8 @@ def create_csr(
     smime: Optional[str],
     key: Optional[rsa.RSAPrivateKey] = None,
     renewal_cert: Optional[x509.Certificate] = None,
+    certificate_policies: Optional[List[str]] = None,
+    no_security_ext: bool = False,
 ) -> Tuple[x509.CertificateSigningRequest, rsa.RSAPrivateKey]:
     """
     Create a certificate signing request (CSR) with optional extensions.
@@ -909,8 +911,9 @@ def create_csr(
         )
         cri_attributes.append(cri_attribute)
 
-    # Add Security Identifier extension if requested
-    if alt_sid:
+    # Add Security Identifier extension if requested.
+    # ESC1c: -no-security-ext omits it so the KDC falls back to the SAN URL SID.
+    if alt_sid and not no_security_ext:
         # Create security extension
         san_extension = asn1x509.Extension(
             {
@@ -978,6 +981,33 @@ def create_csr(
 
         # Add extension to CSR attributes
         set_of_extensions = asn1csr.SetOfExtensions([[app_policy_extension]])
+        cri_attribute = asn1csr.CRIAttribute(
+            {"type": "extension_request", "values": set_of_extensions}
+        )
+        cri_attributes.append(cri_attribute)
+
+    # Add Certificate Policies (2.5.29.32) if requested (ESC1a).
+    # The CA passes this extension through from the CSR when the OID is in
+    # EnableEnrolleeRequestExtensionList (default). Injecting an AMA-linked
+    # issuance policy OID makes the KDC add the linked group's SID to the PAC.
+    if certificate_policies:
+        cert_policy_oids = [
+            asn1x509.PolicyInformation(
+                {"policy_identifier": asn1x509.PolicyIdentifier(cp)}
+            )
+            for cp in certificate_policies
+        ]
+
+        cert_policies_extension = asn1x509.Extension(
+            {
+                "extn_id": "certificate_policies",  # OID 2.5.29.32
+                "critical": False,
+                "extn_value": asn1x509.CertificatePolicies(cert_policy_oids),
+            }
+        )
+
+        # Add extension to CSR attributes
+        set_of_extensions = asn1csr.SetOfExtensions([[cert_policies_extension]])
         cri_attribute = asn1csr.CRIAttribute(
             {"type": "extension_request", "values": set_of_extensions}
         )
