@@ -18,7 +18,7 @@ from random import getrandbits
 from typing import Any, Optional, Union
 
 from asn1crypto import cms, core
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from impacket.dcerpc.v5.rpcrt import TypeSerialization1
 from impacket.examples.ldap_shell import LdapShell as _LdapShell
@@ -34,10 +34,7 @@ from impacket.krb5.asn1 import (
     EncTicketPart,
 )
 from impacket.krb5.asn1 import Ticket as TicketAsn1
-from impacket.krb5.asn1 import (
-    seq_set,
-    seq_set_iter,
-)
+from impacket.krb5.asn1 import seq_set, seq_set_iter
 from impacket.krb5.ccache import CCache
 from impacket.krb5.crypto import Key, _enctype_table
 from impacket.krb5.kerberosv5 import KerberosError, sendReceive
@@ -576,9 +573,10 @@ class Authenticate:
         if self.cert is None:
             raise ValueError("Certificate is not specified and no PFX was provided")
 
-        if not isinstance(self.key, rsa.RSAPrivateKey):
+        if not isinstance(self.key, (rsa.RSAPrivateKey, ec.EllipticCurvePrivateKey)):
             raise ValueError(
-                "Currently only RSA private keys are supported. Try using -ldap-shell instead"
+                "PKINIT requires an RSA or elliptic-curve private key. "
+                "Try using -ldap-shell instead"
             )
 
         # Create AS-REQ for PKINIT

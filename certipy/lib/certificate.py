@@ -530,16 +530,37 @@ def pem_to_cert(certificate: bytes) -> x509.Certificate:
 
 
 def generate_rsa_key(key_size: int = 2048) -> rsa.RSAPrivateKey:
-    """
-    Generate a new RSA private key.
-
-    Args:
-        key_size: Key size in bits (default: 2048)
-
-    Returns:
-        RSA private key object
-    """
+    """Generate a new RSA private key."""
     return rsa.generate_private_key(public_exponent=0x10001, key_size=key_size)
+
+
+def generate_ec_key() -> ec.EllipticCurvePrivateKey:
+    """Generate a new NIST P-256 elliptic-curve private key."""
+    return ec.generate_private_key(ec.SECP256R1())
+
+
+def sign_data(
+    data: bytes,
+    key: PrivateKeyTypes,
+    hash_algorithm: type[hashes.HashAlgorithm] = hashes.SHA256,
+) -> bytes:
+    """Sign data with an RSA PKCS#1 v1.5 or ECDSA private key."""
+    if isinstance(key, rsa.RSAPrivateKey):
+        return key.sign(data, padding.PKCS1v15(), hash_algorithm())
+    if isinstance(key, ec.EllipticCurvePrivateKey):
+        return key.sign(data, ec.ECDSA(hash_algorithm()))
+    raise TypeError("key must be an RSA or elliptic-curve private key")
+
+
+def signature_algorithm_name(
+    key: PrivateKeyTypes, hash_algorithm: type[hashes.HashAlgorithm]
+) -> str:
+    """Return the asn1crypto signature algorithm name for a key and digest."""
+    if isinstance(key, rsa.RSAPrivateKey):
+        return f"{hash_algorithm.name}_rsa"
+    if isinstance(key, ec.EllipticCurvePrivateKey):
+        return f"{hash_algorithm.name}_ecdsa"
+    raise TypeError("key must be an RSA or elliptic-curve private key")
 
 
 def private_key_to_ms_blob(private_key: rsa.RSAPrivateKey) -> bytes:
@@ -684,7 +705,7 @@ def rsa_pkcs1v15_sign(
     if not isinstance(key, rsa.RSAPrivateKey):
         raise TypeError("key must be an instance of RSAPrivateKey")
 
-    return key.sign(data, padding.PKCS1v15(), hash_algorithm())
+    return sign_data(data, key, hash_algorithm)
 
 
 def hash_digest(data: bytes, hash_algorithm: type[hashes.HashAlgorithm]) -> bytes:
@@ -772,9 +793,10 @@ def create_csr(
     key_size: int,
     application_policies: Optional[List[str]],
     smime: Optional[str],
-    key: Optional[rsa.RSAPrivateKey] = None,
+    key: Optional[PrivateKeyTypes] = None,
     renewal_cert: Optional[x509.Certificate] = None,
-) -> Tuple[x509.CertificateSigningRequest, rsa.RSAPrivateKey]:
+    key_type: str = "rsa",
+) -> Tuple[x509.CertificateSigningRequest, PrivateKeyTypes]:
     """
     Create a certificate signing request (CSR) with optional extensions.
 
@@ -789,14 +811,24 @@ def create_csr(
         renewal_cert: Certificate being renewed
         application_policies: List of application policy OIDs
         smime: SMIME capability identifier
+        key_type: Key type to generate when key is not provided (rsa or ec)
 
     Returns:
         Tuple of (CSR, private_key)
     """
     # Generate key if not provided
     if key is None:
-        logging.debug("Generating RSA key")
-        key = generate_rsa_key(key_size)
+        if key_type == "ec":
+            logging.debug("Generating EC key (NIST P-256)")
+            key = generate_ec_key()
+        elif key_type == "rsa":
+            logging.debug("Generating RSA key")
+            key = generate_rsa_key(key_size)
+        else:
+            raise ValueError("key_type must be either 'rsa' or 'ec'")
+
+    if not isinstance(key, (rsa.RSAPrivateKey, ec.EllipticCurvePrivateKey)):
+        raise TypeError("CSR signing requires an RSA or elliptic-curve private key")
 
     # Start building CSR
     certification_request_info = asn1csr.CertificationRequestInfo()
@@ -987,14 +1019,14 @@ def create_csr(
     certification_request_info["attributes"] = cri_attributes
 
     # Sign the CSR
-    signature = rsa_pkcs1v15_sign(certification_request_info.dump(), key)
+    signature = sign_data(certification_request_info.dump(), key, hashes.SHA256)
 
     # Create the final CSR
     csr = asn1csr.CertificationRequest(
         {
             "certification_request_info": certification_request_info,
             "signature_algorithm": asn1csr.SignedDigestAlgorithm(
-                {"algorithm": "sha256_rsa"}
+                {"algorithm": signature_algorithm_name(key, hashes.SHA256)}
             ),
             "signature": signature,
         }
@@ -1074,7 +1106,7 @@ def create_csr_attributes(
 def create_renewal(
     request: bytes,
     cert: x509.Certificate,
-    key: rsa.RSAPrivateKey,
+    key: PrivateKeyTypes,
 ) -> bytes:
     """
     Create a certificate renewal request.
@@ -1131,17 +1163,20 @@ def create_renewal(
     )
 
     # Sign the attributes
-    attribs_signature = rsa_pkcs1v15_sign(
+    attribs_signature = sign_data(
         signed_attribs.dump(), key, hash_algorithm=signature_hash_algorithm
     )
 
-    # Create SignerInfo
+    # Create SignerInfo. Use the subject key's algorithm, rather than the
+    # algorithm used by the issuer to sign the certificate.
     signer_info = asn1cms.SignerInfo(
         {
             "version": 1,
             "sid": issuer_and_serial,
             "digest_algorithm": digest_algorithm,
-            "signature_algorithm": x509_cert["signature_algorithm"],
+            "signature_algorithm": asn1cms.SignedDigestAlgorithm(
+                {"algorithm": signature_algorithm_name(key, signature_hash_algorithm)}
+            ),
             "signature": attribs_signature,
             "signed_attrs": signed_attribs,
         }
@@ -1182,7 +1217,7 @@ def create_on_behalf_of(
     request: bytes,
     on_behalf_of: str,
     cert: x509.Certificate,
-    key: rsa.RSAPrivateKey,
+    key: PrivateKeyTypes,
 ) -> bytes:
     """
     Create a certificate request on behalf of another user.
@@ -1248,7 +1283,7 @@ def create_on_behalf_of(
     )
 
     # Sign the attributes
-    attribs_signature = rsa_pkcs1v15_sign(
+    attribs_signature = sign_data(
         signed_attribs.dump(), key, hash_algorithm=signature_hash_algorithm
     )
 
@@ -1258,7 +1293,9 @@ def create_on_behalf_of(
             "version": 1,
             "sid": issuer_and_serial,
             "digest_algorithm": digest_algorithm,
-            "signature_algorithm": x509_cert["signature_algorithm"],
+            "signature_algorithm": asn1cms.SignedDigestAlgorithm(
+                {"algorithm": signature_algorithm_name(key, signature_hash_algorithm)}
+            ),
             "signature": attribs_signature,
             "signed_attrs": signed_attribs,
         }

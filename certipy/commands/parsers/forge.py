@@ -146,6 +146,13 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         default=2048,
         type=int,
     )
+    key_group.add_argument(
+        "-key-type",
+        action="store",
+        choices=["rsa", "ec"],
+        default="rsa",
+        help="Private key type to generate (default: rsa; ec uses NIST P-256)",
+    )
 
     # Validity options
     validity_group = subparser.add_argument_group("validity options")

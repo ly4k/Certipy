@@ -22,14 +22,16 @@ from asn1crypto import algos as asn1algos
 from asn1crypto import cms as asn1cms
 from asn1crypto import keys as asn1keys
 from asn1crypto import x509 as asn1x509
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from impacket.krb5 import constants
 
 from certipy.lib.certificate import (
     cert_to_der,
     hash_digest,
     hashes,
-    rsa,
-    rsa_pkcs1v15_sign,
+    sign_data,
+    signature_algorithm_name,
     x509,
 )
 from certipy.lib.structs import (
@@ -148,7 +150,7 @@ class DirtyDH:
 
 def sign_authpack(
     data: bytes,
-    key: rsa.RSAPrivateKey,
+    key: PrivateKeyTypes,
     cert: Union[x509.Certificate, asn1x509.Certificate],
 ) -> bytes:
     """
@@ -166,8 +168,21 @@ def sign_authpack(
     if isinstance(cert, x509.Certificate):
         cert = asn1x509.Certificate.load(cert_to_der(cert))
 
-    # Create digest algorithm identifier for SHA-1
-    digest_algorithm = {"algorithm": asn1algos.DigestAlgorithmId("sha1")}
+    # Preserve the established RSA/SHA-1 PKINIT behavior. ECDSA uses SHA-2,
+    # selected according to the curve size.
+    if isinstance(key, rsa.RSAPrivateKey):
+        hash_algorithm = hashes.SHA1
+    elif isinstance(key, ec.EllipticCurvePrivateKey):
+        if key.curve.key_size <= 256:
+            hash_algorithm = hashes.SHA256
+        elif key.curve.key_size <= 384:
+            hash_algorithm = hashes.SHA384
+        else:
+            hash_algorithm = hashes.SHA512
+    else:
+        raise TypeError("PKINIT requires an RSA or elliptic-curve private key")
+
+    digest_algorithm = {"algorithm": asn1algos.DigestAlgorithmId(hash_algorithm.name)}
 
     # Create signer info
     signer_info = {
@@ -182,20 +197,23 @@ def sign_authpack(
         "signed_attrs": [
             asn1cms.CMSAttribute({"type": "content_type", "values": [PKINIT_OID]}),
             asn1cms.CMSAttribute(
-                {"type": "message_digest", "values": [hash_digest(data, hashes.SHA1)]}
+                {
+                    "type": "message_digest",
+                    "values": [hash_digest(data, hash_algorithm)],
+                }
             ),
         ],
         "signature_algorithm": asn1algos.SignedDigestAlgorithm(
-            {"algorithm": "sha1_rsa"}
+            {"algorithm": signature_algorithm_name(key, hash_algorithm)}
         ),
         "signature": bytes(),
     }
 
     # Create the signature
-    signer_info["signature"] = rsa_pkcs1v15_sign(
+    signer_info["signature"] = sign_data(
         asn1cms.CMSAttributes(signer_info["signed_attrs"]).dump(),
         key,
-        hash_algorithm=hashes.SHA1,
+        hash_algorithm=hash_algorithm,
     )
 
     # Create encapsulated content info
@@ -223,7 +241,7 @@ def sign_authpack(
 
 
 def build_pkinit_as_req(
-    username: str, domain: str, key: rsa.RSAPrivateKey, cert: x509.Certificate
+    username: str, domain: str, key: PrivateKeyTypes, cert: x509.Certificate
 ) -> Tuple[bytes, DirtyDH]:
     """
     Build a PKINIT AS-REQ message.

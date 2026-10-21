@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union, cast
 
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.asymmetric.types import (
     CertificateIssuerPrivateKeyTypes,
     CertificateIssuerPublicKeyTypes,
@@ -39,6 +38,7 @@ from certipy.lib.certificate import (
     asn1x509,
     cert_id_to_parts,
     create_pfx,
+    generate_ec_key,
     generate_rsa_key,
     get_subject_from_str,
     load_pfx,
@@ -86,6 +86,7 @@ class Forge:
         crl: Optional[str] = None,
         serial: Optional[str] = None,
         key_size: int = 2048,
+        key_type: str = "rsa",
         validity_period: int = 365,
         out: Optional[str] = None,
         pfx_password: Optional[str] = None,
@@ -108,6 +109,7 @@ class Forge:
             crl: URI for the CRL distribution point
             serial: Custom serial number (in hex format, colons optional)
             key_size: RSA key size in bits for new certificates
+            key_type: Private key type to generate (rsa or ec)
             validity_period: Validity period in days for new certificates
             out: Output file path for the forged certificate
             pfx_password: Password for the PFX file
@@ -124,6 +126,7 @@ class Forge:
         self.crl = crl
         self.serial = serial
         self.key_size = key_size
+        self.key_type = key_type
         self.validity_period = validity_period
         self.out = out
         self.pfx_password = pfx_password
@@ -412,8 +415,14 @@ class Forge:
         else:
             cert_builder = cert_builder.issuer_name(ca_cert.subject)
 
-        # Set public key, serial number, and validity period
-        cert_builder = cert_builder.public_key(template_cert.public_key())
+        # Reuse the template key by default, or generate new key material when
+        # explicitly requested.
+        if self.key_type == "ec":
+            key = generate_ec_key()
+        elif self.key_type != "rsa":
+            raise ValueError("key_type must be either 'rsa' or 'ec'")
+        key_public = cast(CertificateIssuerPublicKeyTypes, key.public_key())
+        cert_builder = cert_builder.public_key(key_public)
         cert_builder = cert_builder.serial_number(serial_number)
         cert_builder = cert_builder.not_valid_before(template_cert.not_valid_before_utc)
         cert_builder = cert_builder.not_valid_after(template_cert.not_valid_after_utc)
@@ -431,6 +440,12 @@ class Forge:
             x509.ExtendedKeyUsage.oid,
             NTDS_CA_SECURITY_EXT,
         ]
+        if self.key_type == "ec":
+            skip_extensions.append(x509.SubjectKeyIdentifier.oid)
+            cert_builder = cert_builder.add_extension(
+                x509.SubjectKeyIdentifier.from_public_key(key_public),
+                False,
+            )
 
         # Add CRL distribution point if specified
         crl_extension = self.get_crl()
@@ -495,7 +510,7 @@ class Forge:
         ca_private_key: CertificateIssuerPrivateKeyTypes,
         ca_public_key: CertificateIssuerPublicKeyTypes,
         ca_cert: x509.Certificate,
-    ) -> Tuple[rsa.RSAPrivateKey, bytes]:
+    ) -> Tuple[PrivateKeyTypes, bytes]:
         """
         Build a new certificate without a template.
 
@@ -508,7 +523,12 @@ class Forge:
             Tuple of (certificate private key, PFX data)
         """
         # Generate new key pair
-        key = generate_rsa_key(self.key_size)
+        if self.key_type == "ec":
+            key = generate_ec_key()
+        elif self.key_type == "rsa":
+            key = generate_rsa_key(self.key_size)
+        else:
+            raise ValueError("key_type must be either 'rsa' or 'ec'")
 
         # Determine identification type and value
         if self.alt_upn:
@@ -674,7 +694,12 @@ class Forge:
         This method generates a self-signed CA certificate and saves it to the specified output file.
         """
         # Generate new key pair
-        key = generate_rsa_key(self.key_size)
+        if self.key_type == "ec":
+            key = generate_ec_key()
+        elif self.key_type == "rsa":
+            key = generate_rsa_key(self.key_size)
+        else:
+            raise ValueError("key_type must be either 'rsa' or 'ec'")
 
         # Create self-signed CA certificate
         subject = x509.Name(

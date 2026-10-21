@@ -29,6 +29,7 @@ from typing import Any, List, Literal, Optional, Tuple, Union, cast
 import bs4
 import httpx
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from impacket.dcerpc.v5 import epm
 from impacket.examples import logger as _impacket_logger
 from impacket.examples.ntlmrelayx.attacks import ProtocolAttack
@@ -545,10 +546,16 @@ class ADCSHTTPAttackClient(ProtocolAttack):
             key_size=self.adcs_relay.key_size,
             application_policies=self.adcs_relay.application_policies,
             smime=self.adcs_relay.smime,
+            key_type=self.adcs_relay.key_type,
         )
 
         # Handle key archival if specified
         if self.adcs_relay.archive_key:
+            if not isinstance(key, rsa.RSAPrivateKey):
+                raise ValueError(
+                    "Key archival requires an RSA key; EC keys are not supported by "
+                    "the legacy Microsoft key archival blob format"
+                )
             logging.info(
                 f"Trying to retrieve CAX certificate from file {self.adcs_relay.archive_key}"
             )
@@ -759,11 +766,17 @@ class ADCSRPCAttackClient(ProtocolAttack):
             key_size=self.adcs_relay.key_size,
             application_policies=self.adcs_relay.application_policies,
             smime=self.adcs_relay.smime,
+            key_type=self.adcs_relay.key_type,
         )
         self.interface.parent.key = key
 
         # Handle key archival if specified
         if self.adcs_relay.archive_key:
+            if not isinstance(key, rsa.RSAPrivateKey):
+                raise ValueError(
+                    "Key archival requires an RSA key; EC keys are not supported by "
+                    "the legacy Microsoft key archival blob format"
+                )
             logging.info(
                 f"Trying to retrieve CAX certificate from file {self.adcs_relay.archive_key}"
             )
@@ -833,6 +846,7 @@ class Relay:
         pfx_password: Optional[str] = None,
         retrieve: Optional[int] = None,
         key_size: int = 2048,
+        key_type: str = "rsa",
         out: Optional[str] = None,
         interface: str = "0.0.0.0",
         port: int = 445,
@@ -859,6 +873,7 @@ class Relay:
             pfx_password: Password for PFX file
             retrieve: Request ID to retrieve instead of requesting a new certificate
             key_size: RSA key size in bits
+            key_type: Private key type to generate (rsa or ec)
             out: Output file base name
             interface: Network interface to listen on
             port: Port to listen on for NTLM relay
@@ -880,6 +895,7 @@ class Relay:
         self.pfx_password = pfx_password
         self.request_id = int(retrieve) if retrieve else None
         self.key_size = key_size
+        self.key_type = key_type
         self.out = out
         self.forever = forever
         self.no_skip = no_skip
@@ -888,7 +904,7 @@ class Relay:
         self.port = port
         self.enum_templates = enum_templates
         self.kwargs = kwargs
-        self.key: Optional[rsa.RSAPrivateKey] = None
+        self.key: Optional[PrivateKeyTypes] = None
 
         # Convert application policy names to OIDs
         self.application_policies = [
@@ -994,6 +1010,7 @@ class Relay:
             dns=self.alt_dns,
             sid=self.alt_sid,
             key_size=self.key_size,
+            key_type=self.key_type,
             retrieve=self.request_id,
             out=self.out,
         )

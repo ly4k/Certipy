@@ -22,6 +22,7 @@ import re
 from typing import Any, Dict, List, Optional, Protocol, Tuple, Union
 
 import httpx
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.asymmetric.types import PrivateKeyTypes
 from impacket.dcerpc.v5 import rpcrt
 from impacket.dcerpc.v5.dcom.oaut import string_to_bin
@@ -55,7 +56,6 @@ from certipy.lib.certificate import (
     pem_to_cert,
     pem_to_key,
     print_certificate_identities,
-    rsa,
     x509,
 )
 from certipy.lib.constants import OID_TO_STR_NAME_MAP, USER_AGENT
@@ -1272,11 +1272,12 @@ class Request:
         pfx: Optional[str] = None,
         pfx_password: Optional[str] = None,
         key_size: int = 2048,
+        key_type: str = "rsa",
         archive_key: bool = False,
         cax_cert: bool = False,
         renew: bool = False,
         out: Optional[str] = None,
-        key: Optional[rsa.RSAPrivateKey] = None,
+        key: Optional[PrivateKeyTypes] = None,
         web: bool = False,
         dcom: bool = False,
         http_scheme: Optional[str] = None,
@@ -1303,6 +1304,7 @@ class Request:
             pfx: Path to PKCS#12/PFX file
             pfx_password: Password for PFX file
             key_size: RSA key size in bits
+            key_type: Private key type to generate (rsa or ec)
             archive_key: Whether to archive the private key
             cax_cert: Whether to retrieve the CAX certificate
             renew: Whether to renew an existing certificate
@@ -1327,6 +1329,7 @@ class Request:
         self.pfx = pfx
         self.pfx_password = pfx_password
         self.key_size = key_size
+        self.key_type = key_type
         self.archive_key = archive_key
         self.cax_cert = cax_cert
         self.renew = renew
@@ -1463,6 +1466,7 @@ class Request:
             smime=self.smime,
             key=self.key,
             renewal_cert=renewal_cert,
+            key_type=self.key_type,
         )
         self.key = key
 
@@ -1471,6 +1475,12 @@ class Request:
 
         # Handle key archival
         if self.archive_key:
+            if not isinstance(self.key, rsa.RSAPrivateKey):
+                logging.error(
+                    "Key archival requires an RSA key; EC keys are not supported by "
+                    "the legacy Microsoft key archival blob format"
+                )
+                return False
             ca = CA(self.target, self.ca)
             logging.info("Trying to retrieve CAX certificate")
             cax_cert = ca.get_exchange_certificate()
@@ -1485,8 +1495,10 @@ class Request:
                 )
                 return False
 
-            if not isinstance(renewal_key, rsa.RSAPrivateKey):
-                logging.error("Currently only RSA keys are supported for renewal")
+            if not isinstance(
+                renewal_key, (rsa.RSAPrivateKey, ec.EllipticCurvePrivateKey)
+            ):
+                logging.error("Renewal requires an RSA or EC private key")
                 return False
 
             csr_der = create_renewal(csr_der, renewal_cert, renewal_key)
@@ -1508,10 +1520,10 @@ class Request:
                 )
                 return False
 
-            if not isinstance(agent_key, rsa.RSAPrivateKey):
-                logging.error(
-                    "Currently only RSA keys are supported for on-behalf-of requests"
-                )
+            if not isinstance(
+                agent_key, (rsa.RSAPrivateKey, ec.EllipticCurvePrivateKey)
+            ):
+                logging.error("On-behalf-of requests require an RSA or EC private key")
                 return False
 
             csr_der = create_on_behalf_of(

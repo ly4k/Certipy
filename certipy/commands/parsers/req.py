@@ -137,6 +137,13 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         type=int,
     )
     cert_group.add_argument(
+        "-key-type",
+        action="store",
+        choices=["rsa", "ec"],
+        default="rsa",
+        help="Private key type to generate (default: rsa; ec uses NIST P-256)",
+    )
+    cert_group.add_argument(
         "-archive-key", action="store_true", help="Send private key for Key Archival"
     )
     cert_group.add_argument(
