@@ -3,7 +3,7 @@ Parser for NTLM Relay command.
 
 This module defines the command-line interface for the 'relay' command,
 which enables NTLM relay attacks against Active Directory Certificate Services
-HTTP endpoints for certificate theft and escalation.
+HTTP, CES/WSTEP, and RPC endpoints for certificate theft and escalation.
 """
 
 import argparse
@@ -33,7 +33,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     Add the NTLM relay command subparser to the main parser.
 
     This function creates and configures a subparser for relaying NTLM authentication
-    to AD CS HTTP endpoints, enabling certificate theft and account takeover via
+    to AD CS enrollment endpoints, enabling certificate theft and account takeover via
     certificate-based authentication.
 
     Args:
@@ -45,7 +45,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     # Create the relay subparser with description
     subparser = subparsers.add_parser(
         NAME,
-        help="NTLM Relay to AD CS HTTP Endpoints",
+        help="NTLM Relay to AD CS Enrollment Endpoints",
         description=(
             "Perform NTLM relay attacks against Active Directory Certificate Services. "
             "This allows obtaining certificates for relayed users and computers, "
@@ -61,7 +61,8 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         required=True,
         help=(
             "protocol://<IP address or hostname> of certificate authority. "
-            "Example: http://ca.corp.local for ESC8 or rpc://ca.corp.local for ESC11"
+            "Example: http://ca.corp.local for ESC8, rpc://ca.corp.local for ESC11, "
+            "or https://ca.corp.local/CA_CES_Kerberos/service.svc/CES with -ces"
         ),
     )
 
@@ -187,6 +188,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
 
     # Relay behavior options
     relay_group = subparser.add_argument_group("relay options")
+    relay_group.add_argument(
+        "-ces",
+        action="store_true",
+        help="Relay to a Microsoft CES/WSTEP endpoint instead of Web Enrollment",
+    )
     relay_group.add_argument(
         "-forever",
         action="store_true",

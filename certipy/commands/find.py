@@ -21,6 +21,7 @@ import time
 from collections import OrderedDict
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
+from urllib.parse import quote
 
 import httpx
 import requests
@@ -453,6 +454,13 @@ class Find:
                             "http": {"enabled": "Unknown"},
                             "https": {"enabled": "Unknown", "channel_binding": None},
                         },
+                        "ces": {
+                            "https": {
+                                "enabled": "Unknown",
+                                "channel_binding": None,
+                                "url": self.get_ces_endpoint(ca),
+                            }
+                        },
                     }
 
                 else:
@@ -492,6 +500,13 @@ class Find:
             "web_enrollment": {
                 "http": {"enabled": "Unknown"},
                 "https": {"enabled": "Unknown", "channel_binding": None},
+            },
+            "ces": {
+                "https": {
+                    "enabled": "Unknown",
+                    "channel_binding": None,
+                    "url": self.get_ces_endpoint(ca),
+                }
             },
         }
 
@@ -597,6 +612,25 @@ class Find:
             logging.warning(f"Failed to check Web Enrollment for CA {ca_name!r}: {e}")
             handle_error(True)
 
+        # Check the conventional HTTPS Kerberos CES/WSTEP endpoint
+        logging.info(f"Checking CES for CA {ca_name!r} @ {ca_remote_name!r}")
+        try:
+            ces_enabled = self.check_ces_enrollment(ca)
+            ca_properties["ces"]["https"]["enabled"] = ces_enabled
+
+            if ces_enabled:
+                ces_channel_binding = self.check_channel_binding(
+                    ca,
+                    path=self.get_ces_path(ca),
+                    service="CES",
+                )
+                ca_properties["ces"]["https"]["channel_binding"] = (
+                    "Unknown" if ces_channel_binding is None else ces_channel_binding
+                )
+        except Exception as e:
+            logging.warning(f"Failed to check CES for CA {ca_name!r}: {e}")
+            handle_error(True)
+
         return ca_properties
 
     def _process_ca_certificate(self, ca: LDAPEntry):
@@ -688,15 +722,60 @@ class Find:
 
         return False
 
-    def check_channel_binding(self, ca: LDAPEntry) -> Optional[bool]:
-        """
-        Check if a Certificate Authority web enrollment endpoint enforces channel binding (EPA).
+    @staticmethod
+    def get_ces_path(ca: LDAPEntry) -> str:
+        """Build the conventional Kerberos CES virtual-directory path."""
+        ca_name = quote(str(ca.get("name")), safe="")
+        return f"/{ca_name}_CES_Kerberos/service.svc/CES"
 
-        This method tests HTTPS web enrollment authentication with and without channel binding
-        to determine if Extended Protection for Authentication (EPA) is enabled.
+    def get_ces_endpoint(self, ca: LDAPEntry) -> str:
+        """Build the conventional HTTPS Kerberos CES endpoint URL."""
+        return f"https://{ca.get('dNSHostName')}{self.get_ces_path(ca)}"
+
+    def check_ces_enrollment(self, ca: LDAPEntry) -> bool:
+        """Check whether the conventional HTTPS Kerberos CES endpoint exists."""
+        target_name = ca.get("dNSHostName")
+        target_ip = self.target.resolver.resolve(target_name)
+        url = f"https://{target_ip}{self.get_ces_path(ca)}"
+        headers = {"User-Agent": USER_AGENT, "Host": target_name}
+
+        try:
+            logging.debug(f"Connecting to {url!r}")
+            with httpx.Client(timeout=self.target.timeout, verify=False) as session:
+                response = session.get(
+                    url,
+                    headers=headers,
+                    timeout=self.target.timeout,
+                    follow_redirects=False,
+                )
+            if response.status_code == 401:
+                logging.debug("CES seems enabled over HTTPS")
+                return True
+        except httpx.TimeoutException:
+            logging.debug("CES seems disabled over HTTPS")
+            return False
+        except Exception as e:
+            logging.warning(f"Error checking CES: {e}")
+            handle_error(True)
+
+        return False
+
+    def check_channel_binding(
+        self,
+        ca: LDAPEntry,
+        path: str = "/certsrv/",
+        service: str = "Web Enrollment",
+    ) -> Optional[bool]:
+        """
+        Check if an HTTPS enrollment endpoint enforces channel binding (EPA).
+
+        This method tests HTTPS authentication with and without channel binding to
+        determine if Extended Protection for Authentication (EPA) is enabled.
 
         Args:
             ca: LDAP entry for the Certificate Authority
+            path: URL path of the enrollment endpoint
+            service: Endpoint name used in log messages
 
         Returns:
             True if channel binding is enforced
@@ -706,7 +785,10 @@ class Find:
         target_name = ca.get("dNSHostName")
         ca_name = ca.get("name")
 
-        logging.debug(f"Checking channel binding for CA {ca_name!r} ({target_name!r})")
+        logging.debug(
+            f"Checking channel binding for {service} on CA {ca_name!r} "
+            f"({target_name!r})"
+        )
 
         # Set up connection parameters
         try:
@@ -725,7 +807,7 @@ class Find:
                 no_cb_auth = HttpxKerberosAuth(ca_target, channel_binding=False)
                 cb_auth = HttpxKerberosAuth(ca_target, channel_binding=True)
 
-            url = f"https://{target_ip}/certsrv/"
+            url = f"https://{target_ip}{path}"
             headers = {"User-Agent": USER_AGENT, "Host": target_name}
 
             # First test: Try authentication without channel binding
@@ -784,11 +866,12 @@ class Find:
         except NtlmNotSupportedError:
             # NTLM not supported, skip channel binding check
             logging.warning(
-                "Failed to check channel binding: NTLM not supported. Try using Kerberos authentication (-k and -dc-host)."
+                f"Failed to check channel binding for {service}: NTLM not "
+                "supported. Try using Kerberos authentication (-k and -dc-host)."
             )
             return None
         except Exception as e:
-            logging.warning(f"Failed to check channel binding: {e}")
+            logging.warning(f"Failed to check channel binding for {service}: {e}")
             handle_error(True)
             return None
 
@@ -1278,6 +1361,9 @@ class Find:
             "Web Enrollment HTTP",
             "Web Enrollment HTTPS",
             "Channel Binding",
+            "CES HTTPS",
+            "CES URL",
+            "CES Channel Binding",
             "Owner",
             "Manage CA Principals",
             "Manage Certificates Principals",
@@ -1362,6 +1448,33 @@ class Find:
                         elif value["https"]["channel_binding"] is False:
                             cb_status = "Disabled"
                         items.append(("Channel Binding", cb_status))
+
+            # Handle CES enrollment specially
+            elif key == "Certificate Enrollment Service (CES)" and isinstance(
+                value, dict
+            ):
+                https = value.get("https")
+                if isinstance(https, dict):
+                    enabled = https.get("enabled")
+                    if enabled is True:
+                        enabled_status = "Enabled"
+                    elif enabled is False:
+                        enabled_status = "Disabled"
+                    else:
+                        enabled_status = "Unknown"
+                    items.append(("CES HTTPS", enabled_status))
+
+                    if https.get("url"):
+                        items.append(("CES URL", str(https["url"])))
+
+                    channel_binding = https.get("channel_binding")
+                    if channel_binding is True:
+                        cb_status = "Enabled"
+                    elif channel_binding is False:
+                        cb_status = "Disabled"
+                    else:
+                        cb_status = "Unknown"
+                    items.append(("CES Channel Binding", cb_status))
 
             # Handle permissions specially
             elif "Permissions" in key and isinstance(value, dict):
@@ -1627,6 +1740,7 @@ class Find:
             "validity_start": "Certificate Validity Start",
             "validity_end": "Certificate Validity End",
             "web_enrollment": "Web Enrollment",
+            "ces": "Certificate Enrollment Service (CES)",
             "user_specified_san": "User Specified SAN",
             "request_disposition": "Request Disposition",
             "enforce_encrypt_icertrequest": "Enforce Encryption for Requests",
@@ -2289,6 +2403,32 @@ class Find:
                     "For manual verification, request a certificate via HTTPS with Channel Binding disabled "
                     "and observe if the request succeeds or is rejected."
                 )
+
+        # ESC8: Insecure Certificate Enrollment Services (CES/WSTEP)
+        ces = ca.get("ces")
+        if ces and will_issue:
+            ces_https = ces.get("https")
+            if isinstance(ces_https, dict):
+                ces_enabled = ces_https.get("enabled") is True
+                ces_channel_binding = ces_https.get("channel_binding")
+                ces_url = ces_https.get("url")
+
+                if ces_enabled and ces_channel_binding is False:
+                    ces_finding = (
+                        "CES is enabled over HTTPS and Channel Binding is disabled"
+                    )
+                    if ces_url:
+                        ces_finding += f" at {ces_url}"
+                    ces_finding += "."
+
+                    vulnerabilities["ESC8.1"] = ces_finding
+                elif ces_enabled and ces_channel_binding in (None, "Unknown"):
+                    ces_remark = (
+                        "Channel Binding couldn't be verified for CES. For manual "
+                        "verification, authenticate to the CES endpoint without "
+                        "Channel Binding and observe whether the request succeeds."
+                    )
+                    remarks["ESC8.1"] = ces_remark
 
         # ESC11: Unencrypted certificate requests
         if ca.get("enforce_encrypt_icertrequest") == "Disabled" and will_issue:

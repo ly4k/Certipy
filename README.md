@@ -17,7 +17,7 @@
 * 🚩 Identify misconfigurations
 * 🔐 Request and forge certificates
 * 🎭 Perform authentication using certificates
-* 📡 Relay NTLM authentication to AD CS HTTP(S)/RPC endpoints
+* 📡 Relay NTLM authentication to AD CS Web Enrollment, CES/WSTEP, and RPC endpoints
 * 🗝️ Support for Shadow Credentials, Golden Certificates, and Certificate Mapping Attacks
 * 🧰 And much more!
 
@@ -38,6 +38,22 @@ See the [Installation Guide](https://github.com/ly4k/Certipy/wiki/04-%E2%80%90-I
 ## 🚀 Quick Start
 
 See the [Quick Start Guide](https://github.com/ly4k/Certipy/wiki/05-%E2%80%90-Usage) for a quick overview of the most common commands and usage examples.
+
+### CES/WSTEP relay
+
+Use `-ces` with the complete Certificate Enrollment Services endpoint URL:
+
+```console
+certipy relay -target https://ca.corp.local/CA_CES_Kerberos/service.svc/CES -ces -template Machine
+```
+
+If `-template` is omitted, Certipy selects `Machine` for computer accounts and
+`User` for user accounts. Certificate retrieval, template enumeration, and key
+archival are not supported in CES mode.
+
+The `find` command also probes each CA's conventional HTTPS Kerberos CES endpoint
+(`<CA name>_CES_Kerberos/service.svc/CES`) and reports its availability and EPA
+(channel binding) status.
 
 ---
 
