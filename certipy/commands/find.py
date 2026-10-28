@@ -21,6 +21,7 @@ import time
 from collections import OrderedDict
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 import requests
@@ -58,6 +59,21 @@ from certipy.lib.target import Target
 from certipy.lib.time import filetime_to_str
 
 from .ca import CA
+
+# Authentication type codes used in the msPKI-Enrollment-Servers attribute.
+# Reference: X509EnrollmentAuthFlags and the Microsoft AD schema documentation.
+ENROLLMENT_SERVER_AUTH_TYPES = {
+    1: "Anonymous",
+    2: "Kerberos",
+    4: "Username and Password",
+    8: "Client Certificate",
+}
+
+# Renewal flag codes used in the msPKI-Enrollment-Servers attribute.
+ENROLLMENT_SERVER_RENEWAL_FLAGS = {
+    0: "Enrollment and Renewal",
+    1: "Renewal Only",
+}
 
 
 class Find:
@@ -230,6 +246,7 @@ class Find:
                 "cACertificateDN",
                 "cACertificate",
                 "certificateTemplates",
+                "msPKI-Enrollment-Servers",
                 "objectGUID",
             ],
         )
@@ -442,6 +459,10 @@ class Find:
         """
         for ca in cas:
             try:
+                # Parse the enrollment web services (CES) advertised in LDAP.
+                # Available regardless of dc_only since it comes from the CA object.
+                self._process_enrollment_web_services(ca)
+
                 if self.dc_only:
                     # In DC-only mode, we don't connect to CAs directly
                     ca_properties = {
@@ -472,6 +493,80 @@ class Find:
                 handle_error(True)
                 # Continue processing other CAs
                 continue
+
+    def _process_enrollment_web_services(self, ca: LDAPEntry) -> None:
+        """
+        Parse the msPKI-Enrollment-Servers attribute into a structured list.
+
+        Each value of the attribute is newline-separated and starts with the
+        priority, authentication type, and renewal flag. The remaining fields
+        form the enrollment URI (Certificate Enrollment Web Service / CES).
+        Windows commonly stores the final WSTEP endpoint suffix (for example,
+        ``0`` in ``service.svc/CES0``) on a separate line, so URI fragments must
+        be concatenated without a separator. The parsed result is stored on the
+        CA object under the "enrollment_web_services" key.
+
+        Reference: Microsoft ms-PKI-Enrollment-Servers schema and CES
+        deployment documentation.
+
+        Args:
+            ca: Certificate authority object
+        """
+        raw = ca.get("msPKI-Enrollment-Servers")
+        if not raw:
+            return
+
+        # ldap3 may return a single value or a sequence of values.
+        if not isinstance(raw, (list, tuple)):
+            raw = [raw]
+
+        services = []
+        for value in raw:
+            if isinstance(value, bytes):
+                value = value.decode("utf-8", errors="replace")
+
+            # splitlines() handles both LF and CRLF values. Windows commonly
+            # emits five lines here, with the final CES instance suffix on its
+            # own line (".../service.svc/CES" + "0").
+            fields = str(value).splitlines()
+
+            if len(fields) < 4:
+                # Unexpected format: keep the raw value so nothing is lost.
+                services.append(OrderedDict([("URI", str(value))]))
+                continue
+
+            priority, authentication, renewal = (
+                field.strip() for field in fields[:3]
+            )
+            uri = "".join(field.strip() for field in fields[3:])
+
+            try:
+                auth_label = ENROLLMENT_SERVER_AUTH_TYPES.get(
+                    int(authentication), authentication
+                )
+            except ValueError:
+                auth_label = authentication
+
+            try:
+                renewal_label = ENROLLMENT_SERVER_RENEWAL_FLAGS.get(
+                    int(renewal), renewal
+                )
+            except ValueError:
+                renewal_label = renewal
+
+            services.append(
+                OrderedDict(
+                    [
+                        ("URI", uri),
+                        ("Priority", priority),
+                        ("Authentication", auth_label),
+                        ("Renewal", renewal_label),
+                    ]
+                )
+            )
+
+        if services:
+            ca.set("enrollment_web_services", services)
 
     def _get_ca_config_and_web_enrollment(self, ca: LDAPEntry) -> Dict[str, Any]:
         """
@@ -597,6 +692,35 @@ class Find:
             logging.warning(f"Failed to check Web Enrollment for CA {ca_name!r}: {e}")
             handle_error(True)
 
+        # Probe CES endpoints advertised in msPKI-Enrollment-Servers (same
+        # approach as /certsrv/ above, just a different source).
+        enrollment_web_services = ca.get("enrollment_web_services")
+        if enrollment_web_services:
+            for service in enrollment_web_services:
+                uri = service.get("URI")
+                if not uri:
+                    continue
+                logging.info(
+                    f"Checking CES endpoint for CA {ca_name!r} @ {uri!r}"
+                )
+                reachable = self.check_ces_enrollment(uri)
+                service["Reachable"] = (
+                    "Unknown" if reachable is None else reachable
+                )
+
+                # EPA is relevant to the Windows Integrated (Kerberos) CES
+                # endpoint. Username/password and client-certificate instances
+                # are not NTLM relay surfaces.
+                if (
+                    reachable is True
+                    and str(uri).lower().startswith("https://")
+                    and service.get("Authentication") == "Kerberos"
+                ):
+                    cb = self.check_ces_channel_binding(uri)
+                    service["Channel Binding (EPA)"] = (
+                        "Unknown" if cb is None else cb
+                    )
+
         return ca_properties
 
     def _process_ca_certificate(self, ca: LDAPEntry):
@@ -688,6 +812,106 @@ class Find:
 
         return False
 
+    def check_ces_enrollment(self, uri: str) -> Optional[bool]:
+        """
+        Check if a CES endpoint advertised in msPKI-Enrollment-Servers is reachable.
+
+        Mirrors check_web_enrollment but targets the exact Certificate Enrollment
+        Web Service (CES) URL published in the attribute. An HTTP 401 means the
+        service is running and requires authentication (relay surface for ESC8).
+
+        Args:
+            uri: Full CES endpoint URL from msPKI-Enrollment-Servers
+
+        Returns:
+            True if reachable (HTTP 401), False if disabled, None if untestable
+        """
+        request_target = self._resolve_ces_endpoint(uri)
+        if request_target is None:
+            return None
+        url, hostname, host_header, scheme = request_target
+
+        headers = {
+            "User-Agent": USER_AGENT,
+            "Host": host_header,
+        }
+
+        session = httpx.Client(
+            timeout=self.target.timeout,
+            verify=False,
+        )
+
+        try:
+            logging.debug(f"Connecting to CES endpoint {url!r}")
+
+            res = session.get(
+                url,
+                headers=headers,
+                timeout=self.target.timeout,
+                follow_redirects=False,
+                # The connection URL uses the resolved IP, so preserve the
+                # advertised CES hostname for IIS bindings that require SNI.
+                extensions=(
+                    {"sni_hostname": hostname} if scheme == "https" else None
+                ),
+            )
+
+            # 401 indicates authentication required (service is running)
+            if res.status_code == 401:
+                logging.debug(f"CES endpoint seems enabled: {uri!r}")
+                return True
+
+            return False
+
+        except Exception as e:
+            logging.debug(f"Error checking CES endpoint {uri!r}: {e}")
+            return None
+
+        finally:
+            session.close()
+
+    def _resolve_ces_endpoint(
+        self, uri: str
+    ) -> Optional[Tuple[str, str, str, str]]:
+        """
+        Resolve a CES URI while preserving its HTTP authority and TLS identity.
+
+        Returns:
+            Tuple of connection URL, hostname, Host header, and scheme, or None
+            when the advertised URI is malformed or unsupported.
+        """
+        parsed = urlparse(uri)
+        scheme = parsed.scheme.lower()
+        hostname = parsed.hostname
+        if scheme not in ("http", "https") or not hostname:
+            logging.debug(f"Skipping malformed CES URI {uri!r}")
+            return None
+
+        try:
+            port = parsed.port
+        except ValueError:
+            logging.debug(f"Skipping CES URI with an invalid port: {uri!r}")
+            return None
+
+        try:
+            target_ip = self.target.resolver.resolve(hostname)
+        except Exception:
+            target_ip = hostname
+
+        # Brackets are required when an IPv6 literal is used as a URL authority.
+        connection_host = str(target_ip)
+        if ":" in connection_host and not connection_host.startswith("["):
+            connection_host = f"[{connection_host}]"
+
+        connection_netloc = (
+            connection_host if port is None else f"{connection_host}:{port}"
+        )
+        connection_url = urlunparse(
+            (scheme, connection_netloc, parsed.path or "/", "", parsed.query, "")
+        )
+
+        return connection_url, hostname, parsed.netloc, scheme
+
     def check_channel_binding(self, ca: LDAPEntry) -> Optional[bool]:
         """
         Check if a Certificate Authority web enrollment endpoint enforces channel binding (EPA).
@@ -708,13 +932,73 @@ class Find:
 
         logging.debug(f"Checking channel binding for CA {ca_name!r} ({target_name!r})")
 
-        # Set up connection parameters
         try:
             target_ip = self.target.resolver.resolve(target_name)
+        except Exception as e:
+            logging.warning(f"Failed to check channel binding: {e}")
+            handle_error(True)
+            return None
 
-            # Create a copy of the target with CA-specific settings
+        url = f"https://{target_ip}/certsrv/"
+        return self._probe_channel_binding(url, target_name)
+
+    def check_ces_channel_binding(self, uri: str) -> Optional[bool]:
+        """
+        Check if an HTTPS CES endpoint (msPKI-Enrollment-Servers) enforces
+        channel binding (EPA), using the same two-request method as
+        check_channel_binding but against the exact CES URL.
+
+        Args:
+            uri: Full HTTPS CES endpoint URL
+
+        Returns:
+            True if channel binding is enforced, False if disabled,
+            None if the test was inconclusive or failed
+        """
+        request_target = self._resolve_ces_endpoint(uri)
+        if request_target is None:
+            return None
+        url, hostname, host_header, scheme = request_target
+        if scheme != "https":
+            return None
+
+        return self._probe_channel_binding(
+            url,
+            hostname,
+            host_header=host_header,
+            sni_hostname=hostname,
+        )
+
+    def _probe_channel_binding(
+        self,
+        url: str,
+        host: str,
+        host_header: Optional[str] = None,
+        sni_hostname: Optional[str] = None,
+    ) -> Optional[bool]:
+        """
+        Probe an HTTPS endpoint for channel binding (EPA) enforcement.
+
+        Authenticates twice (without then with channel binding) and compares the
+        responses: a server that accepts auth without channel binding is not
+        enforcing EPA. Shared by the /certsrv/ and CES channel-binding checks.
+
+        Args:
+            url: HTTPS URL to authenticate against (host part may be an IP)
+            host: Hostname used as the authentication target
+            host_header: Optional Host header value, including an explicit port
+                when present. Defaults to host.
+            sni_hostname: Optional TLS SNI hostname. Used by CES probes whose
+                connection URL contains a resolver-provided IP address.
+
+        Returns:
+            True if channel binding is enforced, False if disabled,
+            None if the test was inconclusive or failed
+        """
+        try:
+            # Create a copy of the target with host-specific settings
             ca_target = copy.copy(self.target)
-            ca_target.remote_name = target_name
+            ca_target.remote_name = host
 
             # Select authentication method based on whether Kerberos is enabled
             do_ntlm = not self.target.do_kerberos
@@ -725,25 +1009,30 @@ class Find:
                 no_cb_auth = HttpxKerberosAuth(ca_target, channel_binding=False)
                 cb_auth = HttpxKerberosAuth(ca_target, channel_binding=True)
 
-            url = f"https://{target_ip}/certsrv/"
-            headers = {"User-Agent": USER_AGENT, "Host": target_name}
+            headers = {
+                "User-Agent": USER_AGENT,
+                "Host": host_header or host,
+            }
 
             # First test: Try authentication without channel binding
-            no_cb_session = httpx.Client(
+            with httpx.Client(
                 auth=no_cb_auth,
                 timeout=self.target.timeout,
                 verify=False,
-            )
-
-            res_no_cb = no_cb_session.get(
-                url,
-                headers=headers,
-                timeout=self.target.timeout,
-                follow_redirects=False,
-            )
+            ) as no_cb_session:
+                res_no_cb = no_cb_session.get(
+                    url,
+                    headers=headers,
+                    timeout=self.target.timeout,
+                    follow_redirects=False,
+                    extensions=(
+                        {"sni_hostname": sni_hostname} if sni_hostname else None
+                    ),
+                )
 
             logging.debug(
-                f"CA {ca_name!r} responds with {res_no_cb.status_code} over HTTPS without channel binding"
+                f"{url!r} responds with {res_no_cb.status_code} over HTTPS "
+                "without channel binding"
             )
 
             # If non-401 status code, channel binding is likely disabled
@@ -753,21 +1042,24 @@ class Find:
                 return False
 
             # Second test: Try authentication with channel binding
-            cb_session = httpx.Client(
+            with httpx.Client(
                 auth=cb_auth,
                 timeout=self.target.timeout,
                 verify=False,
-            )
-
-            res_cb = cb_session.get(
-                url,
-                headers=headers,
-                timeout=self.target.timeout,
-                follow_redirects=False,
-            )
+            ) as cb_session:
+                res_cb = cb_session.get(
+                    url,
+                    headers=headers,
+                    timeout=self.target.timeout,
+                    follow_redirects=False,
+                    extensions=(
+                        {"sni_hostname": sni_hostname} if sni_hostname else None
+                    ),
+                )
 
             logging.debug(
-                f"CA {ca_name!r} responds with {res_cb.status_code} over HTTPS with channel binding"
+                f"{url!r} responds with {res_cb.status_code} over HTTPS "
+                "with channel binding"
             )
 
             # If status code is not 401, channel binding is likely enabled
@@ -1626,6 +1918,7 @@ class Find:
             "serial_number": "Certificate Serial Number",
             "validity_start": "Certificate Validity Start",
             "validity_end": "Certificate Validity End",
+            "enrollment_web_services": "Certificate Enrollment Web Services (CES)",
             "web_enrollment": "Web Enrollment",
             "user_specified_san": "User Specified SAN",
             "request_disposition": "Request Disposition",
@@ -2201,6 +2494,135 @@ class Find:
 
         return user_can_enroll, list(set(enrollable_sids))  # Deduplicate SIDs
 
+    def _assess_web_enrollment_esc8(
+        self,
+        web_enrollment: Optional[Dict[str, Any]],
+        service_name: str,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Evaluate ESC8 for a web_enrollment-shaped structure.
+
+        Shared by the /certsrv/ source and the CES source so both are assessed
+        with identical logic.
+
+        Args:
+            web_enrollment: Dict with "http"/"https" sub-dicts (enabled,
+                channel_binding), or None
+            service_name: User-facing name of the assessed enrollment surface
+
+        Returns:
+            Tuple of (vulnerability message or None, remark message or None)
+        """
+        if not web_enrollment:
+            return None, None
+
+        http = web_enrollment.get("http") or {}
+        https = web_enrollment.get("https") or {}
+
+        http_enabled = http.get("enabled") not in (None, False, "Unknown")
+        https_enabled = https.get("enabled") not in (None, False, "Unknown")
+        channel_binding_enforced = https.get("channel_binding")
+
+        if http_enabled and https_enabled and not channel_binding_enforced:
+            return (
+                f"{service_name} is enabled over HTTP and HTTPS, "
+                "and Channel Binding is disabled.",
+                None,
+            )
+        elif http_enabled:
+            return f"{service_name} is enabled over HTTP.", None
+        elif https_enabled and not channel_binding_enforced:
+            return (
+                f"{service_name} is enabled over HTTPS and Channel Binding "
+                "is disabled.",
+                None,
+            )
+        elif https_enabled and channel_binding_enforced == "Unknown":
+            return (
+                None,
+                f"Channel Binding couldn't be verified for HTTPS {service_name}. "
+                "For manual verification, request a certificate via HTTPS with "
+                "Channel Binding disabled "
+                "and observe if the request succeeds or is rejected.",
+            )
+
+        return None, None
+
+    def _build_ces_web_enrollment(
+        self, ca: LDAPEntry
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Build a web_enrollment-shaped structure from the probed CES endpoints.
+
+        Aggregates the reachability (and, for HTTPS, channel binding) of the CES
+        endpoints advertised in msPKI-Enrollment-Servers so they can be fed to
+        the same ESC8 logic as the /certsrv/ interface.
+
+        Args:
+            ca: Certificate authority object
+
+        Returns:
+            web_enrollment-shaped dict, or None if no CES endpoints are known
+        """
+        services = ca.get("enrollment_web_services")
+        if not services:
+            return None
+
+        http_reachability: List[Any] = []
+        https_reachability: List[Any] = []
+        https_channel_binding: Any = None
+
+        for service in services:
+            # ESC8 is an NTLM relay technique for obtaining a new certificate.
+            # Only Windows Integrated CES endpoints that permit enrollment are
+            # relevant. Keep all other endpoints in the inventory, but do not
+            # feed them into the shared ESC8 assessment.
+            if (
+                service.get("Authentication") != "Kerberos"
+                or service.get("Renewal") != "Enrollment and Renewal"
+            ):
+                continue
+
+            uri = str(service.get("URI", "")).lower()
+            reachable = service.get("Reachable")
+
+            if uri.startswith("http://"):
+                http_reachability.append(reachable)
+            elif uri.startswith("https://"):
+                https_reachability.append(reachable)
+                if reachable is True:
+                    # Worst-case aggregation across endpoints:
+                    # disabled (False) > inconclusive ("Unknown") > enforced (True)
+                    cb = service.get("Channel Binding (EPA)")
+                    if cb is None:
+                        cb = "Unknown"
+                    if cb is False:
+                        https_channel_binding = False
+                    elif cb == "Unknown" and https_channel_binding is not False:
+                        https_channel_binding = "Unknown"
+                    elif cb is True and https_channel_binding not in (
+                        False,
+                        "Unknown",
+                    ):
+                        https_channel_binding = True
+
+        def aggregate_reachability(values: List[Any]) -> Any:
+            if True in values:
+                return True
+            if any(value in (None, "Unknown") for value in values):
+                return "Unknown"
+            if values:
+                return False
+            return "Unknown"
+
+        return {
+            "http": {"enabled": aggregate_reachability(http_reachability)},
+            "https": {
+                "enabled": aggregate_reachability(https_reachability),
+                "channel_binding": https_channel_binding,
+            },
+        }
+
     def get_ca_vulnerabilities(
         self, ca: LDAPEntry
     ) -> Tuple[Dict[str, str], Dict[str, str], List[str], List[str]]:
@@ -2254,40 +2676,36 @@ class Find:
             acl_principals = self.format_principals(vulnerable_acl_sids)
             vulnerabilities["ESC7"] = f"User has dangerous permissions."
 
-        # ESC8: Insecure web enrollment
-        web_enrollment = ca.get("web_enrollment")
-        if web_enrollment and will_issue:
-            http_enabled = (
-                web_enrollment["http"] is not None
-                and web_enrollment["http"]["enabled"]
-                and web_enrollment["http"]["enabled"] != "Unknown"
+        # ESC8: Insecure web enrollment. Same logic evaluated against two
+        # sources: the probed /certsrv/ interface and the CES endpoints
+        # advertised in msPKI-Enrollment-Servers.
+        if will_issue:
+            # Source 1: classic /certsrv/ web enrollment
+            vuln, remark = self._assess_web_enrollment_esc8(
+                ca.get("web_enrollment"),
+                "Certification Authority Web Enrollment (/certsrv/)",
             )
-            https_enabled = (
-                web_enrollment["https"] is not None
-                and web_enrollment["https"]["enabled"]
-                and web_enrollment["https"]["enabled"] != "Unknown"
-            )
-            channel_binding_enforced = (
-                web_enrollment["https"] is not None
-                and web_enrollment["https"]["channel_binding"]
-            )
+            if vuln:
+                vulnerabilities["ESC8"] = vuln
+            if remark:
+                remarks["ESC8"] = remark
 
-            # Determine vulnerability based on protocol and channel binding
-            if http_enabled and https_enabled and not channel_binding_enforced:
+            # Source 2: CES endpoints from msPKI-Enrollment-Servers
+            ces_vuln, ces_remark = self._assess_web_enrollment_esc8(
+                self._build_ces_web_enrollment(ca),
+                "Certificate Enrollment Web Service (CES, msPKI-Enrollment-Servers)",
+            )
+            if ces_vuln:
                 vulnerabilities["ESC8"] = (
-                    f"Web Enrollment is enabled over HTTP and HTTPS, and Channel Binding is disabled."
+                    f"{vulnerabilities['ESC8']} {ces_vuln}"
+                    if "ESC8" in vulnerabilities
+                    else ces_vuln
                 )
-            elif http_enabled:
-                vulnerabilities["ESC8"] = f"Web Enrollment is enabled over HTTP."
-            elif https_enabled and not channel_binding_enforced:
-                vulnerabilities["ESC8"] = (
-                    f"Web Enrollment is enabled over HTTPS and Channel Binding is disabled."
-                )
-            elif https_enabled and channel_binding_enforced == "Unknown":
+            if ces_remark:
                 remarks["ESC8"] = (
-                    "Channel Binding couldn't be verified for HTTPS Web Enrollment. "
-                    "For manual verification, request a certificate via HTTPS with Channel Binding disabled "
-                    "and observe if the request succeeds or is rejected."
+                    f"{remarks['ESC8']} {ces_remark}"
+                    if "ESC8" in remarks
+                    else ces_remark
                 )
 
         # ESC11: Unencrypted certificate requests
