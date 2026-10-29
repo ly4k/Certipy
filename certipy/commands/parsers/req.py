@@ -58,7 +58,7 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         "-ca",
         action="store",
         metavar="certificate authority name",
-        help="Name of the Certificate Authority to request certificates from. Required for RPC and DCOM methods",
+        help="Name of the Certificate Authority to request certificates from. Required for RPC and DCOM methods, and for CES unless -ces-path is given",
     )
 
     # Certificate request parameters
@@ -180,6 +180,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
     connection_group.add_argument(
         "-dcom", action="store_true", help="Use DCOM Enrollment instead of RPC"
     )
+    connection_group.add_argument(
+        "-ces",
+        action="store_true",
+        help="Use the Certificate Enrollment Web Service (CES) instead of RPC",
+    )
 
     # RPC-specific options
     rpc_group = subparser.add_argument_group("rpc connection options")
@@ -196,15 +201,21 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         action="store",
         metavar="http scheme",
         choices=["http", "https"],
-        default="http",
-        help="HTTP scheme to use for Web Enrollment (default: http)",
+        default=None,
+        help="HTTP scheme to use for Web Enrollment or CES (default: http for Web Enrollment, https for CES)",
     )
     http_group.add_argument(
         "-http-port",
         action="store",
         metavar="port number",
-        help="Web Enrollment port (default: 80 for http, 443 for https)",
+        help="Web Enrollment or CES port (default: 80 for http, 443 for https)",
         type=int,
+    )
+    http_group.add_argument(
+        "-ces-path",
+        action="store",
+        metavar="path",
+        help="CES endpoint path (default: /<CA>_CES_Kerberos/service.svc/CES)",
     )
     http_group.add_argument(
         "-no-channel-binding",

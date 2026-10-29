@@ -49,7 +49,9 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         description=(
             "Perform NTLM relay attacks against Active Directory Certificate Services. "
             "This allows obtaining certificates for relayed users and computers, "
-            "which can be used for authentication and potential privilege escalation."
+            "which can be used for authentication and potential privilege escalation. "
+            "Relay supports Web Enrollment (ESC8), RPC (ESC11), and CES "
+            "(ESC8 over CES with -ces)."
         ),
     )
 
@@ -58,10 +60,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         "-target",
         action="store",
         metavar="protocol://<ip address or hostname>",
-        required=True,
+        required=False,
         help=(
             "protocol://<IP address or hostname> of certificate authority. "
-            "Example: http://ca.corp.local for ESC8 or rpc://ca.corp.local for ESC11"
+            "Example: http://ca.corp.local for ESC8, rpc://ca.corp.local for ESC11, "
+            "or the full CES URL (https://ca.corp.local/<CA>_CES_Kerberos/service.svc/CES) with -ces. Optional with -ces -json."
         ),
     )
 
@@ -201,6 +204,25 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         "-enum-templates",
         action="store_true",
         help="Relay to /certsrv/certrqxt.asp and parse available certificate templates",
+    )
+    relay_group.add_argument(
+        "-ces",
+        action="store_true",
+        help=(
+            "Relay to a Certificate Enrollment Web Service (CES) endpoint instead of "
+            "Web Enrollment; -target is the CES URL, a host with -ca, or omitted "
+            "with -json"
+        ),
+    )
+    relay_group.add_argument(
+        "-json",
+        action="store",
+        dest="find_json",
+        metavar="find JSON file",
+        help=(
+            "Choose the CES target from 'certipy find -json' output (use with "
+            "-ces; -ca picks between several CAs)"
+        ),
     )
 
     # Connection parameters
