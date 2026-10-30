@@ -35,6 +35,10 @@ dependencies = [
 bloodhound = [
     "neo4j~=5.28.1",
 ]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+]
 
 [project.urls]
 Homepage = "https://github.com/ly4k/Certipy"
@@ -62,3 +66,10 @@ use_parentheses = true
 [tool.black]
 line-length = 88
 target-version = ['py312']
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = [
+    "ignore::DeprecationWarning:ldap3.utils.asn1",
+]

@@ -1,5 +1,5 @@
 {
-    "include": ["certipy/"],
+    "include": ["certipy/", "tests/"],
     "exclude": [
         "**/__pycache__",
 		"venv/",
