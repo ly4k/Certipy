@@ -7,7 +7,7 @@ from certipy.commands import req
 from certipy.commands.parsers import req as req_parser
 
 
-class StopAfterRequest(Exception):
+class StopAfterRequestError(Exception):
     pass
 
 
@@ -49,7 +49,7 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> Dict[str, Any]:
     class FakeRequest:
         def __init__(self, **kwargs: Any) -> None:
             seen["request_kwargs"] = kwargs
-            raise StopAfterRequest
+            raise StopAfterRequestError
 
     monkeypatch.setattr(req, "resolve_alt_sid", fake_resolve)
     monkeypatch.setattr(req, "Request", FakeRequest)
@@ -57,7 +57,7 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> Dict[str, Any]:
 
 
 def test_req_passes_looked_up_sid_to_request(captured: Dict[str, Any]) -> None:
-    with pytest.raises(StopAfterRequest):
+    with pytest.raises(StopAfterRequestError):
         req.entry(_options(upn="administrator@corp.local"))
     target, upn, dns, sid = captured["calls"][0]
     assert (upn, dns, sid) == ("administrator@corp.local", None, None)
@@ -69,7 +69,7 @@ def test_req_passes_looked_up_sid_to_request(captured: Dict[str, Any]) -> None:
 def test_req_skips_lookup_when_not_requesting(
     captured: Dict[str, Any], override: Dict[str, Any]
 ) -> None:
-    with pytest.raises(StopAfterRequest):
+    with pytest.raises(StopAfterRequestError):
         req.entry(_options(upn="administrator@corp.local", **override))
     calls: List[Any] = captured["calls"]
     assert calls == []
