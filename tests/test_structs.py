@@ -1,5 +1,3 @@
-import pytest
-
 from certipy.lib.constants import CertificateRights
 from certipy.lib.structs import (
     AsReq,
@@ -27,15 +25,18 @@ def test_intflag_combination_lists_members():
     assert combo.to_str_list() == ["RedAlert", "Blue"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Python 3.11+ gives combined IntFlag values a name like 'A|B', so "
-        "__str__ never reaches its comma-join branch and returns 'RedAlert|Blue'"
-    ),
-)
 def test_intflag_combination_str_is_comma_separated():
     assert str(Color.RED_ALERT | Color.BLUE) == "RedAlert, Blue"
+
+
+def test_intflag_named_combination_keeps_its_name():
+    class Mask(IntFlag):
+        READ = 1
+        WRITE = 2
+        READ_WRITE = 3
+
+    assert str(Mask.READ_WRITE) == "ReadWrite"
+    assert str(Mask.READ | Mask.WRITE) == "ReadWrite"
 
 
 def test_intflag_empty():

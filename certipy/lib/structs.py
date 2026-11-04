@@ -59,8 +59,9 @@ class IntFlag(enum.IntFlag):
         Returns:
             Human-readable string representation of the flag(s)
         """
-        # Handle named values
-        if self.name is not None:
+        # Handle named values. On Python 3.11+, combinations of members also
+        # get a name ("A|B"), so only treat single members as named.
+        if self.name is not None and "|" not in self.name:
             return to_pascal_case(self.name)
 
         # Handle empty flags
