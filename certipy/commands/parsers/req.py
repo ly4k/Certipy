@@ -88,7 +88,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         "-sid",
         action="store",
         metavar="alternative Object SID",
-        help="Object SID to include in the Subject Alternative Name",
+        help=(
+            "Object SID to include in the Subject Alternative Name. If omitted "
+            "with -upn or -dns, it is looked up over LDAP using the supplied "
+            "credentials"
+        ),
     )
     cert_group.add_argument(
         "-subject",

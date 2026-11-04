@@ -21,6 +21,7 @@ import argparse
 from certipy.lib.files import try_to_save_file
 from certipy.lib.logger import logging
 from certipy.lib.req import Request
+from certipy.lib.sid_lookup import resolve_alt_sid
 from certipy.lib.target import Target
 
 # =========================================================================
@@ -38,6 +39,10 @@ def entry(options: argparse.Namespace) -> None:
     # Create target from options
     target = Target.from_options(options)
     options.__delattr__("target")
+
+    # Look up the SID of the -upn/-dns principal for strong certificate mapping
+    if not options.retrieve and not options.cax_cert:
+        options.sid = resolve_alt_sid(target, options.upn, options.dns, options.sid)
 
     # Create request object
     request = Request(target=target, **vars(options))

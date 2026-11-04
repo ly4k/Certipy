@@ -39,10 +39,19 @@ pip install -e .
 pip install black isort pyright flake8 pep8-naming
 ````
 
+### 🧪 Running Tests
+
+```bash
+pip install -e '.[dev]'
+pytest
+```
+
+Add `--cov=certipy` for a coverage report. Tests live in `tests/`; shared fixtures (generated keys and certificates, mocked HTTP, LDAP entries) are in `tests/conftest.py`.
+
 ### 🔍 Code Quality Checks (before committing)
 
 ```bash
-flake8 ./certipy && isort . && black . && pyright
+flake8 ./certipy tests && isort . && black . && pyright
 ```
 
 ---
