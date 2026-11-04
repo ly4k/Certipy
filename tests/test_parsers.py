@@ -23,7 +23,8 @@ MINIMAL_ARGV = {
     "find": [],
     "parse": ["dump.reg"],
     "forge": [],
-    "relay": ["-target", "http://ca.corp.local"],
+    # -target is optional at parse time: "-ces -json" can supply it instead.
+    "relay": [],
     "req": [],
     "shadow": ["list"],
     "template": ["-template", "User"],

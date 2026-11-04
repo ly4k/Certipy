@@ -226,6 +226,11 @@ def test_relay_init_ces_mode(stub_relay_server: None):
     assert r.ces_to_url == CES_URL
 
 
+def test_relay_init_requires_target(stub_relay_server: None):
+    with pytest.raises(SystemExit):
+        Relay(target=None)
+
+
 def test_relay_init_ces_rejects_retrieve(stub_relay_server: None):
     with pytest.raises(SystemExit):
         Relay(target=CES_URL, ces=True, retrieve=5)
