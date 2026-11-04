@@ -12,16 +12,16 @@ def test_is_ip_accepts_ipv4(value: str):
     assert is_ip(value)
 
 
-@pytest.mark.parametrize("value", ["dc01.corp.local", "corp.local", "", None])
+@pytest.mark.parametrize(
+    "value", ["dc01.corp.local", "corp.local", "", None, "10.0.0.256"]
+)
 def test_is_ip_rejects_names_and_empty(value: Any):
     assert not is_ip(value)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="is_ip uses socket.inet_aton, which rejects IPv6"
-)
-def test_is_ip_accepts_ipv6():
-    assert is_ip("fe80::1")
+@pytest.mark.parametrize("value", ["fe80::1", "::1", "2001:db8::10"])
+def test_is_ip_accepts_ipv6(value: str):
+    assert is_ip(value)
 
 
 class FakeResolver:
