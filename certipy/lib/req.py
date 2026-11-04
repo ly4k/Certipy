@@ -5,14 +5,14 @@ This module implements certificate request, retrieval, and management functional
 providing both RPC and web-based interactions with Active Directory Certificate Services (AD CS).
 
 The module handles:
-- Certificate request submission (RPC, DCOM and web enrollment)
+- Certificate request submission (RPC, DCOM, Web Enrollment and CES)
 - Certificate retrieval for both immediate and pending requests
 - Certificate storage and management (saving as PFX or PEM)
 - Error handling for various certificate operations
 
 Key components:
 1. Request Class - Main interface for all certificate operations
-2. Request Interfaces - Protocol-specific implementations (RPC, DCOM, Web)
+2. Request Interfaces - Protocol-specific implementations (RPC, DCOM, Web, CES)
 3. Response Handlers - Process responses from certificate services
 4. Certificate Processing - Handle certificate data once received
 5. Helper Functions - Utility functions for common operations
@@ -57,6 +57,13 @@ from certipy.lib.certificate import (
     print_certificate_identities,
     rsa,
     x509,
+)
+from certipy.lib.ces import (
+    SOAP_CONTENT_TYPE,
+    CESError,
+    build_wstep_request,
+    default_ces_path,
+    parse_wstep_response,
 )
 from certipy.lib.constants import OID_TO_STR_NAME_MAP, USER_AGENT
 from certipy.lib.errors import handle_error, translate_error_code
@@ -223,7 +230,7 @@ class RequestInterface(Protocol):
     """
     Protocol defining the interface for certificate request operations.
 
-    This is the base class for different request methods (RPC, DCOM, Web).
+    This is the base class for different request methods (RPC, DCOM, Web, CES).
     """
 
     parent: "Request"
@@ -504,6 +511,35 @@ def handle_pending_key_save(
 # =========================================================================
 
 
+def create_http_session(
+    target: Target, base_url: str, channel_binding: bool
+) -> httpx.Client:
+    """
+    Create an HTTP session with NTLM or Kerberos authentication.
+
+    Args:
+        target: Target with authentication details
+        base_url: Base URL for the session
+        channel_binding: Whether to use channel binding (EPA)
+
+    Returns:
+        Configured HTTP session
+    """
+    auth: httpx.Auth
+    if target.do_kerberos:
+        auth = HttpxKerberosAuth(target, channel_binding=channel_binding)
+    else:
+        auth = HttpxNtlmAuth(target, channel_binding=channel_binding)
+
+    return httpx.Client(
+        base_url=base_url,
+        auth=auth,
+        timeout=target.timeout,
+        verify=False,
+        headers={"User-Agent": USER_AGENT},
+    )
+
+
 def web_request(
     session: httpx.Client,
     username: str,
@@ -779,6 +815,117 @@ def _log_response_if_verbose(content: str) -> None:
         print(content)
     else:
         logging.warning("Use -debug to print the response")
+
+
+# =========================================================================
+# CES Request Handlers
+# =========================================================================
+
+
+def ces_request(
+    session: httpx.Client,
+    path: str,
+    to_url: str,
+    username: str,
+    csr: bytes,
+    attributes_list: List[str],
+    template: str,
+    key: PrivateKeyTypes,
+    out: Optional[str] = None,
+) -> Optional[x509.Certificate]:
+    """
+    Request a certificate via the Certificate Enrollment Web Service (MS-WSTEP).
+
+    Args:
+        session: HTTP session client
+        path: CES endpoint path
+        to_url: Full CES endpoint URL for the WS-Addressing To header
+        username: Username for the certificate
+        csr: Certificate signing request in DER format
+        attributes_list: List of certificate attributes
+        template: Certificate template name
+        key: Private key for the certificate
+        out: Optional output filename
+
+    Returns:
+        Certificate if immediately issued, None otherwise
+    """
+    body = build_wstep_request(to_url, csr, attributes_list)
+
+    logging.info(
+        f"Requesting certificate for {username!r} based on the template {template!r}"
+    )
+
+    # Certificate issuance can take significantly longer than the auth
+    # handshake, so use the same extended timeout as Web Enrollment.
+    session_read_timeout = getattr(session.timeout, "read", 10) or 10
+    cert_request_timeout = max(session_read_timeout, 60)
+    try:
+        res = session.post(
+            path,
+            content=body,
+            headers={"Content-Type": SOAP_CONTENT_TYPE},
+            timeout=cert_request_timeout,
+        )
+    except httpx.ReadTimeout:
+        logging.error(
+            f"Certificate request timed out after {cert_request_timeout}s waiting for "
+            "CES to respond. The CA may be slow or under load. "
+            "Try increasing the timeout with '-timeout <seconds>' (e.g., -timeout 120)"
+        )
+        return None
+    except Exception as e:
+        logging.error(f"Error during CES certificate request: {e}")
+        handle_error()
+        return None
+
+    if res.status_code == 401:
+        logging.error(f"Unauthorized for CES at {session.base_url!s}{path}")
+        return None
+
+    # SOAP faults are returned with HTTP 500, so parse any XML body
+    if "xml" not in res.headers.get("Content-Type", ""):
+        logging.error(f"Failed to request certificate (HTTP {res.status_code})")
+        _log_response_if_verbose(res.text)
+        return None
+
+    try:
+        response = parse_wstep_response(res.content)
+    except CESError as e:
+        if e.request_id is not None:
+            logging.info(f"Request ID is {e.request_id}")
+        if e.error_code is not None:
+            logging.error(
+                f"Got error while requesting certificate: {translate_error_code(e.error_code)}"
+            )
+        logging.error(f"CES returned an error: {e}")
+        _log_response_if_verbose(res.text)
+        return None
+
+    if response.request_id is not None:
+        logging.info(f"Request ID is {response.request_id}")
+
+    if response.certificate is not None:
+        logging.info("Successfully requested certificate")
+        return response.certificate
+
+    disposition = response.disposition_message
+    if disposition is not None and not any(
+        marker in disposition.lower()
+        for marker in ("pending", "submission", "taken under")
+    ):
+        logging.error(
+            f"CES reported {disposition!r} but returned no usable certificate token"
+        )
+        _log_response_if_verbose(res.text)
+        return None
+
+    logging.warning(f"Certificate request is pending approval: {disposition!r}")
+    _log_response_if_verbose(res.text)
+    if response.request_id is not None:
+        handle_pending_key_save(response.request_id, key, out)
+
+    return None
 
 
 # =========================================================================
@@ -1106,24 +1253,11 @@ class WebRequestInterface:
         base_url = f"{scheme}://{self.target.target_ip}:{port}"
 
         # Create a session with httpx with appropriate authentication
-        if self.target.do_kerberos:
-            session = httpx.Client(
-                base_url=base_url,
-                auth=HttpxKerberosAuth(
-                    self.target, channel_binding=not self.parent.no_channel_binding
-                ),
-                timeout=self.target.timeout,
-                verify=False,
-            )
-        else:
-            session = httpx.Client(
-                base_url=base_url,
-                auth=HttpxNtlmAuth(
-                    self.target, channel_binding=not self.parent.no_channel_binding
-                ),
-                timeout=self.target.timeout,
-                verify=False,
-            )
+        session = create_http_session(
+            self.target,
+            base_url,
+            channel_binding=not self.parent.no_channel_binding,
+        )
 
         logging.info(f"Checking for Web Enrollment on {base_url!r}")
         success = self._try_connection(session)
@@ -1243,6 +1377,159 @@ class WebRequestInterface:
         )
 
 
+class CESRequestInterface:
+    """
+    Request interface for the Certificate Enrollment Web Service (MS-WSTEP).
+    """
+
+    def __init__(self, parent: "Request"):
+        """
+        Initialize the CES request interface.
+
+        Args:
+            parent: The parent Request object
+        """
+        self.parent = parent
+        self.target = self.parent.target
+        self._session: Optional[httpx.Client] = None
+
+    @property
+    def path(self) -> str:
+        """
+        Get the CES endpoint path.
+
+        Returns:
+            The -ces-path override, or the default path for the CA
+
+        Raises:
+            Exception: If neither a CES path nor a CA name is set
+        """
+        if self.parent.ces_path:
+            if self.parent.ces_path.startswith("/"):
+                return self.parent.ces_path
+            return f"/{self.parent.ces_path}"
+
+        if not self.parent.ca:
+            raise Exception("A CA name (-ca) or CES path (-ces-path) is required")
+
+        return default_ces_path(self.parent.ca)
+
+    def _scheme_and_port(self) -> Tuple[str, int]:
+        """
+        Resolve the URL scheme and port, applying defaults.
+
+        Returns:
+            Tuple of scheme and port
+        """
+        scheme = self.parent.http_scheme or "https"
+        port = self.parent.http_port or (443 if scheme == "https" else 80)
+        return scheme, port
+
+    def _url(self, host: str) -> str:
+        """
+        Build a base URL for a host, omitting the port if it is the scheme default.
+
+        Args:
+            host: Host name or IP address
+
+        Returns:
+            Base URL without a path
+        """
+        scheme, port = self._scheme_and_port()
+        if (scheme, port) in (("https", 443), ("http", 80)):
+            return f"{scheme}://{host}"
+        return f"{scheme}://{host}:{port}"
+
+    @property
+    def base_url(self) -> str:
+        """
+        Get the base URL used to connect to CES.
+
+        Returns:
+            Base URL including the port
+        """
+        scheme, port = self._scheme_and_port()
+        return f"{scheme}://{self.target.target_ip}:{port}"
+
+    @property
+    def endpoint_url(self) -> str:
+        """
+        Get the CES endpoint URL as published by the server.
+
+        Returns:
+            Endpoint URL for the WS-Addressing To header
+        """
+        host = self.target.remote_name or self.target.target_ip or ""
+        return f"{self._url(host)}{self.path}"
+
+    @property
+    def session(self) -> httpx.Client:
+        """
+        Get or create the HTTP session to CES.
+
+        Returns:
+            HTTP session
+        """
+        if self._session is None:
+            self._session = create_http_session(
+                self.target,
+                self.base_url,
+                channel_binding=not self.parent.no_channel_binding,
+            )
+            if self.target.remote_name:
+                # Host must carry any non-default port, matching the To URL
+                self._session.headers["Host"] = self._url(
+                    self.target.remote_name
+                ).split("://", 1)[1]
+
+        return self._session
+
+    def retrieve(self, request_id: int) -> Optional[x509.Certificate]:
+        """
+        Retrieve a certificate by request ID (not supported via CES).
+
+        Args:
+            request_id: The request ID to retrieve
+
+        Returns:
+            None
+        """
+        logging.error(
+            "Retrieving certificates is not supported with -ces. Use RPC or -web"
+        )
+        return None
+
+    def request(
+        self, csr: bytes, attributes_list: List[str]
+    ) -> Optional[x509.Certificate]:
+        """
+        Submit a certificate request via CES.
+
+        Args:
+            csr: Certificate signing request data
+            attributes_list: List of certificate attributes
+
+        Returns:
+            Certificate object if successful, None on failure
+        """
+        if self.parent.key is None:
+            raise Exception("No private key found")
+
+        logging.info(f"Using CES endpoint {self.endpoint_url!r}")
+
+        return ces_request(
+            self.session,
+            self.path,
+            self.endpoint_url,
+            self.target.username,
+            csr,
+            attributes_list,
+            self.parent.template,
+            self.parent.key,
+            self.parent.out,
+        )
+
+
 # =========================================================================
 # Main Request class
 # =========================================================================
@@ -1279,6 +1566,8 @@ class Request:
         key: Optional[rsa.RSAPrivateKey] = None,
         web: bool = False,
         dcom: bool = False,
+        ces: bool = False,
+        ces_path: Optional[str] = None,
         http_scheme: Optional[str] = None,
         http_port: Optional[int] = None,
         no_channel_binding: bool = False,
@@ -1310,6 +1599,8 @@ class Request:
             key: Pre-generated RSA key
             web: Use Web Enrollment instead of RPC
             dcom: Use DCOM instead of RPC
+            ces: Use the Certificate Enrollment Web Service instead of RPC
+            ces_path: CES endpoint path (default: /<CA>_CES_Kerberos/service.svc/CES)
             port: Port for Web Enrollment
             scheme: Scheme for Web Enrollment (http/https)
             dynamic_endpoint: Use dynamic RPC endpoint
@@ -1343,6 +1634,13 @@ class Request:
         # Connection parameters
         self.web = web
         self.dcom = dcom
+        self.ces = ces
+        self.ces_path = ces_path
+
+        # Web Enrollment defaults to HTTP; CES is only published over HTTPS by default
+        if http_scheme is None and (web or ces):
+            http_scheme = "https" if ces else "http"
+
         self.http_port = http_port
         self.http_scheme = http_scheme
         self.no_channel_binding = no_channel_binding
@@ -1372,7 +1670,9 @@ class Request:
             return self._interface
 
         # Select interface based on configuration
-        if self.web:
+        if self.ces:
+            self._interface = CESRequestInterface(self)
+        elif self.web:
             self._interface = WebRequestInterface(self)
         elif self.dcom:
             self._interface = DCOMRequestInterface(self)

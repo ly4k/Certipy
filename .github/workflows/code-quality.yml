@@ -29,11 +29,11 @@ jobs:
 
       - name: Install Certipy
         run: |
-          pip install -e .[bloodhound]
+          pip install -e .[bloodhound,dev]
 
       - name: Lint with flake8 (style and naming)
         run: |
-          flake8 ./certipy || (echo 'flake8 found issues. Run it locally with `flake8 .`' && exit 1)
+          flake8 ./certipy tests || (echo 'flake8 found issues. Run it locally with `flake8 .`' && exit 1)
 
       - name: Check import order with isort (black-compatible)
         run: |
@@ -46,3 +46,25 @@ jobs:
       - name: Type check with pyright
         run: |
           pyright . || (echo 'pyright found type issues. Run `pyright .` to fix.' && exit 1)
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install Certipy with test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Run tests
+        run: |
+          pytest --cov=certipy --cov-report=term-missing

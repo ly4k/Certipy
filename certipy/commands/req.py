@@ -4,7 +4,7 @@ Certificate request module for Certipy.
 This module provides functionality for:
 - Requesting certificates from Active Directory Certificate Services (AD CS)
 - Retrieving pending or issued certificates
-- Supporting various request methods (RPC, DCOM, Web Enrollment)
+- Supporting various request methods (RPC, DCOM, Web Enrollment, CES)
 - Handling certificate templates and custom attributes
 - Supporting certificate renewal, key archival, and on-behalf-of requests
 
@@ -14,6 +14,7 @@ Key components:
 - RPCRequestInterface: Certificate requests via MS-ICPR
 - DCOMRequestInterface: Certificate requests via DCOM
 - WebRequestInterface: Certificate requests via Web Enrollment
+- CESRequestInterface: Certificate requests via the Certificate Enrollment Web Service
 """
 
 import argparse
@@ -35,6 +36,10 @@ def entry(options: argparse.Namespace) -> None:
     Args:
         options: Command-line arguments
     """
+    if options.ces and (options.web or options.dcom):
+        logging.error("-ces cannot be combined with -web or -dcom")
+        return
+
     # Create target from options
     target = Target.from_options(options)
     options.__delattr__("target")
