@@ -16,6 +16,7 @@ Helper classes like DnsResolver provide supporting functionality.
 """
 
 import argparse
+import ipaddress
 import os
 import socket
 from typing import Dict, Optional, Tuple
@@ -476,9 +477,9 @@ def is_ip(hostname: Optional[str]) -> bool:
         return False
 
     try:
-        _ = socket.inet_aton(hostname)
+        _ = ipaddress.ip_address(hostname)
         return True
-    except Exception:
+    except ValueError:
         return False
 
 
