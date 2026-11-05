@@ -779,7 +779,9 @@ def create_csr(
     Create a certificate signing request (CSR) with optional extensions.
 
     Args:
-        username: Username for the subject
+        username: Username for the subject. If empty and no subject is given,
+            the CSR is created with an empty subject (RFC 2986) so templates
+            that supply the subject server-side (e.g. DomainController) work
         alt_dns: Alternative DNS name
         alt_upn: Alternative UPN (User Principal Name)
         alt_sid: Alternative SID (Security Identifier)
@@ -805,23 +807,41 @@ def create_csr(
     # Set subject name
     if subject:
         subject_name = get_subject_from_str(subject)
-    else:
-        # Validate username before using it as CN — x509 NameAttribute
-        # requires a non-empty value (length >= 1 and <= 64).
-        # This can happen during relay attacks when the NTLM response
-        # contains an empty user_name field.
-        if not username or not username.strip():
+    elif username and username.strip():
+        # Validate the common name before handing it to cryptography:
+        # x509.NameAttribute requires 1-64 characters (RFC 5280
+        # ub-common-name), and newer cryptography versions raise ValueError
+        # otherwise. Truly invalid names must stay rejected.
+        common_name = username.capitalize()
+        if not 1 <= len(common_name) <= 64:
             raise ValueError(
-                "Cannot create CSR: username is empty. "
-                "The relayed NTLM authentication did not contain a valid username. "
-                "Use the '-subject' option to specify an explicit subject DN, "
-                "or ensure the relayed connection provides a valid username."
+                "Cannot create CSR: invalid common name "
+                f"{common_name!r} (length must be >= 1 and <= 64, "
+                f"but it was {len(common_name)})"
             )
-        subject_name = x509.Name(
-            [
-                x509.NameAttribute(NameOID.COMMON_NAME, username.capitalize()),
-            ]
+        try:
+            subject_name = x509.Name(
+                [
+                    x509.NameAttribute(NameOID.COMMON_NAME, common_name),
+                ]
+            )
+        except ValueError as e:
+            raise ValueError(
+                f"Cannot create CSR: invalid common name {common_name!r}: {e}"
+            ) from e
+    else:
+        # An empty relayed username is not an error: some relayed NTLM
+        # responses carry an empty user_name field (e.g. coerced machine
+        # authentications, see issue #372). RFC 2986 allows an empty subject,
+        # and templates such as DomainController fill the subject in on the CA
+        # side - matching impacket's ntlmrelayx --adcs behavior. Use the
+        # 'subject' argument to set an explicit subject DN instead.
+        logging.warning(
+            "Username is empty. Generating CSR with an empty subject. "
+            "Use the 'subject'/'-subject' option to specify an explicit "
+            "subject DN, or use a template that fills in the subject"
         )
+        subject_name = x509.Name([])
 
     certification_request_info["subject"] = asn1csr.Name.load(
         subject_name.public_bytes()
