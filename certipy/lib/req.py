@@ -706,7 +706,12 @@ def _determine_output_filename(
         return cert_username.rstrip("$").lower()
 
     # Fallback to provided username
-    return username.rstrip("$").lower()
+    fallback = username.rstrip("$").lower()
+    # An empty or separator-only username (e.g. an empty relayed NTLM
+    # identity like "DOMAIN\\" or "/") must not produce an empty filename
+    if fallback.strip(" \t\r\n\\/") == "":
+        return "certificate"
+    return fallback
 
 
 def _handle_policy_denial(session: httpx.Client, request_id: int) -> None:

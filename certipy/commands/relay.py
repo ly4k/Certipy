@@ -518,17 +518,17 @@ class ADCSHTTPAttackClient(ProtocolAttack):
         """
         Request a new certificate for the relayed user.
         """
-        # Validate username before proceeding — an empty username from the
-        # NTLM response will cause CSR generation to fail if no explicit
-        # subject DN was provided.
+        # An empty username is not fatal: some relayed NTLM responses carry
+        # an empty user_name field (issue #372). The CSR is then generated
+        # with an empty subject (RFC 2986) and templates such as
+        # DomainController fill the subject in on the CA side.
         if not self.username and not self.adcs_relay.subject:
-            logging.error(
+            logging.warning(
                 "Relayed NTLM authentication returned an empty username "
-                f"(authenticated as {self.client.user!r}). "
-                "Cannot generate CSR without a valid subject. "
-                "Use '-subject CN=<target>' to specify an explicit subject DN."
+                f"(authenticated as {self.client.user!r}). Generating CSR with "
+                "an empty subject; use '-subject CN=<target>' to specify an "
+                "explicit subject DN or a template that fills in the subject"
             )
-            return
 
         # Choose appropriate template based on username
         template = self.config.template
@@ -727,17 +727,18 @@ class ADCSRPCAttackClient(ProtocolAttack):
         Returns:
             Tuple of (PFX data, filename) on success, False on failure
         """
-        # Validate username before proceeding — an empty username from the
-        # NTLM response will cause CSR generation to fail if no explicit
-        # subject DN was provided.
+        # An empty username is not fatal: some relayed NTLM responses carry
+        # an empty user_name field (issue #372). The CSR is then generated
+        # with an empty subject (RFC 2986) and templates such as
+        # DomainController fill the subject in on the CA side.
         if not self.username and not self.adcs_relay.subject:
-            logging.error(
+            logging.warning(
                 "Relayed NTLM authentication returned an empty username "
                 f"(authenticated as {self.username!r}@{self.domain!r}). "
-                "Cannot generate CSR without a valid subject. "
-                "Use '-subject CN=<target>' to specify an explicit subject DN."
+                "Generating CSR with an empty subject; use '-subject "
+                "CN=<target>' to specify an explicit subject DN or a template "
+                "that fills in the subject"
             )
-            return False
 
         # Choose appropriate template based on username
         template = self.config.template
