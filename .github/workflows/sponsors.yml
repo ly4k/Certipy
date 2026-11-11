@@ -10,6 +10,9 @@ permissions:
 
 jobs:
   update-sponsors:
+    # Only run in the upstream repository. Forks do not have the PAT
+    # secret, so the scheduled run would fail there every day.
+    if: github.repository == 'ly4k/Certipy'
     runs-on: ubuntu-latest
 
     steps:
