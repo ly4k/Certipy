@@ -8,15 +8,16 @@ primarily focusing on computer accounts. It allows:
 - Updating account properties (password, SPNs, DNS names, etc.)
 - Deleting accounts
 
-These operations are performed via LDAP and require appropriate permissions in the domain.
+CRUD operations use LDAP. Internal temporary-account creation can retain a SAMR handle for reliable cleanup.
 """
 
 import argparse
 import random
 import string
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import ldap3
+from impacket.dcerpc.v5 import epm, samr, transport
 from ldap3.core.results import (
     RESULT_INSUFFICIENT_ACCESS_RIGHTS,
     RESULT_UNWILLING_TO_PERFORM,
@@ -78,6 +79,10 @@ class Account:
         self._connection = connection
         self.timeout = timeout
         self.kwargs = kwargs
+        self._samr_dce: Optional[Any] = None
+        self._samr_server_handle: Optional[Any] = None
+        self._samr_domain_handle: Optional[Any] = None
+        self._samr_user_handle: Optional[Any] = None
 
     @property
     def connection(self) -> LDAPConnection:
@@ -94,6 +99,132 @@ class Account:
         self._connection.connect()
 
         return self._connection
+
+    def create_temporary(self) -> bool:
+        """Create a computer through SAMR and retain a delete-capable handle."""
+        if not self.target.dc_ip:
+            raise RuntimeError("A DC IP is required to create a temporary account")
+        if not self.password:
+            raise RuntimeError("A password is required for a temporary account")
+
+        username = self.user if self.user.endswith("$") else f"{self.user}$"
+        binding = epm.hept_map(
+            self.target.dc_ip, samr.MSRPC_UUID_SAMR, protocol="ncacn_np"
+        )
+        rpc_transport = transport.DCERPCTransportFactory(binding)
+        rpc_transport.setRemoteHost(self.target.dc_ip)
+        rpc_transport.set_credentials(
+            self.target.username,
+            self.target.password or "",
+            self.target.domain,
+            self.target.lmhash,
+            self.target.nthash,
+            self.target.aes or "",
+        )
+        rpc_transport.set_kerberos(self.target.do_kerberos, kdcHost=self.target.dc_ip)
+
+        try:
+            dce = rpc_transport.get_dce_rpc()
+            dce.connect()
+            dce.bind(samr.MSRPC_UUID_SAMR)
+            self._samr_dce = dce
+            response = samr.hSamrConnect5(
+                dce,
+                f"\\\\{self.target.dc_ip}\x00",
+                samr.SAM_SERVER_ENUMERATE_DOMAINS | samr.SAM_SERVER_LOOKUP_DOMAIN,
+            )
+            self._samr_server_handle = response["ServerHandle"]
+            domains = cast(
+                List[Any],
+                samr.hSamrEnumerateDomainsInSamServer(dce, self._samr_server_handle)[
+                    "Buffer"
+                ]["Buffer"],
+            )
+            candidates = [
+                domain["Name"]
+                for domain in domains
+                if domain["Name"].lower() != "builtin"
+            ]
+            netbios_name = self.target.domain.split(".")[0].lower()
+            matches = [name for name in candidates if name.lower() == netbios_name]
+            selected_domain = matches[0] if matches else candidates[0]
+            domain_sid = samr.hSamrLookupDomainInSamServer(
+                dce, self._samr_server_handle, selected_domain
+            )["DomainId"]
+            self._samr_domain_handle = samr.hSamrOpenDomain(
+                dce,
+                self._samr_server_handle,
+                samr.DOMAIN_LOOKUP | samr.DOMAIN_CREATE_USER,
+                domain_sid,
+            )["DomainHandle"]
+            desired_access = (
+                samr.USER_FORCE_PASSWORD_CHANGE | samr.USER_WRITE_ACCOUNT | samr.DELETE
+            )
+            created = samr.hSamrCreateUser2InDomain(
+                dce,
+                self._samr_domain_handle,
+                username,
+                samr.USER_WORKSTATION_TRUST_ACCOUNT,
+                desired_access,
+            )
+            self._samr_user_handle = created["UserHandle"]
+            samr.hSamrSetPasswordInternal4New(
+                dce, self._samr_user_handle, self.password
+            )
+            account_info = samr.SAMPR_USER_INFO_BUFFER()
+            account_info["tag"] = samr.USER_INFORMATION_CLASS.UserControlInformation
+            account_info["Control"][
+                "UserAccountControl"
+            ] = samr.USER_WORKSTATION_TRUST_ACCOUNT
+            samr.hSamrSetInformationUser2(dce, self._samr_user_handle, account_info)
+            logging.info(f"Successfully created temporary account {username!r}")
+            return True
+        except BaseException:
+            try:
+                self.close_temporary(delete=self._samr_user_handle is not None)
+            except Exception as cleanup_error:
+                logging.warning(
+                    f"Could not clean up a partially created temporary account: "
+                    f"{cleanup_error}"
+                )
+            raise
+
+    def close_temporary(self, delete: bool) -> bool:
+        """Close the retained SAMR session, optionally deleting the account."""
+        removed = False
+        try:
+            if delete and self._samr_user_handle is not None:
+                samr.hSamrDeleteUser(self._samr_dce, self._samr_user_handle)
+                self._samr_user_handle = None
+                removed = True
+            elif self._samr_user_handle is not None:
+                samr.hSamrCloseHandle(self._samr_dce, self._samr_user_handle)
+                self._samr_user_handle = None
+        finally:
+            if self._samr_user_handle is not None:
+                try:
+                    samr.hSamrCloseHandle(self._samr_dce, self._samr_user_handle)
+                except Exception:
+                    pass
+                finally:
+                    self._samr_user_handle = None
+            for attribute in ("_samr_domain_handle", "_samr_server_handle"):
+                handle = getattr(self, attribute)
+                if handle is not None:
+                    try:
+                        samr.hSamrCloseHandle(self._samr_dce, handle)
+                    except Exception:
+                        pass
+                    finally:
+                        setattr(self, attribute, None)
+            if self._samr_dce is not None:
+                try:
+                    self._samr_dce.disconnect()
+                except Exception:
+                    pass
+                finally:
+                    self._samr_dce = None
+        return removed
 
     def create(self) -> bool:
         """
