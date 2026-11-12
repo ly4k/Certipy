@@ -94,6 +94,9 @@ class Chase:
         rogue_ldap_port: int = 389,
         web: bool = False,
         dcom: bool = False,
+        http_scheme: Optional[str] = None,
+        http_port: Optional[int] = None,
+        no_channel_binding: bool = False,
         timeout: int = 5,
         connection: Optional[LDAPConnection] = None,
         **kwargs,  # type: ignore
@@ -119,6 +122,9 @@ class Chase:
             rogue_ldap_port: Port for the rogue LDAP listener
             web: Submit the certificate request via Web Enrollment
             dcom: Submit the certificate request via DCOM
+            http_scheme: Web Enrollment scheme ("http" or "https")
+            http_port: Web Enrollment port (default: 80 or 443 by scheme)
+            no_channel_binding: Disable channel binding for Web Enrollment
             timeout: Connection timeout in seconds
             connection: Existing LDAP connection to reuse
             **kwargs: Additional arguments
@@ -140,6 +146,10 @@ class Chase:
         self.rogue_ldap_port = rogue_ldap_port
         self.web = web
         self.dcom = dcom
+        self.http_scheme = http_scheme
+        self.http_port = http_port
+        # Channel binding requires TLS; it cannot be used over plain HTTP.
+        self.no_channel_binding = no_channel_binding or http_scheme == "http"
         self.timeout = timeout
         self._connection = connection
         self.kwargs = kwargs
@@ -408,6 +418,9 @@ class Chase:
             rmd=self.target_dns,
             web=self.web,
             dcom=self.dcom,
+            http_scheme=self.http_scheme,
+            http_port=self.http_port,
+            no_channel_binding=self.no_channel_binding,
             out=pfx_path,
         )
         logging.info(
