@@ -1287,7 +1287,6 @@ class Request:
         dynamic_endpoint: bool = False,
         cdc: Optional[str] = None,
         rmd: Optional[str] = None,
-        request_attribute: Optional[List[str]] = None,
         additional_attributes: Optional[List[str]] = None,
         prompt_for_pending_key: bool = True,
         **kwargs,  # type: ignore
@@ -1322,7 +1321,6 @@ class Request:
             dynamic_endpoint: Use dynamic RPC endpoint
             cdc: Client-DC (cdc) enrollment attribute host for the CVE-2026-54121 chase
             rmd: Remote-domain (rmd) DC principal for the CVE-2026-54121 chase
-            request_attribute: Additional raw "key:value" request attributes
             additional_attributes: Additional raw request attributes (legacy alias)
             prompt_for_pending_key: Ask before saving a pending request's key
         """
@@ -1360,8 +1358,6 @@ class Request:
             request_attributes.append(f"cdc:{cdc}")
         if rmd:
             request_attributes.append(f"rmd:{rmd}")
-        if request_attribute:
-            request_attributes.extend(request_attribute)
         self.request_attributes = request_attributes
 
         # Connection parameters
