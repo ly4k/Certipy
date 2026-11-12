@@ -182,6 +182,29 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
         help="Submit the certificate request via DCOM instead of RPC",
     )
 
+    # HTTP-specific options
+    http_group = subparser.add_argument_group("http connection options")
+    http_group.add_argument(
+        "-http-scheme",
+        action="store",
+        metavar="http scheme",
+        choices=["http", "https"],
+        default="http",
+        help="HTTP scheme to use for Web Enrollment (default: http)",
+    )
+    http_group.add_argument(
+        "-http-port",
+        action="store",
+        metavar="port number",
+        type=int,
+        help="Web Enrollment port (default: 80 for http, 443 for https)",
+    )
+    http_group.add_argument(
+        "-no-channel-binding",
+        action="store_true",
+        help="Disable channel binding for HTTP connections",
+    )
+
     # Add standard target arguments
     target.add_argument_group(subparser, connection_options=connection_group)
 
