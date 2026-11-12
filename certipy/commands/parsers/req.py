@@ -184,17 +184,6 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> Tuple[str, Callable
             "looks up on the cdc host"
         ),
     )
-    chase_group.add_argument(
-        "-request-attribute",
-        action="append",
-        metavar="key:value",
-        help=(
-            "Additional raw request attribute (repeatable), appended verbatim, "
-            "e.g. -request-attribute cdc:1.2.3.4 -request-attribute "
-            "rmd:dc01.corp.local"
-        ),
-    )
-
     # Output options
     output_group = subparser.add_argument_group("output options")
     output_group.add_argument(
