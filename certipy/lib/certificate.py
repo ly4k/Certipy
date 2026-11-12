@@ -1009,6 +1009,7 @@ def create_csr_attributes(
     alt_upn: Optional[Union[bytes, str]] = None,
     alt_sid: Optional[Union[bytes, str]] = None,
     application_policies: Optional[List[str]] = None,
+    request_attributes: Optional[List[str]] = None,
 ) -> List[str]:
     """
     Create a list of CSR attributes based on the provided template and Subject Alternative Name options.
@@ -1022,6 +1023,10 @@ def create_csr_attributes(
         alt_dns: Alternative DNS name to include in the certificate SAN
         alt_upn: Alternative User Principal Name (UPN) to include in the certificate SAN
         alt_sid: Alternative Security Identifier (SID) to include in the certificate SAN as a URL
+        application_policies: Application policy OIDs to embed as an ApplicationPolicies attribute
+        request_attributes: Additional raw request-attribute strings ("key:value") appended
+            verbatim to the attribute list. Used for enrollment attributes that have no
+            dedicated option, such as the "cdc:" / "rmd:" pair abused by CVE-2026-54121.
 
     Returns:
         List of formatted CSR attribute strings ready for use in certificate requests
@@ -1062,6 +1067,12 @@ def create_csr_attributes(
     if application_policies:
         # Join all application policy parts with ampersands
         attributes.append(f"ApplicationPolicies:{'&'.join(application_policies)}")
+
+    # Append any additional raw request attributes verbatim. These are
+    # arbitrary "key:value" enrollment attributes with no dedicated option,
+    # e.g. the "cdc:<host>" / "rmd:<dc-dns>" pair abused by CVE-2026-54121.
+    if request_attributes:
+        attributes.extend(request_attributes)
 
     return attributes
 
