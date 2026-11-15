@@ -17,6 +17,7 @@ import struct
 import time
 from typing import Any, List, Optional, Union
 
+from impacket import system_errors
 from impacket.dcerpc.v5 import rpcrt, rrp, scmr
 from impacket.dcerpc.v5.dcom.oaut import VARIANT
 from impacket.dcerpc.v5.dcomrt import DCOMANSWER, DCOMCALL, IRemUnknown, IRemUnknown2
@@ -573,6 +574,33 @@ class CA:
         exchange_cert = der_to_cert(b"".join(resp["pctbPropertyValue"]["pb"]))
         return exchange_cert
 
+    def _query_optional_value(self, hkey: Any, value_name: str, default: Any) -> Any:
+        """
+        Read a single registry value over RRP, treating a missing value as optional.
+
+        Some CA configuration values are legitimately absent on a healthy CA (for
+        example, DisableExtensionList when no extensions are disabled, or EditFlags
+        on a CA that has never had them set). A missing value raises
+        ERROR_FILE_NOT_FOUND; in that case we fall back to `default` and keep
+        enumerating. Any other RRP error is re-raised, since it indicates a real
+        failure to read the configuration rather than an intentionally unset value.
+
+        Args:
+            hkey: Open registry key handle to query under
+            value_name: Name of the registry value to read
+            default: Value to return when the value does not exist
+
+        Returns:
+            The registry value, or `default` if the value is absent
+        """
+        try:
+            _, value = rrp.hBaseRegQueryValue(self.rrp_dce, hkey, value_name)
+            return value
+        except rrp.DCERPCSessionError as e:
+            if e.get_error_code() != system_errors.ERROR_FILE_NOT_FOUND:
+                raise
+            return default
+
     def get_config_rrp(self) -> "CAConfiguration":
         """
         Get CA configuration via the Remote Registry Protocol.
@@ -621,8 +649,8 @@ class CA:
         policy_key = rrp.hBaseRegOpenKey(self.rrp_dce, h_root_key, policy_key_path)
 
         # Retrieve edit flags (controls certificate request behavior)
-        _, edit_flags = rrp.hBaseRegQueryValue(
-            self.rrp_dce, policy_key["phkResult"], "EditFlags"
+        edit_flags = self._query_optional_value(
+            policy_key["phkResult"], "EditFlags", 0x00000000
         )
 
         if not isinstance(edit_flags, int):
@@ -631,8 +659,8 @@ class CA:
             edit_flags = 0x00000000
 
         # Retrieve request disposition (auto-enrollment settings)
-        _, request_disposition = rrp.hBaseRegQueryValue(
-            self.rrp_dce, policy_key["phkResult"], "RequestDisposition"
+        request_disposition = self._query_optional_value(
+            policy_key["phkResult"], "RequestDisposition", 0x00000000
         )
 
         if not isinstance(request_disposition, int):
@@ -643,8 +671,8 @@ class CA:
             request_disposition = 0x00000000
 
         # Retrieve disabled extensions
-        _, disable_extension_list = rrp.hBaseRegQueryValue(
-            self.rrp_dce, policy_key["phkResult"], "DisableExtensionList"
+        disable_extension_list = self._query_optional_value(
+            policy_key["phkResult"], "DisableExtensionList", ""
         )
 
         if not isinstance(disable_extension_list, str):
@@ -668,8 +696,8 @@ class CA:
         )
 
         # Retrieve interface flags (controls CA interface behavior)
-        _, interface_flags = rrp.hBaseRegQueryValue(
-            self.rrp_dce, configuration_key["phkResult"], "InterfaceFlags"
+        interface_flags = self._query_optional_value(
+            configuration_key["phkResult"], "InterfaceFlags", 0x00000000
         )
 
         if not isinstance(interface_flags, int):
