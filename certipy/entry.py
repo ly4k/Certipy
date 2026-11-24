@@ -68,6 +68,9 @@ def main() -> None:
     except Exception as e:
         logger.logging.error(f"Got error: {e}")
         handle_error()
+        # handle_error() only logs; without this the process exited 0 while
+        # printing "[-] Got error: ...", so callers could not detect failure.
+        sys.exit(1)
 
 
 if __name__ == "__main__":
